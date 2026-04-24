@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useMotionValue, useTransform, type PanInfo, AnimatePresence } from "framer-motion";
 import { ArrowLeft, ArrowUp, ArrowRight, MapPin, Sparkles, RefreshCw } from "lucide-react";
 import { SAMPLE_PHOTOS, type SamplePhoto } from "@/lib/photos";
@@ -27,8 +27,12 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 export function SwipeDeck() {
-  const [queue, setQueue] = useState<SamplePhoto[]>(() => shuffle(SAMPLE_PHOTOS));
+  // Start with a deterministic order for SSR; shuffle after mount to avoid hydration mismatch.
+  const [queue, setQueue] = useState<SamplePhoto[]>(() => SAMPLE_PHOTOS);
   const [recap, setRecap] = useState<SessionRecap | null>(null);
+  useEffect(() => {
+    setQueue((q) => (q === SAMPLE_PHOTOS ? shuffle(SAMPLE_PHOTOS) : q));
+  }, []);
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
 
   const top = queue[0];
