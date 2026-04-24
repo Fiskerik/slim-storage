@@ -32,8 +32,9 @@ const DEFAULT: Stats = {
 };
 
 const listeners = new Set<() => void>();
+let cache: Stats | null = null;
 
-export function getStats(): Stats {
+function readFromStorage(): Stats {
   if (typeof window === "undefined") return DEFAULT;
   try {
     const raw = window.localStorage.getItem(KEY);
@@ -44,22 +45,36 @@ export function getStats(): Stats {
   }
 }
 
+export function getStats(): Stats {
+  if (typeof window === "undefined") return DEFAULT;
+  if (cache === null) cache = readFromStorage();
+  return cache;
+}
+
+function notify() {
+  listeners.forEach((fn) => fn());
+}
+
 export function setStats(updater: (s: Stats) => Stats) {
   if (typeof window === "undefined") return;
   const next = updater(getStats());
+  cache = next;
   window.localStorage.setItem(KEY, JSON.stringify(next));
-  listeners.forEach((fn) => fn());
+  notify();
 }
 
 export function subscribeStats(fn: () => void) {
   listeners.add(fn);
-  return () => listeners.delete(fn);
+  return () => {
+    listeners.delete(fn);
+  };
 }
 
 export function resetStats() {
   if (typeof window === "undefined") return;
+  cache = DEFAULT;
   window.localStorage.removeItem(KEY);
-  listeners.forEach((fn) => fn());
+  notify();
 }
 
 export function bumpStreak() {
