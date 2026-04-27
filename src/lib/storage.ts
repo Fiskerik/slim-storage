@@ -9,6 +9,16 @@ export type DayLog = {
   memoryPlayed: number;  // memory rounds completed that day
 };
 
+export type Settings = {
+  cardsPerRound: number;       // 5–30
+  iCloudSync: boolean;
+  reminderEnabled: boolean;
+  reminderTime: string;        // "HH:MM" 24h
+  iCloudBackupWarn: boolean;
+  onboarded: boolean;
+  displayName: string;
+};
+
 export type Stats = {
   cleaned: number;       // photos kept (reviewed without delete)
   deleted: number;       // photos deleted
@@ -28,10 +38,24 @@ export type Stats = {
   trimsTodayDate: string | null;
   // Per-day history (last ~30 days)
   daily: DayLog[];
+  // Settings + onboarding
+  settings: Settings;
+  // Soft-deleted items pending permanent removal (for Undo)
+  pendingDelete: { id: string; title: string; sizeMB: number; deletedAt: number }[];
 };
 
 const KEY = "slim.stats.v1";
 export const FREE_TRIM_LIMIT = 10;
+
+const DEFAULT_SETTINGS: Settings = {
+  cardsPerRound: 10,
+  iCloudSync: false,
+  reminderEnabled: true,
+  reminderTime: "19:00",
+  iCloudBackupWarn: true,
+  onboarded: false,
+  displayName: "You",
+};
 
 const DEFAULT: Stats = {
   cleaned: 0,
@@ -49,6 +73,8 @@ const DEFAULT: Stats = {
   trimsToday: 0,
   trimsTodayDate: null,
   daily: [],
+  settings: DEFAULT_SETTINGS,
+  pendingDelete: [],
 };
 
 const listeners = new Set<() => void>();
@@ -59,10 +85,49 @@ function readFromStorage(): Stats {
   try {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return DEFAULT;
-    return { ...DEFAULT, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    return {
+      ...DEFAULT,
+      ...parsed,
+      settings: { ...DEFAULT_SETTINGS, ...(parsed.settings ?? {}) },
+      pendingDelete: parsed.pendingDelete ?? [],
+    };
   } catch {
     return DEFAULT;
   }
+}
+
+export function updateSettings(patch: Partial<Settings>) {
+  setStats((s) => ({ ...s, settings: { ...s.settings, ...patch } }));
+}
+
+export function softDelete(item: { id: string; title: string; sizeMB: number }) {
+  setStats((s) => ({
+    ...s,
+    pendingDelete: [...s.pendingDelete, { ...item, deletedAt: Date.now() }],
+  }));
+}
+
+export function undoDelete(id: string) {
+  setStats((s) => ({
+    ...s,
+    pendingDelete: s.pendingDelete.filter((p) => p.id !== id),
+  }));
+}
+
+export function purgeExpiredDeletes(maxAgeMs = 30_000) {
+  const now = Date.now();
+  setStats((s) => ({
+    ...s,
+    pendingDelete: s.pendingDelete.filter((p) => now - p.deletedAt < maxAgeMs),
+  }));
+}
+
+export function deleteAllData() {
+  if (typeof window === "undefined") return;
+  cache = DEFAULT;
+  window.localStorage.removeItem(KEY);
+  notify();
 }
 
 export function getStats(): Stats {

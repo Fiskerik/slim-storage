@@ -7,7 +7,7 @@ import { setStats, logDay } from "@/lib/storage";
 import { useStats } from "@/hooks/use-stats";
 import { cn } from "@/lib/utils";
 
-const ROUND_SIZE = 10;
+// ROUND_SIZE comes from user settings (5–30)
 const MIN_YEAR = 2010;
 const MAX_YEAR = new Date().getFullYear();
 
@@ -38,7 +38,8 @@ export function MemoryGame() {
   const photo = round[idx];
 
   function start() {
-    setRound(pickRound(ROUND_SIZE));
+    const size = Math.min(30, Math.max(5, stats.settings.cardsPerRound));
+    setRound(pickRound(size));
     setIdx(0);
     setGuess(2018);
     setResults([]);

@@ -7,6 +7,16 @@ const empty: Stats = {
   memoryPlayed: 0, memoryCorrect: 0, memoryBestStreak: 0,
   memoryCurrentStreak: 0, memoryTotalDelta: 0,
   isPro: false, trimsToday: 0, trimsTodayDate: null, daily: [],
+  settings: {
+    cardsPerRound: 10,
+    iCloudSync: false,
+    reminderEnabled: true,
+    reminderTime: "19:00",
+    iCloudBackupWarn: true,
+    onboarded: false,
+    displayName: "You",
+  },
+  pendingDelete: [],
 };
 
 export function useStats(): Stats {

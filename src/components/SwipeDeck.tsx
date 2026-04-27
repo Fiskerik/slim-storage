@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useTransform, type PanInfo, AnimatePresence } from "framer-motion";
-import { ArrowLeft, ArrowUp, ArrowRight, MapPin, Sparkles, RefreshCw, Lock } from "lucide-react";
+import { ArrowLeft, ArrowUp, ArrowRight, MapPin, Sparkles, RefreshCw, Lock, Cloud, Undo2, PartyPopper } from "lucide-react";
 import { SAMPLE_PHOTOS, type SamplePhoto } from "@/lib/photos";
-import { setStats, bumpStreak, canTrim, recordTrim, logDay, trimsRemainingToday, setPro, FREE_TRIM_LIMIT } from "@/lib/storage";
+import { setStats, bumpStreak, canTrim, recordTrim, logDay, trimsRemainingToday, setPro, FREE_TRIM_LIMIT, softDelete, undoDelete, updateSettings } from "@/lib/storage";
 import { useStats } from "@/hooks/use-stats";
+import { Onboarding } from "@/components/Onboarding";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -28,19 +29,73 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 export function SwipeDeck() {
+  const stats = useStats();
+  const cardsPerRound = Math.min(30, Math.max(5, stats.settings.cardsPerRound));
   // Start with a deterministic order for SSR; shuffle after mount to avoid hydration mismatch.
-  const [queue, setQueue] = useState<SamplePhoto[]>(() => SAMPLE_PHOTOS);
+  const [queue, setQueue] = useState<SamplePhoto[]>(() => SAMPLE_PHOTOS.slice(0, cardsPerRound));
   const [recap, setRecap] = useState<SessionRecap | null>(null);
   const [paywallOpen, setPaywallOpen] = useState(false);
-  const stats = useStats();
+  const [iCloudWarn, setICloudWarn] = useState<{ photo: SamplePhoto } | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
   useEffect(() => {
-    setQueue((q) => (q === SAMPLE_PHOTOS ? shuffle(SAMPLE_PHOTOS) : q));
+    setQueue((q) => (q === SAMPLE_PHOTOS.slice(0, cardsPerRound) ? shuffle(SAMPLE_PHOTOS).slice(0, cardsPerRound) : q));
+    if (!stats.settings.onboarded) setShowOnboarding(true);
+    // Run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
+  const seenICloudWarnRef = useRef(false);
 
   const top = queue[0];
   const next = queue[1];
   const trimsLeft = stats.isPro ? Infinity : Math.max(0, FREE_TRIM_LIMIT - (stats.trimsTodayDate === new Date().toISOString().slice(0, 10) ? stats.trimsToday : 0));
+
+  function commitDelete(photo: SamplePhoto) {
+    const sess = sessionRef.current;
+    sess.deleted += 1;
+    sess.freed += photo.sizeMB;
+    setStats((s) => ({ ...s, deleted: s.deleted + 1, mbFreed: s.mbFreed + photo.sizeMB }));
+    logDay({ deleted: 1, mbFreed: photo.sizeMB });
+    softDelete({ id: photo.id, title: photo.title, sizeMB: photo.sizeMB });
+
+    // 30s undo window
+    toast.success(`Deleted · freed ${photo.sizeMB.toFixed(1)} MB`, {
+      duration: 5000,
+      icon: <Undo2 className="h-4 w-4" />,
+      description: "Tap Undo to restore. Stays in Recently Deleted for 30 days.",
+      action: {
+        label: "Undo",
+        onClick: () => {
+          undoDelete(photo.id);
+          setStats((s) => ({
+            ...s,
+            deleted: Math.max(0, s.deleted - 1),
+            mbFreed: Math.max(0, s.mbFreed - photo.sizeMB),
+          }));
+          sess.deleted = Math.max(0, sess.deleted - 1);
+          sess.freed = Math.max(0, sess.freed - photo.sizeMB);
+          // Put it back at the top
+          setQueue((q) => [photo, ...q]);
+          toast.success("Restored");
+        },
+      },
+    });
+
+    advance();
+  }
+
+  function advance() {
+    setQueue((q) => {
+      const rest = q.slice(1);
+      if (rest.length === 0) {
+        bumpStreak();
+        setRecap({ ...sessionRef.current });
+        sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
+      }
+      return rest;
+    });
+  }
 
   function handleAction(photo: SamplePhoto, action: Action) {
     const sess = sessionRef.current;
@@ -53,8 +108,9 @@ export function SwipeDeck() {
       sess.kept += 1;
       setStats((s) => ({ ...s, cleaned: s.cleaned + 1 }));
       logDay({ kept: 1 });
+      advance();
     } else if (action === "trim") {
-      const saved = +(photo.sizeMB * 0.32).toFixed(2); // ~32% savings
+      const saved = +(photo.sizeMB * 0.32).toFixed(2);
       sess.trimmed += 1;
       sess.freed += saved;
       setStats((s) => ({ ...s, slimmed: s.slimmed + 1, mbFreed: s.mbFreed + saved }));
@@ -66,27 +122,25 @@ export function SwipeDeck() {
           ? (photo.hasGPS ? "GPS & device tags stripped" : "Metadata stripped")
           : `${remaining} free trim${remaining === 1 ? "" : "s"} left today`,
       });
+      advance();
     } else if (action === "delete") {
-      sess.deleted += 1;
-      sess.freed += photo.sizeMB;
-      setStats((s) => ({ ...s, deleted: s.deleted + 1, mbFreed: s.mbFreed + photo.sizeMB }));
-      logDay({ deleted: 1, mbFreed: photo.sizeMB });
-    }
-
-    setQueue((q) => {
-      const rest = q.slice(1);
-      if (rest.length === 0) {
-        bumpStreak();
-        setRecap({ ...sess });
-        sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
+      // iCloud backup awareness — show warning the first time per session
+      if (stats.settings.iCloudBackupWarn && !seenICloudWarnRef.current) {
+        seenICloudWarnRef.current = true;
+        setICloudWarn({ photo });
+        return;
       }
-      return rest;
-    });
+      commitDelete(photo);
+    }
   }
 
   function reset() {
-    setQueue(shuffle(SAMPLE_PHOTOS));
+    setQueue(shuffle(SAMPLE_PHOTOS).slice(0, cardsPerRound));
     setRecap(null);
+  }
+
+  if (showOnboarding) {
+    return <Onboarding onDone={() => setShowOnboarding(false)} />;
   }
 
   if (recap) {
@@ -116,6 +170,7 @@ export function SwipeDeck() {
               onAction={(a) => handleAction(top, a)}
             />
           )}
+          {!top && !recap && <EmptyDeckCard onReset={reset} />}
         </AnimatePresence>
       </div>
 
@@ -158,6 +213,104 @@ export function SwipeDeck() {
           }}
         />
       )}
+
+      {iCloudWarn && (
+        <ICloudWarnModal
+          photo={iCloudWarn.photo}
+          onCancel={() => {
+            seenICloudWarnRef.current = false;
+            setICloudWarn(null);
+          }}
+          onConfirm={(disable) => {
+            if (disable) updateSettings({ iCloudBackupWarn: false });
+            const p = iCloudWarn.photo;
+            setICloudWarn(null);
+            commitDelete(p);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function EmptyDeckCard({ onReset }: { onReset: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="absolute inset-0 flex flex-col items-center justify-center rounded-3xl border border-dashed border-border bg-card/60 p-6 text-center"
+    >
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-success/15 text-success">
+        <PartyPopper className="h-6 w-6" />
+      </div>
+      <h3 className="mt-3 font-display text-xl font-bold">All caught up</h3>
+      <p className="mt-1 text-sm text-muted-foreground">
+        You're done with this batch. Take a breath.
+      </p>
+      <button
+        onClick={onReset}
+        className="mt-4 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-xs font-semibold text-primary-foreground shadow-card hover:opacity-90"
+      >
+        <RefreshCw className="h-3.5 w-3.5" /> Load another set
+      </button>
+    </motion.div>
+  );
+}
+
+function ICloudWarnModal({
+  photo,
+  onCancel,
+  onConfirm,
+}: {
+  photo: SamplePhoto;
+  onCancel: () => void;
+  onConfirm: (disableForever: boolean) => void;
+}) {
+  const [disable, setDisable] = useState(false);
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center"
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-sm rounded-t-3xl border border-border bg-card p-6 shadow-card sm:rounded-3xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-warm/30 text-warm-foreground">
+          <Cloud className="h-5 w-5" />
+        </div>
+        <h3 className="mt-4 font-display text-2xl font-bold">Backed up to iCloud?</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          We can't tell yet whether <span className="font-medium text-foreground">{photo.title}</span> is backed up.
+          Once you delete it from your library, it's gone for good after 30 days in Recently Deleted.
+          Make sure iCloud Photos has finished syncing before you continue.
+        </p>
+
+        <label className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={disable}
+            onChange={(e) => setDisable(e.target.checked)}
+            className="h-4 w-4 accent-primary"
+          />
+          Don't show this again
+        </label>
+
+        <div className="mt-5 flex gap-2">
+          <button
+            onClick={onCancel}
+            className="flex-1 rounded-full border border-border bg-background py-3 text-sm font-semibold text-foreground transition hover:bg-muted"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onConfirm(disable)}
+            className="flex-1 rounded-full bg-destructive py-3 text-sm font-semibold text-destructive-foreground shadow-card transition hover:opacity-90"
+          >
+            Delete anyway
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

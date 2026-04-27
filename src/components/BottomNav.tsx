@@ -1,11 +1,12 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { Layers, Brain, BarChart3 } from "lucide-react";
+import { Layers, Gamepad2, BarChart3, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const tabs = [
   { to: "/", label: "Swipe", icon: Layers },
-  { to: "/memory", label: "Memory", icon: Brain },
+  { to: "/games", label: "Games", icon: Gamepad2 },
   { to: "/stats", label: "Stats", icon: BarChart3 },
+  { to: "/profile", label: "Profile", icon: User },
 ] as const;
 
 export function BottomNav() {
@@ -17,7 +18,10 @@ export function BottomNav() {
     >
       <ul className="mx-auto flex max-w-md items-stretch justify-around px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         {tabs.map((t) => {
-          const active = pathname === t.to;
+          const active =
+            t.to === "/"
+              ? pathname === "/"
+              : pathname === t.to || pathname.startsWith(t.to + "/");
           const Icon = t.icon;
           return (
             <li key={t.to} className="flex-1">
