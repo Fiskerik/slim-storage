@@ -47,6 +47,16 @@ export type Stats = {
 const KEY = "slim.stats.v1";
 export const FREE_TRIM_LIMIT = 10;
 
+const DEFAULT_SETTINGS: Settings = {
+  cardsPerRound: 10,
+  iCloudSync: false,
+  reminderEnabled: true,
+  reminderTime: "19:00",
+  iCloudBackupWarn: true,
+  onboarded: false,
+  displayName: "You",
+};
+
 const DEFAULT: Stats = {
   cleaned: 0,
   deleted: 0,
@@ -63,6 +73,8 @@ const DEFAULT: Stats = {
   trimsToday: 0,
   trimsTodayDate: null,
   daily: [],
+  settings: DEFAULT_SETTINGS,
+  pendingDelete: [],
 };
 
 const listeners = new Set<() => void>();
