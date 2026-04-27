@@ -29,19 +29,73 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 export function SwipeDeck() {
+  const stats = useStats();
+  const cardsPerRound = Math.min(30, Math.max(5, stats.settings.cardsPerRound));
   // Start with a deterministic order for SSR; shuffle after mount to avoid hydration mismatch.
-  const [queue, setQueue] = useState<SamplePhoto[]>(() => SAMPLE_PHOTOS);
+  const [queue, setQueue] = useState<SamplePhoto[]>(() => SAMPLE_PHOTOS.slice(0, cardsPerRound));
   const [recap, setRecap] = useState<SessionRecap | null>(null);
   const [paywallOpen, setPaywallOpen] = useState(false);
-  const stats = useStats();
+  const [iCloudWarn, setICloudWarn] = useState<{ photo: SamplePhoto } | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
   useEffect(() => {
-    setQueue((q) => (q === SAMPLE_PHOTOS ? shuffle(SAMPLE_PHOTOS) : q));
+    setQueue((q) => (q === SAMPLE_PHOTOS.slice(0, cardsPerRound) ? shuffle(SAMPLE_PHOTOS).slice(0, cardsPerRound) : q));
+    if (!stats.settings.onboarded) setShowOnboarding(true);
+    // Run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
+  const seenICloudWarnRef = useRef(false);
 
   const top = queue[0];
   const next = queue[1];
   const trimsLeft = stats.isPro ? Infinity : Math.max(0, FREE_TRIM_LIMIT - (stats.trimsTodayDate === new Date().toISOString().slice(0, 10) ? stats.trimsToday : 0));
+
+  function commitDelete(photo: SamplePhoto) {
+    const sess = sessionRef.current;
+    sess.deleted += 1;
+    sess.freed += photo.sizeMB;
+    setStats((s) => ({ ...s, deleted: s.deleted + 1, mbFreed: s.mbFreed + photo.sizeMB }));
+    logDay({ deleted: 1, mbFreed: photo.sizeMB });
+    softDelete({ id: photo.id, title: photo.title, sizeMB: photo.sizeMB });
+
+    // 30s undo window
+    toast.success(`Deleted · freed ${photo.sizeMB.toFixed(1)} MB`, {
+      duration: 5000,
+      icon: <Undo2 className="h-4 w-4" />,
+      description: "Tap Undo to restore. Stays in Recently Deleted for 30 days.",
+      action: {
+        label: "Undo",
+        onClick: () => {
+          undoDelete(photo.id);
+          setStats((s) => ({
+            ...s,
+            deleted: Math.max(0, s.deleted - 1),
+            mbFreed: Math.max(0, s.mbFreed - photo.sizeMB),
+          }));
+          sess.deleted = Math.max(0, sess.deleted - 1);
+          sess.freed = Math.max(0, sess.freed - photo.sizeMB);
+          // Put it back at the top
+          setQueue((q) => [photo, ...q]);
+          toast.success("Restored");
+        },
+      },
+    });
+
+    advance();
+  }
+
+  function advance() {
+    setQueue((q) => {
+      const rest = q.slice(1);
+      if (rest.length === 0) {
+        bumpStreak();
+        setRecap({ ...sessionRef.current });
+        sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
+      }
+      return rest;
+    });
+  }
 
   function handleAction(photo: SamplePhoto, action: Action) {
     const sess = sessionRef.current;
@@ -54,8 +108,9 @@ export function SwipeDeck() {
       sess.kept += 1;
       setStats((s) => ({ ...s, cleaned: s.cleaned + 1 }));
       logDay({ kept: 1 });
+      advance();
     } else if (action === "trim") {
-      const saved = +(photo.sizeMB * 0.32).toFixed(2); // ~32% savings
+      const saved = +(photo.sizeMB * 0.32).toFixed(2);
       sess.trimmed += 1;
       sess.freed += saved;
       setStats((s) => ({ ...s, slimmed: s.slimmed + 1, mbFreed: s.mbFreed + saved }));
@@ -67,31 +122,21 @@ export function SwipeDeck() {
           ? (photo.hasGPS ? "GPS & device tags stripped" : "Metadata stripped")
           : `${remaining} free trim${remaining === 1 ? "" : "s"} left today`,
       });
+      advance();
     } else if (action === "delete") {
-      sess.deleted += 1;
-      sess.freed += photo.sizeMB;
-      setStats((s) => ({ ...s, deleted: s.deleted + 1, mbFreed: s.mbFreed + photo.sizeMB }));
-      logDay({ deleted: 1, mbFreed: photo.sizeMB });
-    }
-
-    setQueue((q) => {
-      const rest = q.slice(1);
-      if (rest.length === 0) {
-        bumpStreak();
-        setRecap({ ...sess });
-        sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
+      // iCloud backup awareness — show warning the first time per session
+      if (stats.settings.iCloudBackupWarn && !seenICloudWarnRef.current) {
+        seenICloudWarnRef.current = true;
+        setICloudWarn({ photo });
+        return;
       }
-      return rest;
-    });
+      commitDelete(photo);
+    }
   }
 
   function reset() {
-    setQueue(shuffle(SAMPLE_PHOTOS));
+    setQueue(shuffle(SAMPLE_PHOTOS).slice(0, cardsPerRound));
     setRecap(null);
-  }
-
-  if (recap) {
-    return <SessionSummary recap={recap} onContinue={reset} />;
   }
 
   return (
