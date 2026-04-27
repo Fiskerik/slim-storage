@@ -9,6 +9,16 @@ export type DayLog = {
   memoryPlayed: number;  // memory rounds completed that day
 };
 
+export type Settings = {
+  cardsPerRound: number;       // 5–30
+  iCloudSync: boolean;
+  reminderEnabled: boolean;
+  reminderTime: string;        // "HH:MM" 24h
+  iCloudBackupWarn: boolean;
+  onboarded: boolean;
+  displayName: string;
+};
+
 export type Stats = {
   cleaned: number;       // photos kept (reviewed without delete)
   deleted: number;       // photos deleted
@@ -28,6 +38,10 @@ export type Stats = {
   trimsTodayDate: string | null;
   // Per-day history (last ~30 days)
   daily: DayLog[];
+  // Settings + onboarding
+  settings: Settings;
+  // Soft-deleted items pending permanent removal (for Undo)
+  pendingDelete: { id: string; title: string; sizeMB: number; deletedAt: number }[];
 };
 
 const KEY = "slim.stats.v1";
