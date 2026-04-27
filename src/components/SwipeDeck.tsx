@@ -95,9 +95,16 @@ export function SwipeDeck() {
 
   return (
     <div className="flex flex-col items-center px-5 pt-4">
-      <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-        {queue.length} left in this set
-      </p>
+      <div className="flex w-full max-w-sm items-center justify-between">
+        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+          {queue.length} left
+        </p>
+        {!stats.isPro && (
+          <span className="rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-semibold tabular-nums text-muted-foreground">
+            {trimsLeft}/{FREE_TRIM_LIMIT} free trims today
+          </span>
+        )}
+      </div>
 
       <div className="relative mt-4 h-[460px] w-full max-w-sm">
         <AnimatePresence>
@@ -140,6 +147,17 @@ export function SwipeDeck() {
       <p className="mt-5 text-center text-xs text-muted-foreground">
         ← Keep · ↑ Trim (slim & strip metadata) · → Delete
       </p>
+
+      {paywallOpen && (
+        <PaywallModal
+          onClose={() => setPaywallOpen(false)}
+          onUpgrade={() => {
+            setPro(true);
+            setPaywallOpen(false);
+            toast.success("Pro unlocked · unlimited trims");
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -182,21 +200,34 @@ function SwipeableCard({
       className="absolute inset-0 cursor-grab active:cursor-grabbing"
     >
       <PhotoCard photo={photo}>
+        {/* Left edge — KEEP (green) */}
         <motion.div
           style={{ opacity: keepOpacity }}
-          className="absolute left-4 top-4 rotate-[-8deg] rounded-lg border-2 border-accent bg-accent/15 px-3 py-1 text-sm font-bold uppercase tracking-wider text-accent-foreground backdrop-blur"
+          className="pointer-events-none absolute inset-y-0 left-0 w-1/2"
         >
-          Keep
+          <div className="absolute inset-y-0 left-0 w-full bg-gradient-to-r from-success/80 via-success/30 to-transparent" />
+          <div className="absolute inset-y-0 left-0 w-2.5 bg-success shadow-[0_0_24px_rgba(0,200,120,0.6)]" />
+          <div className="absolute left-5 top-6 rotate-[-10deg] rounded-xl border-4 border-success bg-success/20 px-4 py-1.5 text-lg font-extrabold uppercase tracking-wider text-white backdrop-blur">
+            Keep
+          </div>
         </motion.div>
+
+        {/* Right edge — DELETE (red) */}
         <motion.div
           style={{ opacity: deleteOpacity }}
-          className="absolute right-4 top-4 rotate-[8deg] rounded-lg border-2 border-destructive bg-destructive/15 px-3 py-1 text-sm font-bold uppercase tracking-wider text-destructive backdrop-blur"
+          className="pointer-events-none absolute inset-y-0 right-0 w-1/2"
         >
-          Delete
+          <div className="absolute inset-y-0 right-0 w-full bg-gradient-to-l from-destructive/80 via-destructive/30 to-transparent" />
+          <div className="absolute inset-y-0 right-0 w-2.5 bg-destructive shadow-[0_0_24px_rgba(220,60,40,0.6)]" />
+          <div className="absolute right-5 top-6 rotate-[10deg] rounded-xl border-4 border-destructive bg-destructive/25 px-4 py-1.5 text-lg font-extrabold uppercase tracking-wider text-white backdrop-blur">
+            Delete
+          </div>
         </motion.div>
+
+        {/* Top — TRIM */}
         <motion.div
           style={{ opacity: trimOpacity }}
-          className="absolute left-1/2 top-4 -translate-x-1/2 rounded-lg border-2 border-warm bg-warm/20 px-3 py-1 text-sm font-bold uppercase tracking-wider text-warm-foreground backdrop-blur"
+          className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 rounded-lg border-2 border-warm bg-warm/30 px-3 py-1 text-sm font-bold uppercase tracking-wider text-white backdrop-blur"
         >
           Trim
         </motion.div>
