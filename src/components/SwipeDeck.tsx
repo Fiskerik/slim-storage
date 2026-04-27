@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useMotionValue, useTransform, type PanInfo, AnimatePresence } from "framer-motion";
-import { ArrowLeft, ArrowUp, ArrowRight, MapPin, Sparkles, RefreshCw } from "lucide-react";
+import { ArrowLeft, ArrowUp, ArrowRight, MapPin, Sparkles, RefreshCw, Lock } from "lucide-react";
 import { SAMPLE_PHOTOS, type SamplePhoto } from "@/lib/photos";
-import { setStats, bumpStreak } from "@/lib/storage";
+import { setStats, bumpStreak, canTrim, recordTrim, logDay, trimsRemainingToday, setPro, FREE_TRIM_LIMIT } from "@/lib/storage";
+import { useStats } from "@/hooks/use-stats";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +31,8 @@ export function SwipeDeck() {
   // Start with a deterministic order for SSR; shuffle after mount to avoid hydration mismatch.
   const [queue, setQueue] = useState<SamplePhoto[]>(() => SAMPLE_PHOTOS);
   const [recap, setRecap] = useState<SessionRecap | null>(null);
+  const [paywallOpen, setPaywallOpen] = useState(false);
+  const stats = useStats();
   useEffect(() => {
     setQueue((q) => (q === SAMPLE_PHOTOS ? shuffle(SAMPLE_PHOTOS) : q));
   }, []);
@@ -37,24 +40,37 @@ export function SwipeDeck() {
 
   const top = queue[0];
   const next = queue[1];
+  const trimsLeft = stats.isPro ? Infinity : Math.max(0, FREE_TRIM_LIMIT - (stats.trimsTodayDate === new Date().toISOString().slice(0, 10) ? stats.trimsToday : 0));
 
   function handleAction(photo: SamplePhoto, action: Action) {
     const sess = sessionRef.current;
+    if (action === "trim" && !canTrim()) {
+      setPaywallOpen(true);
+      return;
+    }
+
     if (action === "keep") {
       sess.kept += 1;
       setStats((s) => ({ ...s, cleaned: s.cleaned + 1 }));
+      logDay({ kept: 1 });
     } else if (action === "trim") {
       const saved = +(photo.sizeMB * 0.32).toFixed(2); // ~32% savings
       sess.trimmed += 1;
       sess.freed += saved;
       setStats((s) => ({ ...s, slimmed: s.slimmed + 1, mbFreed: s.mbFreed + saved }));
+      logDay({ trimmed: 1, mbFreed: saved });
+      recordTrim();
+      const remaining = trimsRemainingToday();
       toast.success(`Slimmed · saved ${saved.toFixed(1)} MB`, {
-        description: photo.hasGPS ? "GPS & device tags stripped" : "Metadata stripped",
+        description: stats.isPro
+          ? (photo.hasGPS ? "GPS & device tags stripped" : "Metadata stripped")
+          : `${remaining} free trim${remaining === 1 ? "" : "s"} left today`,
       });
     } else if (action === "delete") {
       sess.deleted += 1;
       sess.freed += photo.sizeMB;
       setStats((s) => ({ ...s, deleted: s.deleted + 1, mbFreed: s.mbFreed + photo.sizeMB }));
+      logDay({ deleted: 1, mbFreed: photo.sizeMB });
     }
 
     setQueue((q) => {
@@ -79,9 +95,16 @@ export function SwipeDeck() {
 
   return (
     <div className="flex flex-col items-center px-5 pt-4">
-      <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-        {queue.length} left in this set
-      </p>
+      <div className="flex w-full max-w-sm items-center justify-between">
+        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+          {queue.length} left
+        </p>
+        {!stats.isPro && (
+          <span className="rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-semibold tabular-nums text-muted-foreground">
+            {trimsLeft}/{FREE_TRIM_LIMIT} free trims today
+          </span>
+        )}
+      </div>
 
       <div className="relative mt-4 h-[460px] w-full max-w-sm">
         <AnimatePresence>
@@ -124,6 +147,17 @@ export function SwipeDeck() {
       <p className="mt-5 text-center text-xs text-muted-foreground">
         ← Keep · ↑ Trim (slim & strip metadata) · → Delete
       </p>
+
+      {paywallOpen && (
+        <PaywallModal
+          onClose={() => setPaywallOpen(false)}
+          onUpgrade={() => {
+            setPro(true);
+            setPaywallOpen(false);
+            toast.success("Pro unlocked · unlimited trims");
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -166,21 +200,34 @@ function SwipeableCard({
       className="absolute inset-0 cursor-grab active:cursor-grabbing"
     >
       <PhotoCard photo={photo}>
+        {/* Left edge — KEEP (green) */}
         <motion.div
           style={{ opacity: keepOpacity }}
-          className="absolute left-4 top-4 rotate-[-8deg] rounded-lg border-2 border-accent bg-accent/15 px-3 py-1 text-sm font-bold uppercase tracking-wider text-accent-foreground backdrop-blur"
+          className="pointer-events-none absolute inset-y-0 left-0 w-1/2"
         >
-          Keep
+          <div className="absolute inset-y-0 left-0 w-full bg-gradient-to-r from-success/80 via-success/30 to-transparent" />
+          <div className="absolute inset-y-0 left-0 w-2.5 bg-success shadow-[0_0_24px_rgba(0,200,120,0.6)]" />
+          <div className="absolute left-5 top-6 rotate-[-10deg] rounded-xl border-4 border-success bg-success/20 px-4 py-1.5 text-lg font-extrabold uppercase tracking-wider text-white backdrop-blur">
+            Keep
+          </div>
         </motion.div>
+
+        {/* Right edge — DELETE (red) */}
         <motion.div
           style={{ opacity: deleteOpacity }}
-          className="absolute right-4 top-4 rotate-[8deg] rounded-lg border-2 border-destructive bg-destructive/15 px-3 py-1 text-sm font-bold uppercase tracking-wider text-destructive backdrop-blur"
+          className="pointer-events-none absolute inset-y-0 right-0 w-1/2"
         >
-          Delete
+          <div className="absolute inset-y-0 right-0 w-full bg-gradient-to-l from-destructive/80 via-destructive/30 to-transparent" />
+          <div className="absolute inset-y-0 right-0 w-2.5 bg-destructive shadow-[0_0_24px_rgba(220,60,40,0.6)]" />
+          <div className="absolute right-5 top-6 rotate-[10deg] rounded-xl border-4 border-destructive bg-destructive/25 px-4 py-1.5 text-lg font-extrabold uppercase tracking-wider text-white backdrop-blur">
+            Delete
+          </div>
         </motion.div>
+
+        {/* Top — TRIM */}
         <motion.div
           style={{ opacity: trimOpacity }}
-          className="absolute left-1/2 top-4 -translate-x-1/2 rounded-lg border-2 border-warm bg-warm/20 px-3 py-1 text-sm font-bold uppercase tracking-wider text-warm-foreground backdrop-blur"
+          className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 rounded-lg border-2 border-warm bg-warm/30 px-3 py-1 text-sm font-bold uppercase tracking-wider text-white backdrop-blur"
         >
           Trim
         </motion.div>
@@ -326,6 +373,53 @@ function Stat({ label, value, tone }: { label: string; value: number; tone: stri
     <div className="rounded-2xl border border-border bg-card p-4 text-center">
       <p className={cn("font-display text-2xl font-bold tabular-nums", tone)}>{value}</p>
       <p className="mt-1 text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p>
+    </div>
+  );
+}
+
+function PaywallModal({ onClose, onUpgrade }: { onClose: () => void; onUpgrade: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-sm rounded-t-3xl border border-border bg-card p-6 shadow-card sm:rounded-3xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+          <Lock className="h-5 w-5" />
+        </div>
+        <h3 className="mt-4 font-display text-2xl font-bold">Daily free limit reached</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          You've used your {FREE_TRIM_LIMIT} free trims for today. Upgrade to Slim Pro for unlimited trims, or come back tomorrow.
+        </p>
+
+        <div className="mt-5 space-y-2">
+          <div className="flex items-center gap-2 text-sm">
+            <Sparkles className="h-4 w-4 text-primary" /> Unlimited daily trims
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <Sparkles className="h-4 w-4 text-primary" /> Strip GPS & metadata in bulk
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <Sparkles className="h-4 w-4 text-primary" /> Heavy Hitters & history
+          </div>
+        </div>
+
+        <button
+          onClick={onUpgrade}
+          className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3 text-sm font-semibold text-primary-foreground shadow-card transition hover:opacity-90"
+        >
+          Unlock Slim Pro
+        </button>
+        <button
+          onClick={onClose}
+          className="mt-2 inline-flex w-full items-center justify-center rounded-full py-2.5 text-sm font-medium text-muted-foreground transition hover:text-foreground"
+        >
+          Maybe later
+        </button>
+      </div>
     </div>
   );
 }
