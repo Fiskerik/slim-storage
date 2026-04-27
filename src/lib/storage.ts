@@ -1,5 +1,14 @@
 // Persistent stats stored in localStorage. Reactive via simple subscription.
 
+export type DayLog = {
+  date: string;          // YYYY-MM-DD
+  kept: number;
+  trimmed: number;
+  deleted: number;
+  mbFreed: number;
+  memoryPlayed: number;  // memory rounds completed that day
+};
+
 export type Stats = {
   cleaned: number;       // photos kept (reviewed without delete)
   deleted: number;       // photos deleted
@@ -13,9 +22,16 @@ export type Stats = {
   memoryBestStreak: number;
   memoryCurrentStreak: number;
   memoryTotalDelta: number;  // sum of |guess - actual|
+  // Pro / daily limit
+  isPro: boolean;
+  trimsToday: number;
+  trimsTodayDate: string | null;
+  // Per-day history (last ~30 days)
+  daily: DayLog[];
 };
 
 const KEY = "slim.stats.v1";
+export const FREE_TRIM_LIMIT = 10;
 
 const DEFAULT: Stats = {
   cleaned: 0,
@@ -29,6 +45,10 @@ const DEFAULT: Stats = {
   memoryBestStreak: 0,
   memoryCurrentStreak: 0,
   memoryTotalDelta: 0,
+  isPro: false,
+  trimsToday: 0,
+  trimsTodayDate: null,
+  daily: [],
 };
 
 const listeners = new Set<() => void>();
@@ -89,4 +109,72 @@ export function bumpStreak() {
       lastSessionDate: today,
     };
   });
+}
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function upsertToday(s: Stats, patch: Partial<Omit<DayLog, "date">>): DayLog[] {
+  const date = todayStr();
+  const existing = s.daily.find((d) => d.date === date);
+  const merged: DayLog = existing
+    ? {
+        ...existing,
+        kept: existing.kept + (patch.kept ?? 0),
+        trimmed: existing.trimmed + (patch.trimmed ?? 0),
+        deleted: existing.deleted + (patch.deleted ?? 0),
+        mbFreed: +(existing.mbFreed + (patch.mbFreed ?? 0)).toFixed(2),
+        memoryPlayed: existing.memoryPlayed + (patch.memoryPlayed ?? 0),
+      }
+    : {
+        date,
+        kept: patch.kept ?? 0,
+        trimmed: patch.trimmed ?? 0,
+        deleted: patch.deleted ?? 0,
+        mbFreed: +(patch.mbFreed ?? 0).toFixed(2),
+        memoryPlayed: patch.memoryPlayed ?? 0,
+      };
+  const others = s.daily.filter((d) => d.date !== date);
+  // keep last 30 days
+  const next = [...others, merged].sort((a, b) => (a.date < b.date ? -1 : 1));
+  return next.slice(-30);
+}
+
+export function logDay(patch: Partial<Omit<DayLog, "date">>) {
+  setStats((s) => ({ ...s, daily: upsertToday(s, patch) }));
+}
+
+/**
+ * Returns true if the user can perform another trim today.
+ * Free users get FREE_TRIM_LIMIT trims per day.
+ */
+export function canTrim(): boolean {
+  const s = getStats();
+  if (s.isPro) return true;
+  const today = todayStr();
+  if (s.trimsTodayDate !== today) return true; // counter resets
+  return s.trimsToday < FREE_TRIM_LIMIT;
+}
+
+export function recordTrim() {
+  const today = todayStr();
+  setStats((s) => {
+    if (s.trimsTodayDate !== today) {
+      return { ...s, trimsToday: 1, trimsTodayDate: today };
+    }
+    return { ...s, trimsToday: s.trimsToday + 1 };
+  });
+}
+
+export function trimsRemainingToday(): number {
+  const s = getStats();
+  if (s.isPro) return Infinity;
+  const today = todayStr();
+  if (s.trimsTodayDate !== today) return FREE_TRIM_LIMIT;
+  return Math.max(0, FREE_TRIM_LIMIT - s.trimsToday);
+}
+
+export function setPro(isPro: boolean) {
+  setStats((s) => ({ ...s, isPro }));
 }
