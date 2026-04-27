@@ -376,3 +376,50 @@ function Stat({ label, value, tone }: { label: string; value: number; tone: stri
     </div>
   );
 }
+
+function PaywallModal({ onClose, onUpgrade }: { onClose: () => void; onUpgrade: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-sm rounded-t-3xl border border-border bg-card p-6 shadow-card sm:rounded-3xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+          <Lock className="h-5 w-5" />
+        </div>
+        <h3 className="mt-4 font-display text-2xl font-bold">Daily free limit reached</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          You've used your {FREE_TRIM_LIMIT} free trims for today. Upgrade to Slim Pro for unlimited trims, or come back tomorrow.
+        </p>
+
+        <div className="mt-5 space-y-2">
+          <div className="flex items-center gap-2 text-sm">
+            <Sparkles className="h-4 w-4 text-primary" /> Unlimited daily trims
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <Sparkles className="h-4 w-4 text-primary" /> Strip GPS & metadata in bulk
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <Sparkles className="h-4 w-4 text-primary" /> Heavy Hitters & history
+          </div>
+        </div>
+
+        <button
+          onClick={onUpgrade}
+          className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3 text-sm font-semibold text-primary-foreground shadow-card transition hover:opacity-90"
+        >
+          Unlock Slim Pro
+        </button>
+        <button
+          onClick={onClose}
+          className="mt-2 inline-flex w-full items-center justify-center rounded-full py-2.5 text-sm font-medium text-muted-foreground transition hover:text-foreground"
+        >
+          Maybe later
+        </button>
+      </div>
+    </div>
+  );
+}
