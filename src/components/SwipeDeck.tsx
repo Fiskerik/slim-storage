@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useMotionValue, useTransform, type PanInfo, AnimatePresence } from "framer-motion";
-import { ArrowLeft, ArrowUp, ArrowRight, MapPin, Sparkles, RefreshCw } from "lucide-react";
+import { ArrowLeft, ArrowUp, ArrowRight, MapPin, Sparkles, RefreshCw, Lock } from "lucide-react";
 import { SAMPLE_PHOTOS, type SamplePhoto } from "@/lib/photos";
-import { setStats, bumpStreak } from "@/lib/storage";
+import { setStats, bumpStreak, canTrim, recordTrim, logDay, trimsRemainingToday, setPro, FREE_TRIM_LIMIT } from "@/lib/storage";
+import { useStats } from "@/hooks/use-stats";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +31,8 @@ export function SwipeDeck() {
   // Start with a deterministic order for SSR; shuffle after mount to avoid hydration mismatch.
   const [queue, setQueue] = useState<SamplePhoto[]>(() => SAMPLE_PHOTOS);
   const [recap, setRecap] = useState<SessionRecap | null>(null);
+  const [paywallOpen, setPaywallOpen] = useState(false);
+  const stats = useStats();
   useEffect(() => {
     setQueue((q) => (q === SAMPLE_PHOTOS ? shuffle(SAMPLE_PHOTOS) : q));
   }, []);
@@ -37,24 +40,37 @@ export function SwipeDeck() {
 
   const top = queue[0];
   const next = queue[1];
+  const trimsLeft = stats.isPro ? Infinity : Math.max(0, FREE_TRIM_LIMIT - (stats.trimsTodayDate === new Date().toISOString().slice(0, 10) ? stats.trimsToday : 0));
 
   function handleAction(photo: SamplePhoto, action: Action) {
     const sess = sessionRef.current;
+    if (action === "trim" && !canTrim()) {
+      setPaywallOpen(true);
+      return;
+    }
+
     if (action === "keep") {
       sess.kept += 1;
       setStats((s) => ({ ...s, cleaned: s.cleaned + 1 }));
+      logDay({ kept: 1 });
     } else if (action === "trim") {
       const saved = +(photo.sizeMB * 0.32).toFixed(2); // ~32% savings
       sess.trimmed += 1;
       sess.freed += saved;
       setStats((s) => ({ ...s, slimmed: s.slimmed + 1, mbFreed: s.mbFreed + saved }));
+      logDay({ trimmed: 1, mbFreed: saved });
+      recordTrim();
+      const remaining = trimsRemainingToday();
       toast.success(`Slimmed · saved ${saved.toFixed(1)} MB`, {
-        description: photo.hasGPS ? "GPS & device tags stripped" : "Metadata stripped",
+        description: stats.isPro
+          ? (photo.hasGPS ? "GPS & device tags stripped" : "Metadata stripped")
+          : `${remaining} free trim${remaining === 1 ? "" : "s"} left today`,
       });
     } else if (action === "delete") {
       sess.deleted += 1;
       sess.freed += photo.sizeMB;
       setStats((s) => ({ ...s, deleted: s.deleted + 1, mbFreed: s.mbFreed + photo.sizeMB }));
+      logDay({ deleted: 1, mbFreed: photo.sizeMB });
     }
 
     setQueue((q) => {
