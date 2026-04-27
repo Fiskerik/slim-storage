@@ -85,10 +85,49 @@ function readFromStorage(): Stats {
   try {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return DEFAULT;
-    return { ...DEFAULT, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    return {
+      ...DEFAULT,
+      ...parsed,
+      settings: { ...DEFAULT_SETTINGS, ...(parsed.settings ?? {}) },
+      pendingDelete: parsed.pendingDelete ?? [],
+    };
   } catch {
     return DEFAULT;
   }
+}
+
+export function updateSettings(patch: Partial<Settings>) {
+  setStats((s) => ({ ...s, settings: { ...s.settings, ...patch } }));
+}
+
+export function softDelete(item: { id: string; title: string; sizeMB: number }) {
+  setStats((s) => ({
+    ...s,
+    pendingDelete: [...s.pendingDelete, { ...item, deletedAt: Date.now() }],
+  }));
+}
+
+export function undoDelete(id: string) {
+  setStats((s) => ({
+    ...s,
+    pendingDelete: s.pendingDelete.filter((p) => p.id !== id),
+  }));
+}
+
+export function purgeExpiredDeletes(maxAgeMs = 30_000) {
+  const now = Date.now();
+  setStats((s) => ({
+    ...s,
+    pendingDelete: s.pendingDelete.filter((p) => now - p.deletedAt < maxAgeMs),
+  }));
+}
+
+export function deleteAllData() {
+  if (typeof window === "undefined") return;
+  cache = DEFAULT;
+  window.localStorage.removeItem(KEY);
+  notify();
 }
 
 export function getStats(): Stats {
