@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Brain, Check, Trash2, Sparkles, ArrowRight } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { MEMORY_POOL, type SamplePhoto } from "@/lib/photos";
-import { setStats } from "@/lib/storage";
+import { setStats, logDay } from "@/lib/storage";
 import { useStats } from "@/hooks/use-stats";
 import { cn } from "@/lib/utils";
 
@@ -70,6 +70,13 @@ export function MemoryGame() {
         cleaned: keep ? s.cleaned + 1 : s.cleaned,
         mbFreed: keep ? s.mbFreed : s.mbFreed + photo.sizeMB,
       };
+    });
+
+    logDay({
+      memoryPlayed: 1,
+      kept: keep ? 1 : 0,
+      deleted: keep ? 0 : 1,
+      mbFreed: keep ? 0 : photo.sizeMB,
     });
 
     setResults(newResults);
@@ -197,9 +204,10 @@ function ResultBadge({ guess, actual }: { guess: number; actual: number }) {
       : delta <= 3
       ? "text-warm-foreground/80"
       : "text-destructive";
+  const suffix = delta === 0 ? "" : ` (${delta} yr off)`;
   return (
     <p className={cn("mt-2 text-sm font-semibold", color)}>
-      You guessed {guess} · {tone} ({delta} yr off)
+      You guessed {guess} · {tone}{suffix}
     </p>
   );
 }
