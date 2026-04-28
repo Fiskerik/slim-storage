@@ -37,21 +37,25 @@ function buildPairs(n: number): BurstPair[] {
 const ROUND = 6;
 
 export function ThisOrThat() {
-  const [round, setRound] = useState<[SamplePhoto, SamplePhoto][]>([]);
+  const [round, setRound] = useState<BurstPair[]>([]);
   const [idx, setIdx] = useState(0);
   const [done, setDone] = useState(false);
   const [freed, setFreed] = useState(0);
 
   useEffect(() => {
-    setRound(pairs(SAMPLE_PHOTOS, ROUND));
+    setRound(buildPairs(ROUND));
   }, []);
 
   const pair = round[idx];
+  const cards = useMemo<[SamplePhoto, SamplePhoto] | null>(
+    () => (pair ? [pair.a, pair.b] : null),
+    [pair]
+  );
   const progress = useMemo(() => `${idx + 1}/${round.length || ROUND}`, [idx, round.length]);
 
   function pick(keepIdx: 0 | 1) {
-    if (!pair) return;
-    const loser = pair[keepIdx === 0 ? 1 : 0];
+    if (!cards) return;
+    const loser = cards[keepIdx === 0 ? 1 : 0];
     setFreed((f) => +(f + loser.sizeMB).toFixed(2));
     setStats((s) => ({
       ...s,
@@ -70,7 +74,7 @@ export function ThisOrThat() {
   }
 
   function reset() {
-    setRound(pairs(SAMPLE_PHOTOS, ROUND));
+    setRound(buildPairs(ROUND));
     setIdx(0);
     setFreed(0);
     setDone(false);
