@@ -11,6 +11,21 @@ export function ShareStatsCard({ onClose }: { onClose: () => void }) {
   const freedLabel = freed >= 1024 ? `${(freed / 1024).toFixed(2)} GB` : `${freed.toFixed(1)} MB`;
   const reviewed = stats.cleaned + stats.deleted + stats.slimmed;
 
+  const fmtDate = (iso: string) =>
+    new Date(iso + "T00:00:00").toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  const startedLabel = stats.startedAt ? fmtDate(stats.startedAt) : null;
+  const bestDay = (stats.daily ?? []).reduce(
+    (best, d) => (d.mbFreed > (best?.mbFreed ?? 0) ? d : best),
+    null as null | (typeof stats.daily)[number],
+  );
+  const bestLabel = bestDay
+    ? `${bestDay.mbFreed >= 1024 ? (bestDay.mbFreed / 1024).toFixed(2) + " GB" : bestDay.mbFreed.toFixed(1) + " MB"} · ${fmtDate(bestDay.date)}`
+    : null;
+
   async function share() {
     try {
       setBusy(true);
