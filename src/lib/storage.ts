@@ -94,6 +94,7 @@ function readFromStorage(): Stats {
       ...parsed,
       settings: { ...DEFAULT_SETTINGS, ...(parsed.settings ?? {}) },
       pendingDelete: parsed.pendingDelete ?? [],
+      startedAt: parsed.startedAt ?? new Date().toISOString().slice(0, 10),
     };
   } catch {
     return DEFAULT;
