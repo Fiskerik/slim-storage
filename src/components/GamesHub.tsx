@@ -93,14 +93,7 @@ export function GamesHub() {
                 {g.icon}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="font-display text-lg font-bold tracking-tight">{g.title}</h3>
-                  {g.badge && (
-                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${g.badgeTone}`}>
-                      {g.badge}
-                    </span>
-                  )}
-                </div>
+                <h3 className="font-display text-lg font-bold tracking-tight">{g.title}</h3>
                 <p className="mt-1 text-sm text-muted-foreground">{g.tagline}</p>
               </div>
               <ArrowRight className="mt-3 h-4 w-4 shrink-0 text-muted-foreground" />
