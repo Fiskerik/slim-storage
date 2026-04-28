@@ -6,8 +6,6 @@ type Game = {
   to: string;
   title: string;
   tagline: string;
-  badge?: string;
-  badgeTone?: string;
   icon: React.ReactNode;
   iconBg: string;
   iconFg: string;
