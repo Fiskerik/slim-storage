@@ -76,7 +76,12 @@ export function ShareStatsCard({ onClose }: { onClose: () => void }) {
             <span className="uppercase tracking-[0.18em]">Slim · on-device</span>
           </div>
           <p className="mt-6 font-display text-5xl font-bold tabular-nums">{freedLabel}</p>
-          <p className="mt-1 text-sm opacity-90">freed from my camera roll</p>
+          <p className="mt-1 text-sm opacity-90">
+            saved{startedLabel ? ` since ${startedLabel}` : ""}
+          </p>
+          {bestLabel && (
+            <p className="mt-1 text-xs opacity-80">Best day · {bestLabel}</p>
+          )}
           <div className="mt-6 grid grid-cols-3 gap-3 text-center">
             <Mini label="Reviewed" value={reviewed} />
             <Mini label="Streak" value={`🔥${stats.streak}`} />
