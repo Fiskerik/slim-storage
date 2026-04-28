@@ -10,6 +10,10 @@ export type SamplePhoto = {
   device: string;
   sizeMB: number;
   hasGPS: boolean;
+  /** Photos sharing a burstId were taken seconds apart (multi-shot). */
+  burstId?: string;
+  /** Seconds offset within the burst, for "taken 2s apart" hints. */
+  burstOffset?: number;
 };
 
 const PIC = (seed: string, w = 800, h = 1100) =>
