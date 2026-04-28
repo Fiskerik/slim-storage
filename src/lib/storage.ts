@@ -77,6 +77,7 @@ const DEFAULT: Stats = {
   daily: [],
   settings: DEFAULT_SETTINGS,
   pendingDelete: [],
+  startedAt: new Date().toISOString().slice(0, 10),
 };
 
 const listeners = new Set<() => void>();
