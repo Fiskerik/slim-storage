@@ -62,3 +62,5 @@ export const BURST_GROUPS: SamplePhoto[][] = Object.values(
     return acc;
   }, {})
 ).filter((g) => g.length >= 2);
+
+export const MEMORY_POOL: SamplePhoto[] = SAMPLE_PHOTOS.filter((p) => p.year <= 2020 && !p.burstId);
