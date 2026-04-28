@@ -10,6 +10,10 @@ export type SamplePhoto = {
   device: string;
   sizeMB: number;
   hasGPS: boolean;
+  /** Photos sharing a burstId were taken seconds apart (multi-shot). */
+  burstId?: string;
+  /** Seconds offset within the burst, for "taken 2s apart" hints. */
+  burstOffset?: number;
 };
 
 const PIC = (seed: string, w = 800, h = 1100) =>
@@ -28,6 +32,35 @@ export const SAMPLE_PHOTOS: SamplePhoto[] = [
   { id: "p10", url: PIC("old-polaroid"),    thumb: PIC("old-polaroid",400,500),    title: "Polaroid Day",      year: 2013, month: "Mar", device: "iPhone 5",     sizeMB: 0.8, hasGPS: false },
   { id: "p11", url: PIC("garden-bench"),    thumb: PIC("garden-bench",400,500),    title: "Garden Bench",      year: 2024, month: "Apr", device: "iPhone 15 Pro",sizeMB: 6.1, hasGPS: true  },
   { id: "p12", url: PIC("late-night"),      thumb: PIC("late-night",400,500),      title: "Late Night",        year: 2016, month: "Aug", device: "iPhone 6",     sizeMB: 1.2, hasGPS: true  },
+
+  // ── Burst groups: near-duplicates taken seconds apart ──
+  // Burst A — sunset multi-shot
+  { id: "b1a", url: PIC("sunset-burst-1"),  thumb: PIC("sunset-burst-1",400,500),  title: "Sunset",            year: 2024, month: "Jun", device: "iPhone 15 Pro",sizeMB: 5.8, hasGPS: true, burstId: "burst-sunset",  burstOffset: 0 },
+  { id: "b1b", url: PIC("sunset-burst-2"),  thumb: PIC("sunset-burst-2",400,500),  title: "Sunset",            year: 2024, month: "Jun", device: "iPhone 15 Pro",sizeMB: 5.7, hasGPS: true, burstId: "burst-sunset",  burstOffset: 1 },
+  { id: "b1c", url: PIC("sunset-burst-3"),  thumb: PIC("sunset-burst-3",400,500),  title: "Sunset",            year: 2024, month: "Jun", device: "iPhone 15 Pro",sizeMB: 5.9, hasGPS: true, burstId: "burst-sunset",  burstOffset: 2 },
+
+  // Burst B — group selfie
+  { id: "b2a", url: PIC("selfie-burst-1"),  thumb: PIC("selfie-burst-1",400,500),  title: "Group Selfie",      year: 2024, month: "Mar", device: "iPhone 15",    sizeMB: 4.4, hasGPS: true, burstId: "burst-selfie",  burstOffset: 0 },
+  { id: "b2b", url: PIC("selfie-burst-2"),  thumb: PIC("selfie-burst-2",400,500),  title: "Group Selfie",      year: 2024, month: "Mar", device: "iPhone 15",    sizeMB: 4.5, hasGPS: true, burstId: "burst-selfie",  burstOffset: 1 },
+
+  // Burst C — dog running
+  { id: "b3a", url: PIC("dog-burst-1"),     thumb: PIC("dog-burst-1",400,500),     title: "Dog Run",           year: 2023, month: "May", device: "iPhone 14",    sizeMB: 3.8, hasGPS: true, burstId: "burst-dog",     burstOffset: 0 },
+  { id: "b3b", url: PIC("dog-burst-2"),     thumb: PIC("dog-burst-2",400,500),     title: "Dog Run",           year: 2023, month: "May", device: "iPhone 14",    sizeMB: 3.9, hasGPS: true, burstId: "burst-dog",     burstOffset: 1 },
+  { id: "b3c", url: PIC("dog-burst-3"),     thumb: PIC("dog-burst-3",400,500),     title: "Dog Run",           year: 2023, month: "May", device: "iPhone 14",    sizeMB: 3.7, hasGPS: true, burstId: "burst-dog",     burstOffset: 2 },
+  { id: "b3d", url: PIC("dog-burst-4"),     thumb: PIC("dog-burst-4",400,500),     title: "Dog Run",           year: 2023, month: "May", device: "iPhone 14",    sizeMB: 3.8, hasGPS: true, burstId: "burst-dog",     burstOffset: 3 },
+
+  // Burst D — latte art attempts
+  { id: "b4a", url: PIC("latte-burst-1"),   thumb: PIC("latte-burst-1",400,500),   title: "Latte Art",         year: 2024, month: "Jan", device: "iPhone 15",    sizeMB: 2.9, hasGPS: false,burstId: "burst-latte",   burstOffset: 0 },
+  { id: "b4b", url: PIC("latte-burst-2"),   thumb: PIC("latte-burst-2",400,500),   title: "Latte Art",         year: 2024, month: "Jan", device: "iPhone 15",    sizeMB: 3.0, hasGPS: false,burstId: "burst-latte",   burstOffset: 1 },
 ];
 
-export const MEMORY_POOL: SamplePhoto[] = SAMPLE_PHOTOS.filter((p) => p.year <= 2020);
+/** Photos that belong to a burst/multi-shot group, suitable for This-or-That. */
+export const BURST_GROUPS: SamplePhoto[][] = Object.values(
+  SAMPLE_PHOTOS.reduce<Record<string, SamplePhoto[]>>((acc, p) => {
+    if (!p.burstId) return acc;
+    (acc[p.burstId] ||= []).push(p);
+    return acc;
+  }, {})
+).filter((g) => g.length >= 2);
+
+export const MEMORY_POOL: SamplePhoto[] = SAMPLE_PHOTOS.filter((p) => p.year <= 2020 && !p.burstId);

@@ -1,16 +1,35 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Scale, Sparkles, RefreshCw } from "lucide-react";
-import { SAMPLE_PHOTOS, type SamplePhoto } from "@/lib/photos";
+import { BURST_GROUPS, type SamplePhoto } from "@/lib/photos";
 import { setStats, logDay } from "@/lib/storage";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-function pairs(photos: SamplePhoto[], n: number): [SamplePhoto, SamplePhoto][] {
-  const out: [SamplePhoto, SamplePhoto][] = [];
-  const pool = [...photos].sort(() => Math.random() - 0.5);
-  for (let i = 0; i + 1 < pool.length && out.length < n; i += 2) {
-    out.push([pool[i], pool[i + 1]]);
+type BurstPair = {
+  a: SamplePhoto;
+  b: SamplePhoto;
+  burstId: string;
+  gapSec: number;
+};
+
+/** Build pairs only from photos that share a burstId (multi-shot / near-duplicates). */
+function buildPairs(n: number): BurstPair[] {
+  const out: BurstPair[] = [];
+  const groups = [...BURST_GROUPS].sort(() => Math.random() - 0.5);
+  for (const group of groups) {
+    const shuffled = [...group].sort(() => Math.random() - 0.5);
+    for (let i = 0; i + 1 < shuffled.length && out.length < n; i += 2) {
+      const a = shuffled[i];
+      const b = shuffled[i + 1];
+      out.push({
+        a,
+        b,
+        burstId: a.burstId ?? "",
+        gapSec: Math.max(1, Math.abs((a.burstOffset ?? 0) - (b.burstOffset ?? 0))),
+      });
+    }
+    if (out.length >= n) break;
   }
   return out;
 }
@@ -18,21 +37,25 @@ function pairs(photos: SamplePhoto[], n: number): [SamplePhoto, SamplePhoto][] {
 const ROUND = 6;
 
 export function ThisOrThat() {
-  const [round, setRound] = useState<[SamplePhoto, SamplePhoto][]>([]);
+  const [round, setRound] = useState<BurstPair[]>([]);
   const [idx, setIdx] = useState(0);
   const [done, setDone] = useState(false);
   const [freed, setFreed] = useState(0);
 
   useEffect(() => {
-    setRound(pairs(SAMPLE_PHOTOS, ROUND));
+    setRound(buildPairs(ROUND));
   }, []);
 
   const pair = round[idx];
+  const cards = useMemo<[SamplePhoto, SamplePhoto] | null>(
+    () => (pair ? [pair.a, pair.b] : null),
+    [pair]
+  );
   const progress = useMemo(() => `${idx + 1}/${round.length || ROUND}`, [idx, round.length]);
 
   function pick(keepIdx: 0 | 1) {
-    if (!pair) return;
-    const loser = pair[keepIdx === 0 ? 1 : 0];
+    if (!cards) return;
+    const loser = cards[keepIdx === 0 ? 1 : 0];
     setFreed((f) => +(f + loser.sizeMB).toFixed(2));
     setStats((s) => ({
       ...s,
@@ -51,7 +74,7 @@ export function ThisOrThat() {
   }
 
   function reset() {
-    setRound(pairs(SAMPLE_PHOTOS, ROUND));
+    setRound(buildPairs(ROUND));
     setIdx(0);
     setFreed(0);
     setDone(false);
@@ -77,7 +100,7 @@ export function ThisOrThat() {
     );
   }
 
-  if (!pair) return null;
+  if (!cards || !pair) return null;
 
   return (
     <div className="flex flex-col items-center px-5 pt-4">
@@ -91,12 +114,15 @@ export function ThisOrThat() {
       <p className="mt-3 text-center text-sm font-medium text-foreground">
         Tap the one to keep
       </p>
+      <p className="mt-1 text-center text-[11px] text-muted-foreground">
+        Multi-shot · taken {pair.gapSec}s apart
+      </p>
 
       <div className="mt-4 grid w-full max-w-sm grid-cols-2 gap-3">
         <AnimatePresence mode="wait">
           {[0, 1].map((i) => (
             <motion.button
-              key={pair[i].id + idx}
+              key={cards[i].id + idx}
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
@@ -105,16 +131,16 @@ export function ThisOrThat() {
               className="group relative aspect-[3/4] overflow-hidden rounded-2xl border border-border bg-card shadow-card transition hover:border-primary/60 active:scale-[0.97]"
             >
               <img
-                src={pair[i].url}
-                alt={pair[i].title}
+                src={cards[i].url}
+                alt={cards[i].title}
                 className="h-full w-full object-cover transition group-hover:scale-[1.03]"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/65 to-transparent" />
               <div className="absolute bottom-2 left-2 right-2 text-left text-white">
                 <p className="text-[10px] uppercase tracking-wider opacity-80">
-                  {pair[i].sizeMB.toFixed(1)} MB
+                  {cards[i].sizeMB.toFixed(1)} MB
                 </p>
-                <p className="font-display text-sm font-bold leading-tight">{pair[i].title}</p>
+                <p className="font-display text-sm font-bold leading-tight">{cards[i].title}</p>
               </div>
               <div className="absolute right-2 top-2 rounded-full bg-black/50 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur">
                 {i === 0 ? "A" : "B"}
