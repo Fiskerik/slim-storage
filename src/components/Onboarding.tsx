@@ -9,18 +9,18 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const steps = [
     {
       icon: <Shield className="h-7 w-7" />,
-      title: "100% on-device. Private.",
-      body: "Slim never uploads your photos. Everything stays on your iPhone — no cloud, no servers, no tracking. Photo access is only used to show, slim, and delete photos you choose.",
+      title: "Private by default",
+      body: "Your photos never leave your phone.",
     },
     {
       icon: <Layers className="h-7 w-7" />,
       title: "Swipe to clean",
-      body: "← Keep · ↑ Trim (strip metadata + compress) · → Delete. Anything you delete goes to your iPhone's Recently Deleted for 30 days, and you have a 30-second Undo right inside Slim.",
+      body: "← Keep · ↑ Trim · → Delete.",
     },
     {
       icon: <Flame className="h-7 w-7" />,
       title: "5 minutes a day",
-      body: "A daily streak nudge keeps it light. Most people clear 1–3 GB in their first week without losing anything they care about.",
+      body: "Free GBs. Keep your streak.",
     },
   ];
 
