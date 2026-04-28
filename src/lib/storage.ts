@@ -42,6 +42,8 @@ export type Stats = {
   settings: Settings;
   // Soft-deleted items pending permanent removal (for Undo)
   pendingDelete: { id: string; title: string; sizeMB: number; deletedAt: number }[];
+  // First time the user opened Slim — used for "Saved X MB since [date]"
+  startedAt: string;     // ISO date YYYY-MM-DD
 };
 
 const KEY = "slim.stats.v1";
@@ -75,6 +77,7 @@ const DEFAULT: Stats = {
   daily: [],
   settings: DEFAULT_SETTINGS,
   pendingDelete: [],
+  startedAt: new Date().toISOString().slice(0, 10),
 };
 
 const listeners = new Set<() => void>();
@@ -91,6 +94,7 @@ function readFromStorage(): Stats {
       ...parsed,
       settings: { ...DEFAULT_SETTINGS, ...(parsed.settings ?? {}) },
       pendingDelete: parsed.pendingDelete ?? [],
+      startedAt: parsed.startedAt ?? new Date().toISOString().slice(0, 10),
     };
   } catch {
     return DEFAULT;

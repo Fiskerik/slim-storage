@@ -17,6 +17,7 @@ const empty: Stats = {
     displayName: "You",
   },
   pendingDelete: [],
+  startedAt: new Date().toISOString().slice(0, 10),
 };
 
 export function useStats(): Stats {

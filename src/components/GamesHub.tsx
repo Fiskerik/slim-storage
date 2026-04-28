@@ -6,8 +6,6 @@ type Game = {
   to: string;
   title: string;
   tagline: string;
-  badge?: string;
-  badgeTone?: string;
   icon: React.ReactNode;
   iconBg: string;
   iconFg: string;
@@ -22,8 +20,6 @@ export function GamesHub() {
       to: "/memory",
       title: "Memory Lane",
       tagline: "Guess the year of forgotten photos, then keep or clear.",
-      badge: "Signature",
-      badgeTone: "bg-primary/15 text-primary",
       icon: <Brain className="h-5 w-5" />,
       iconBg: "bg-primary/15",
       iconFg: "text-primary",
@@ -33,8 +29,6 @@ export function GamesHub() {
       to: "/games/this-or-that",
       title: "This or That",
       tagline: "Two near-duplicates side by side. Pick the keeper, lose the rest.",
-      badge: "Easy to build",
-      badgeTone: "bg-accent/20 text-accent-foreground",
       icon: <Scale className="h-5 w-5" />,
       iconBg: "bg-accent/20",
       iconFg: "text-accent-foreground",
@@ -44,8 +38,6 @@ export function GamesHub() {
       to: "/games/speed-round",
       title: "Speed Round",
       tagline: "30 seconds, swipe as many photos as you can. Score = MB freed.",
-      badge: "High engagement",
-      badgeTone: "bg-warm/30 text-warm-foreground",
       icon: <Timer className="h-5 w-5" />,
       iconBg: "bg-warm/25",
       iconFg: "text-warm-foreground",
@@ -55,8 +47,6 @@ export function GamesHub() {
       to: "/games/storage-budget",
       title: "Storage Budget",
       tagline: "50 MB budget. Keep only what fits. Real trade-offs, real space.",
-      badge: "Puzzle-style",
-      badgeTone: "bg-secondary text-secondary-foreground",
       icon: <HardDrive className="h-5 w-5" />,
       iconBg: "bg-secondary",
       iconFg: "text-secondary-foreground",
@@ -103,14 +93,7 @@ export function GamesHub() {
                 {g.icon}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="font-display text-lg font-bold tracking-tight">{g.title}</h3>
-                  {g.badge && (
-                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${g.badgeTone}`}>
-                      {g.badge}
-                    </span>
-                  )}
-                </div>
+                <h3 className="font-display text-lg font-bold tracking-tight">{g.title}</h3>
                 <p className="mt-1 text-sm text-muted-foreground">{g.tagline}</p>
               </div>
               <ArrowRight className="mt-3 h-4 w-4 shrink-0 text-muted-foreground" />
