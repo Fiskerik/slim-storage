@@ -42,6 +42,8 @@ export type Stats = {
   settings: Settings;
   // Soft-deleted items pending permanent removal (for Undo)
   pendingDelete: { id: string; title: string; sizeMB: number; deletedAt: number }[];
+  // First time the user opened Slim — used for "Saved X MB since [date]"
+  startedAt: string;     // ISO date YYYY-MM-DD
 };
 
 const KEY = "slim.stats.v1";
