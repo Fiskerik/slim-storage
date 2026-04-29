@@ -1,0 +1,13 @@
+{
+  "apps": [
+    {
+      "appId": "com.fiskerik.trimswipe",
+      "root": ".",
+      "builds": {
+        "ios": {
+          "preBuild": "npx cap add ios && npx cap sync ios"
+        }
+      }
+    }
+  ]
+}

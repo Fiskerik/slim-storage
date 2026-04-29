@@ -8,6 +8,7 @@ const config: CapacitorConfig = {
     contentInset: 'always',
     limitsNavigationsToAppBoundDomains: false,
     backgroundColor: '#f5efe6',
+    
   },
   plugins: {
     SplashScreen: {
