@@ -13,7 +13,9 @@ import {
   Crown,
   Pencil,
   Check,
+  FileText,
 } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { useStats } from "@/hooks/use-stats";
 import { updateSettings, deleteAllData, setPro } from "@/lib/storage";
 import { Slider } from "@/components/ui/slider";
@@ -191,18 +193,30 @@ export function ProfilePage() {
       <h2 className="mt-7 px-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
         Privacy
       </h2>
-      <div className="mt-3 rounded-2xl border border-border bg-card p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-success/15 text-success">
-            <Shield className="h-4 w-4" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold">Data Not Collected</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              No analytics, no ads, no cloud upload of your photos. Ever.
-            </p>
+      <div className="mt-3 space-y-2">
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-success/15 text-success">
+              <Shield className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold">Data Not Collected</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                No analytics, no ads, no cloud upload of your photos. Ever.
+              </p>
+            </div>
           </div>
         </div>
+        <Link
+          to="/privacy"
+          className="flex w-full items-center justify-between rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/40"
+        >
+          <div className="flex items-center gap-3">
+            <FileText className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">Privacy Policy</span>
+          </div>
+          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+        </Link>
       </div>
 
       <h2 className="mt-7 px-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">

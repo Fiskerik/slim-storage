@@ -1,7 +1,9 @@
+import { useEffect } from "react";
 import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { TopBar } from "@/components/TopBar";
 import { BottomNav } from "@/components/BottomNav";
 import { Toaster } from "@/components/ui/sonner";
+import { initNativeShell } from "@/lib/native-shell";
 
 import appCss from "../styles.css?url";
 
@@ -39,10 +41,15 @@ export const Route = createRootRoute({
           "Slim your camera roll in minutes. Swipe to keep, trim, or delete — strip metadata and reclaim storage, all on-device.",
       },
       { name: "theme-color", content: "#f5efe6" },
-      { property: "og:title", content: "Slim — Tinder for Photos" },
-      { property: "og:description", content: "Slim, private photo cleaning. Swipe to keep, trim or delete." },
+      { property: "og:title", content: "Slim — Tinder for Photos with privacy built-in" },
+      { property: "og:description", content: "Slim Storage is a photo cleaner that slims your library by compressing images and stripping metadata." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
+      { name: "twitter:title", content: "Slim — Tinder for Photos with privacy built-in" },
+      { name: "description", content: "Slim Storage is a photo cleaner that slims your library by compressing images and stripping metadata." },
+      { name: "twitter:description", content: "Slim Storage is a photo cleaner that slims your library by compressing images and stripping metadata." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/39ed5250-1154-4ccc-8f06-5d277293f64f/id-preview-8df2f7ff--69389407-3876-4baf-89a7-6f7f18b7d613.lovable.app-1777367486424.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/39ed5250-1154-4ccc-8f06-5d277293f64f/id-preview-8df2f7ff--69389407-3876-4baf-89a7-6f7f18b7d613.lovable.app-1777367486424.png" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
@@ -74,6 +81,9 @@ function RootShell({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
+  useEffect(() => {
+    initNativeShell();
+  }, []);
   return (
     <div className="min-h-dvh bg-background text-foreground">
       <div className="mx-auto flex min-h-dvh max-w-md flex-col">

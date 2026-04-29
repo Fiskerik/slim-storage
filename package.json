@@ -9,12 +9,22 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "ios:prerender": "bun scripts/build-ios.ts",
+    "ios:sync": "vite build && bun scripts/build-ios.ts && cap sync ios",
+    "ios:open": "cap open ios",
+    "ios:run": "vite build && bun scripts/build-ios.ts && cap sync ios && cap run ios"
   },
   "dependencies": {
+    "@capacitor-community/media": "^9.1.0",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/camera": "^8.2.0",
     "@capacitor/cli": "^8.3.1",
     "@capacitor/core": "^8.3.1",
+    "@capacitor/haptics": "^8.0.2",
     "@capacitor/ios": "^8.3.1",
+    "@capacitor/splash-screen": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.2",
     "@cloudflare/vite-plugin": "^1.25.5",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "^1.2.12",
