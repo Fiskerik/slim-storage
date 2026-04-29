@@ -8,6 +8,7 @@
         "@capacitor/cli": "^8.3.1",
         "@capacitor/core": "^8.3.1",
         "@capacitor/ios": "^8.3.1",
+        "@capawesome/capacitor-photo-editor": "^8.0.1",
         "@cloudflare/vite-plugin": "^1.25.5",
         "@hookform/resolvers": "^5.2.2",
         "@radix-ui/react-accordion": "^1.2.12",
@@ -336,6 +337,8 @@
     "@capacitor/core": ["@capacitor/core@8.3.1", "https://europe-west1-npm.pkg.dev/lovable-core-prod/sandbox-npm-cache/@capacitor/core/-/core-8.3.1.tgz", { "dependencies": { "tslib": "^2.1.0" } }, "sha512-UF8ItlHguU1Z6GXfPTeT2gakf+ctNI8pAS1kwSBQlsJMlfD4OPoto/SmKnOxKCQvnF4WRcdWeg6C0zREUNaAQg=="],
 
     "@capacitor/ios": ["@capacitor/ios@8.3.1", "https://europe-west1-npm.pkg.dev/lovable-core-prod/sandbox-npm-cache/@capacitor/ios/-/ios-8.3.1.tgz", { "peerDependencies": { "@capacitor/core": "^8.3.0" } }, "sha512-BEhLyYYHWJLib4mpaPMaaylbC8meqgxbNYwQJH2svsSLW7yo/hFie+Zoo66a44XnqcMd2tvmAuzimWunXZi/xA=="],
+
+    "@capawesome/capacitor-photo-editor": ["@capawesome/capacitor-photo-editor@8.0.1", "https://europe-west4-npm.pkg.dev/lovable-core-prod/sandbox-npm-cache/@capawesome/capacitor-photo-editor/-/capacitor-photo-editor-8.0.1.tgz", { "peerDependencies": { "@capacitor/core": ">=8.0.0" } }, "sha512-Dv3SJOE+R1hS4VmI1c3ECU/DhrWPPn/QnKz/+M+++5b9s5wdI+xFgKwZz71zAilHJknYEiCl2yd3AqZ7az5+UQ=="],
 
     "@cloudflare/kv-asset-handler": ["@cloudflare/kv-asset-handler@0.4.2", "", {}, "sha512-SIOD2DxrRRwQ+jgzlXCqoEFiKOFqaPjhnNTGKXSRLvp1HiOvapLaFG2kEr9dYQTYe8rKrd9uvDUzmAITeNyaHQ=="],
 
