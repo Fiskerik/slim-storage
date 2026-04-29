@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useTransform, type PanInfo, AnimatePresence } from "framer-motion";
-import { ArrowLeft, ArrowUp, ArrowRight, MapPin, Sparkles, RefreshCw, Lock, Cloud, Undo2, PartyPopper } from "lucide-react";
+import { ArrowLeft, ArrowUp, ArrowRight, MapPin, Sparkles, RefreshCw, Lock, Cloud, Undo2, PartyPopper, Trash2, Check } from "lucide-react";
 import { SAMPLE_PHOTOS, type SamplePhoto } from "@/lib/photos";
 import { setStats, bumpStreak, canTrim, recordTrim, logDay, trimsRemainingToday, setPro, FREE_TRIM_LIMIT, softDelete, undoDelete, updateSettings } from "@/lib/storage";
 import { useStats } from "@/hooks/use-stats";
@@ -34,6 +34,7 @@ export function SwipeDeck() {
   // Start with a deterministic order for SSR; shuffle after mount to avoid hydration mismatch.
   const [queue, setQueue] = useState<SamplePhoto[]>(() => SAMPLE_PHOTOS.slice(0, cardsPerRound));
   const [recap, setRecap] = useState<SessionRecap | null>(null);
+  const [confirmList, setConfirmList] = useState<SamplePhoto[] | null>(null);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [iCloudWarn, setICloudWarn] = useState<{ photo: SamplePhoto } | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -45,6 +46,7 @@ export function SwipeDeck() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
+  const deletedPhotosRef = useRef<SamplePhoto[]>([]);
   const seenICloudWarnRef = useRef(false);
 
   const top = queue[0];
@@ -58,12 +60,13 @@ export function SwipeDeck() {
     setStats((s) => ({ ...s, deleted: s.deleted + 1, mbFreed: s.mbFreed + photo.sizeMB }));
     logDay({ deleted: 1, mbFreed: photo.sizeMB });
     softDelete({ id: photo.id, title: photo.title, sizeMB: photo.sizeMB });
+    deletedPhotosRef.current = [...deletedPhotosRef.current, photo];
 
     // 30s undo window
     toast.success(`Deleted · freed ${photo.sizeMB.toFixed(1)} MB`, {
       duration: 5000,
       icon: <Undo2 className="h-4 w-4" />,
-      description: "Tap Undo to restore. Stays in Recently Deleted for 30 days.",
+      description: "Tap Undo to restore. You can also confirm at the end of the set.",
       action: {
         label: "Undo",
         onClick: () => {
@@ -75,6 +78,7 @@ export function SwipeDeck() {
           }));
           sess.deleted = Math.max(0, sess.deleted - 1);
           sess.freed = Math.max(0, sess.freed - photo.sizeMB);
+          deletedPhotosRef.current = deletedPhotosRef.current.filter((p) => p.id !== photo.id);
           // Put it back at the top
           setQueue((q) => [photo, ...q]);
           toast.success("Restored");
@@ -90,8 +94,13 @@ export function SwipeDeck() {
       const rest = q.slice(1);
       if (rest.length === 0) {
         bumpStreak();
-        setRecap({ ...sessionRef.current });
-        sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
+        // If anything was marked for delete, ask for confirmation first.
+        if (deletedPhotosRef.current.length > 0) {
+          setConfirmList(deletedPhotosRef.current);
+        } else {
+          setRecap({ ...sessionRef.current });
+          sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
+        }
       }
       return rest;
     });
@@ -137,10 +146,42 @@ export function SwipeDeck() {
   function reset() {
     setQueue(shuffle(SAMPLE_PHOTOS).slice(0, cardsPerRound));
     setRecap(null);
+    deletedPhotosRef.current = [];
+  }
+
+  function handleConfirmDeletion(keepIds: Set<string>) {
+    // For any photo the user unchecked (i.e. NOT in keepIds), restore it.
+    const sess = sessionRef.current;
+    deletedPhotosRef.current.forEach((photo) => {
+      if (!keepIds.has(photo.id)) {
+        undoDelete(photo.id);
+        setStats((s) => ({
+          ...s,
+          deleted: Math.max(0, s.deleted - 1),
+          mbFreed: Math.max(0, s.mbFreed - photo.sizeMB),
+        }));
+        sess.deleted = Math.max(0, sess.deleted - 1);
+        sess.freed = Math.max(0, sess.freed - photo.sizeMB);
+      }
+    });
+    const finalRecap = { ...sess };
+    sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
+    deletedPhotosRef.current = [];
+    setConfirmList(null);
+    setRecap(finalRecap);
   }
 
   if (showOnboarding) {
     return <Onboarding onDone={() => setShowOnboarding(false)} />;
+  }
+
+  if (confirmList) {
+    return (
+      <DeleteConfirmStep
+        photos={confirmList}
+        onConfirm={handleConfirmDeletion}
+      />
+    );
   }
 
   if (recap) {
@@ -571,6 +612,145 @@ function PaywallModal({ onClose, onUpgrade }: { onClose: () => void; onUpgrade: 
           className="mt-2 inline-flex w-full items-center justify-center rounded-full py-2.5 text-sm font-medium text-muted-foreground transition hover:text-foreground"
         >
           Maybe later
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DeleteConfirmStep({
+  photos,
+  onConfirm,
+}: {
+  photos: SamplePhoto[];
+  onConfirm: (keepIds: Set<string>) => void;
+}) {
+  // Default: every photo stays "checked" (will be deleted).
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(
+    () => new Set(photos.map((p) => p.id)),
+  );
+
+  const totalMB = photos
+    .filter((p) => checkedIds.has(p.id))
+    .reduce((sum, p) => sum + p.sizeMB, 0);
+  const count = checkedIds.size;
+
+  function toggle(id: string) {
+    setCheckedIds((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    if (checkedIds.size === photos.length) setCheckedIds(new Set());
+    else setCheckedIds(new Set(photos.map((p) => p.id)));
+  }
+
+  return (
+    <div className="flex flex-col px-5 pt-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-destructive/15 text-destructive shadow-soft">
+            <Trash2 className="h-5 w-5" />
+          </div>
+          <h2 className="mt-3 font-display text-2xl font-bold tracking-tight">
+            Confirm deletion
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Untick anything you'd like to keep. Confirmed photos move to
+            Recently Deleted.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 flex items-center justify-between rounded-2xl border border-border bg-card px-4 py-3">
+        <div className="text-xs">
+          <p className="font-display text-lg font-bold tabular-nums">
+            {count}{" "}
+            <span className="text-xs font-medium text-muted-foreground">
+              · {totalMB.toFixed(1)} MB
+            </span>
+          </p>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            To delete
+          </p>
+        </div>
+        <button
+          onClick={toggleAll}
+          className="text-xs font-semibold text-primary hover:opacity-80"
+        >
+          {checkedIds.size === photos.length ? "Untick all" : "Tick all"}
+        </button>
+      </div>
+
+      <ul className="mt-3 space-y-2">
+        {photos.map((p) => {
+          const checked = checkedIds.has(p.id);
+          return (
+            <li key={p.id}>
+              <button
+                onClick={() => toggle(p.id)}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-2xl border bg-card p-2.5 text-left transition",
+                  checked
+                    ? "border-destructive/40 bg-destructive/[0.04]"
+                    : "border-border opacity-60",
+                )}
+              >
+                <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-muted">
+                  <img
+                    src={p.thumb}
+                    alt={p.title}
+                    loading="lazy"
+                    className={cn(
+                      "h-full w-full object-cover transition",
+                      !checked && "grayscale",
+                    )}
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{p.title}</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {p.month} {p.year} · {p.sizeMB.toFixed(1)} MB
+                  </p>
+                </div>
+                <div
+                  className={cn(
+                    "flex h-6 w-6 items-center justify-center rounded-md border-2 transition",
+                    checked
+                      ? "border-destructive bg-destructive text-destructive-foreground"
+                      : "border-border bg-background",
+                  )}
+                  aria-checked={checked}
+                  role="checkbox"
+                >
+                  {checked && <Check className="h-3.5 w-3.5" strokeWidth={3} />}
+                </div>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="sticky bottom-24 mt-5 flex flex-col gap-2 bg-gradient-to-t from-background via-background to-transparent pb-2 pt-4">
+        <button
+          onClick={() => onConfirm(checkedIds)}
+          disabled={count === 0}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-destructive py-3.5 text-sm font-semibold text-destructive-foreground shadow-card transition hover:opacity-90 disabled:opacity-40"
+        >
+          <Trash2 className="h-4 w-4" />
+          {count === 0
+            ? "Nothing to delete"
+            : `Delete ${count} photo${count === 1 ? "" : "s"} · ${totalMB.toFixed(1)} MB`}
+        </button>
+        <button
+          onClick={() => onConfirm(new Set())}
+          className="text-xs font-medium text-muted-foreground hover:text-foreground"
+        >
+          Keep them all
         </button>
       </div>
     </div>

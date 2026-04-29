@@ -1,4 +1,4 @@
-import { Shield } from "lucide-react";
+import { Scissors } from "lucide-react";
 import { useStats } from "@/hooks/use-stats";
 
 export function TopBar() {
@@ -9,7 +9,7 @@ export function TopBar() {
       <div className="mx-auto flex max-w-md items-center justify-between px-5 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
         <div className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-soft">
-            <Shield className="h-4 w-4" />
+            <Scissors className="h-4 w-4" strokeWidth={2.4} />
           </div>
           <div className="leading-tight">
             <p className="font-display text-base font-bold tracking-tight">Slim</p>

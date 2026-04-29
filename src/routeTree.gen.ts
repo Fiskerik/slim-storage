@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as StatsRouteImport } from './routes/stats'
 import { Route as ProfileRouteImport } from './routes/profile'
+import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as MemoryRouteImport } from './routes/memory'
 import { Route as GamesRouteImport } from './routes/games'
 import { Route as IndexRouteImport } from './routes/index'
@@ -23,6 +24,11 @@ const StatsRoute = StatsRouteImport.update({
 const ProfileRoute = ProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MemoryRoute = MemoryRouteImport.update({
@@ -45,6 +51,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/games': typeof GamesRoute
   '/memory': typeof MemoryRoute
+  '/privacy': typeof PrivacyRoute
   '/profile': typeof ProfileRoute
   '/stats': typeof StatsRoute
 }
@@ -52,6 +59,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/games': typeof GamesRoute
   '/memory': typeof MemoryRoute
+  '/privacy': typeof PrivacyRoute
   '/profile': typeof ProfileRoute
   '/stats': typeof StatsRoute
 }
@@ -60,21 +68,30 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/games': typeof GamesRoute
   '/memory': typeof MemoryRoute
+  '/privacy': typeof PrivacyRoute
   '/profile': typeof ProfileRoute
   '/stats': typeof StatsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/games' | '/memory' | '/profile' | '/stats'
+  fullPaths: '/' | '/games' | '/memory' | '/privacy' | '/profile' | '/stats'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/games' | '/memory' | '/profile' | '/stats'
-  id: '__root__' | '/' | '/games' | '/memory' | '/profile' | '/stats'
+  to: '/' | '/games' | '/memory' | '/privacy' | '/profile' | '/stats'
+  id:
+    | '__root__'
+    | '/'
+    | '/games'
+    | '/memory'
+    | '/privacy'
+    | '/profile'
+    | '/stats'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   GamesRoute: typeof GamesRoute
   MemoryRoute: typeof MemoryRoute
+  PrivacyRoute: typeof PrivacyRoute
   ProfileRoute: typeof ProfileRoute
   StatsRoute: typeof StatsRoute
 }
@@ -93,6 +110,13 @@ declare module '@tanstack/react-router' {
       path: '/profile'
       fullPath: '/profile'
       preLoaderRoute: typeof ProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/memory': {
@@ -123,6 +147,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   GamesRoute: GamesRoute,
   MemoryRoute: MemoryRoute,
+  PrivacyRoute: PrivacyRoute,
   ProfileRoute: ProfileRoute,
   StatsRoute: StatsRoute,
 }

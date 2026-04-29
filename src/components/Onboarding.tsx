@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Shield, Layers, Flame, ArrowRight, Lock } from "lucide-react";
+import { Lock, Scissors, Flame, MoveRight, ArrowLeft, ArrowUp, ArrowRight } from "lucide-react";
 import { updateSettings } from "@/lib/storage";
 
 export function Onboarding({ onDone }: { onDone: () => void }) {
@@ -8,17 +8,17 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
 
   const steps = [
     {
-      icon: <Shield className="h-7 w-7" />,
+      icon: <Lock className="h-7 w-7" strokeWidth={2.4} />,
       title: "Private by default",
       body: "Your photos never leave your phone.",
     },
     {
-      icon: <Layers className="h-7 w-7" />,
+      icon: <Scissors className="h-7 w-7" strokeWidth={2.4} />,
       title: "Swipe to clean",
-      body: "← Keep · ↑ Trim · → Delete.",
+      body: "Keep, trim, or delete with a flick.",
     },
     {
-      icon: <Flame className="h-7 w-7" />,
+      icon: <Flame className="h-7 w-7" strokeWidth={2.4} />,
       title: "5 minutes a day",
       body: "Free GBs. Keep your streak.",
     },
@@ -69,6 +69,26 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                 Data Not Collected · No analytics · No ads
               </div>
             )}
+
+            {step === 1 && (
+              <div className="mt-7 flex items-center gap-3">
+                <SwipeHint
+                  icon={<ArrowLeft className="h-4 w-4" strokeWidth={2.6} />}
+                  label="Keep"
+                  tone="success"
+                />
+                <SwipeHint
+                  icon={<ArrowUp className="h-4 w-4" strokeWidth={2.6} />}
+                  label="Trim"
+                  tone="primary"
+                />
+                <SwipeHint
+                  icon={<ArrowRight className="h-4 w-4" strokeWidth={2.6} />}
+                  label="Delete"
+                  tone="destructive"
+                />
+              </div>
+            )}
           </motion.div>
         </AnimatePresence>
       </div>
@@ -77,7 +97,8 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
         onClick={next}
         className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary py-4 text-sm font-semibold text-primary-foreground shadow-card transition hover:opacity-90"
       >
-        {last ? "Get started" : "Continue"} <ArrowRight className="h-4 w-4" />
+        {last ? "Get started" : "Continue"}
+        <MoveRight className="h-4 w-4" strokeWidth={2.4} />
       </button>
       {!last && (
         <button
@@ -90,6 +111,34 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
           Skip
         </button>
       )}
+    </div>
+  );
+}
+
+function SwipeHint({
+  icon,
+  label,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  tone: "success" | "primary" | "destructive";
+}) {
+  const styles = {
+    success: "bg-success/15 text-success border-success/30",
+    primary: "bg-primary/15 text-primary border-primary/30",
+    destructive: "bg-destructive/15 text-destructive border-destructive/30",
+  }[tone];
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <div
+        className={`flex h-11 w-11 items-center justify-center rounded-2xl border ${styles}`}
+      >
+        {icon}
+      </div>
+      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        {label}
+      </span>
     </div>
   );
 }
