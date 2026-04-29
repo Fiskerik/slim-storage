@@ -34,6 +34,7 @@ export function SwipeDeck() {
   // Start with a deterministic order for SSR; shuffle after mount to avoid hydration mismatch.
   const [queue, setQueue] = useState<SamplePhoto[]>(() => SAMPLE_PHOTOS.slice(0, cardsPerRound));
   const [recap, setRecap] = useState<SessionRecap | null>(null);
+  const [confirmList, setConfirmList] = useState<SamplePhoto[] | null>(null);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [iCloudWarn, setICloudWarn] = useState<{ photo: SamplePhoto } | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -45,6 +46,7 @@ export function SwipeDeck() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
+  const deletedPhotosRef = useRef<SamplePhoto[]>([]);
   const seenICloudWarnRef = useRef(false);
 
   const top = queue[0];
