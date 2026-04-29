@@ -146,10 +146,42 @@ export function SwipeDeck() {
   function reset() {
     setQueue(shuffle(SAMPLE_PHOTOS).slice(0, cardsPerRound));
     setRecap(null);
+    deletedPhotosRef.current = [];
+  }
+
+  function handleConfirmDeletion(keepIds: Set<string>) {
+    // For any photo the user unchecked (i.e. NOT in keepIds), restore it.
+    const sess = sessionRef.current;
+    deletedPhotosRef.current.forEach((photo) => {
+      if (!keepIds.has(photo.id)) {
+        undoDelete(photo.id);
+        setStats((s) => ({
+          ...s,
+          deleted: Math.max(0, s.deleted - 1),
+          mbFreed: Math.max(0, s.mbFreed - photo.sizeMB),
+        }));
+        sess.deleted = Math.max(0, sess.deleted - 1);
+        sess.freed = Math.max(0, sess.freed - photo.sizeMB);
+      }
+    });
+    const finalRecap = { ...sess };
+    sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
+    deletedPhotosRef.current = [];
+    setConfirmList(null);
+    setRecap(finalRecap);
   }
 
   if (showOnboarding) {
     return <Onboarding onDone={() => setShowOnboarding(false)} />;
+  }
+
+  if (confirmList) {
+    return (
+      <DeleteConfirmStep
+        photos={confirmList}
+        onConfirm={handleConfirmDeletion}
+      />
+    );
   }
 
   if (recap) {
