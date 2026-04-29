@@ -69,6 +69,26 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                 Data Not Collected · No analytics · No ads
               </div>
             )}
+
+            {step === 1 && (
+              <div className="mt-7 flex items-center gap-3">
+                <SwipeHint
+                  icon={<ArrowLeft className="h-4 w-4" strokeWidth={2.6} />}
+                  label="Keep"
+                  tone="success"
+                />
+                <SwipeHint
+                  icon={<ArrowUp className="h-4 w-4" strokeWidth={2.6} />}
+                  label="Trim"
+                  tone="primary"
+                />
+                <SwipeHint
+                  icon={<ArrowRight className="h-4 w-4" strokeWidth={2.6} />}
+                  label="Delete"
+                  tone="destructive"
+                />
+              </div>
+            )}
           </motion.div>
         </AnimatePresence>
       </div>
