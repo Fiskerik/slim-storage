@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Scale, Sparkles, RefreshCw } from "lucide-react";
-import { BURST_GROUPS, type SamplePhoto } from "@/lib/photos";
+import { getPhotoSource, type LibraryPhoto } from "@/lib/photo-source";
 import { setStats, logDay } from "@/lib/storage";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+
+type SamplePhoto = LibraryPhoto;
 
 type BurstPair = {
   a: SamplePhoto;
@@ -13,11 +15,12 @@ type BurstPair = {
   gapSec: number;
 };
 
-/** Build pairs only from photos that share a burstId (multi-shot / near-duplicates). */
-function buildPairs(n: number): BurstPair[] {
+/** Build pairs only from photos that share a burst/multi-shot group. */
+async function buildPairs(n: number): Promise<BurstPair[]> {
+  const groups = await getPhotoSource().getBurstGroups(n);
   const out: BurstPair[] = [];
-  const groups = [...BURST_GROUPS].sort(() => Math.random() - 0.5);
-  for (const group of groups) {
+  const shuffledGroups = [...groups].sort(() => Math.random() - 0.5);
+  for (const group of shuffledGroups) {
     const shuffled = [...group].sort(() => Math.random() - 0.5);
     for (let i = 0; i + 1 < shuffled.length && out.length < n; i += 2) {
       const a = shuffled[i];
@@ -25,7 +28,7 @@ function buildPairs(n: number): BurstPair[] {
       out.push({
         a,
         b,
-        burstId: a.burstId ?? "",
+        burstId: a.burstId ?? a.id,
         gapSec: Math.max(1, Math.abs((a.burstOffset ?? 0) - (b.burstOffset ?? 0))),
       });
     }
