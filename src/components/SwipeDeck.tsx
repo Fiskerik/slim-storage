@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useTransform, type PanInfo, AnimatePresence } from "framer-motion";
 import { ArrowLeft, ArrowUp, ArrowRight, MapPin, Sparkles, RefreshCw, Lock, Cloud, Undo2, PartyPopper, Trash2, Check } from "lucide-react";
-import { SAMPLE_PHOTOS, type SamplePhoto } from "@/lib/photos";
+import { getPhotoSource, isNativeApp, type LibraryPhoto } from "@/lib/photo-source";
 import { setStats, bumpStreak, canTrim, recordTrim, logDay, trimsRemainingToday, setPro, FREE_TRIM_LIMIT, softDelete, undoDelete, updateSettings } from "@/lib/storage";
 import { useStats } from "@/hooks/use-stats";
 import { Onboarding } from "@/components/Onboarding";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+
+type SamplePhoto = LibraryPhoto;
 
 type Action = "keep" | "trim" | "delete";
 
@@ -31,8 +33,9 @@ function shuffle<T>(arr: T[]): T[] {
 export function SwipeDeck() {
   const stats = useStats();
   const cardsPerRound = Math.min(30, Math.max(5, stats.settings.cardsPerRound));
-  // Start with a deterministic order for SSR; shuffle after mount to avoid hydration mismatch.
-  const [queue, setQueue] = useState<SamplePhoto[]>(() => SAMPLE_PHOTOS.slice(0, cardsPerRound));
+  const [queue, setQueue] = useState<SamplePhoto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [permissionDenied, setPermissionDenied] = useState(false);
   const [recap, setRecap] = useState<SessionRecap | null>(null);
   const [confirmList, setConfirmList] = useState<SamplePhoto[] | null>(null);
   const [paywallOpen, setPaywallOpen] = useState(false);
@@ -40,9 +43,26 @@ export function SwipeDeck() {
   const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
-    setQueue((q) => (q === SAMPLE_PHOTOS.slice(0, cardsPerRound) ? shuffle(SAMPLE_PHOTOS).slice(0, cardsPerRound) : q));
+    let cancelled = false;
+    (async () => {
+      const src = getPhotoSource();
+      if (src.isNative) {
+        const ok = await src.requestPermission();
+        if (!ok) {
+          if (!cancelled) {
+            setPermissionDenied(true);
+            setLoading(false);
+          }
+          return;
+        }
+      }
+      const photos = await src.getRandom(cardsPerRound);
+      if (cancelled) return;
+      setQueue(photos);
+      setLoading(false);
+    })();
     if (!stats.settings.onboarded) setShowOnboarding(true);
-    // Run once on mount
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
