@@ -97,7 +97,8 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
         onClick={next}
         className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary py-4 text-sm font-semibold text-primary-foreground shadow-card transition hover:opacity-90"
       >
-        {last ? "Get started" : "Continue"} <ArrowRight className="h-4 w-4" />
+        {last ? "Get started" : "Continue"}
+        <MoveRight className="h-4 w-4" strokeWidth={2.4} />
       </button>
       {!last && (
         <button
@@ -110,6 +111,34 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
           Skip
         </button>
       )}
+    </div>
+  );
+}
+
+function SwipeHint({
+  icon,
+  label,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  tone: "success" | "primary" | "destructive";
+}) {
+  const styles = {
+    success: "bg-success/15 text-success border-success/30",
+    primary: "bg-primary/15 text-primary border-primary/30",
+    destructive: "bg-destructive/15 text-destructive border-destructive/30",
+  }[tone];
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <div
+        className={`flex h-11 w-11 items-center justify-center rounded-2xl border ${styles}`}
+      >
+        {icon}
+      </div>
+      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        {label}
+      </span>
     </div>
   );
 }
