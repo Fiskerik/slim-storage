@@ -46,7 +46,7 @@ export function ThisOrThat() {
   const [freed, setFreed] = useState(0);
 
   useEffect(() => {
-    setRound(buildPairs(ROUND));
+    buildPairs(ROUND).then(setRound);
   }, []);
 
   const pair = round[idx];
@@ -77,7 +77,7 @@ export function ThisOrThat() {
   }
 
   function reset() {
-    setRound(buildPairs(ROUND));
+    buildPairs(ROUND).then(setRound);
     setIdx(0);
     setFreed(0);
     setDone(false);
