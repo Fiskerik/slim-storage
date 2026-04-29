@@ -1,7 +1,7 @@
 {
   "apps": [
     {
-      "appId": "com.fiskerik.trimswipe",
+      "appId": "e5189595",
       "root": ".",
       "builds": {
         "ios": {
