@@ -617,3 +617,142 @@ function PaywallModal({ onClose, onUpgrade }: { onClose: () => void; onUpgrade: 
     </div>
   );
 }
+
+function DeleteConfirmStep({
+  photos,
+  onConfirm,
+}: {
+  photos: SamplePhoto[];
+  onConfirm: (keepIds: Set<string>) => void;
+}) {
+  // Default: every photo stays "checked" (will be deleted).
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(
+    () => new Set(photos.map((p) => p.id)),
+  );
+
+  const totalMB = photos
+    .filter((p) => checkedIds.has(p.id))
+    .reduce((sum, p) => sum + p.sizeMB, 0);
+  const count = checkedIds.size;
+
+  function toggle(id: string) {
+    setCheckedIds((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    if (checkedIds.size === photos.length) setCheckedIds(new Set());
+    else setCheckedIds(new Set(photos.map((p) => p.id)));
+  }
+
+  return (
+    <div className="flex flex-col px-5 pt-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-destructive/15 text-destructive shadow-soft">
+            <Trash2 className="h-5 w-5" />
+          </div>
+          <h2 className="mt-3 font-display text-2xl font-bold tracking-tight">
+            Confirm deletion
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Untick anything you'd like to keep. Confirmed photos move to
+            Recently Deleted.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 flex items-center justify-between rounded-2xl border border-border bg-card px-4 py-3">
+        <div className="text-xs">
+          <p className="font-display text-lg font-bold tabular-nums">
+            {count}{" "}
+            <span className="text-xs font-medium text-muted-foreground">
+              · {totalMB.toFixed(1)} MB
+            </span>
+          </p>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            To delete
+          </p>
+        </div>
+        <button
+          onClick={toggleAll}
+          className="text-xs font-semibold text-primary hover:opacity-80"
+        >
+          {checkedIds.size === photos.length ? "Untick all" : "Tick all"}
+        </button>
+      </div>
+
+      <ul className="mt-3 space-y-2">
+        {photos.map((p) => {
+          const checked = checkedIds.has(p.id);
+          return (
+            <li key={p.id}>
+              <button
+                onClick={() => toggle(p.id)}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-2xl border bg-card p-2.5 text-left transition",
+                  checked
+                    ? "border-destructive/40 bg-destructive/[0.04]"
+                    : "border-border opacity-60",
+                )}
+              >
+                <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-muted">
+                  <img
+                    src={p.thumb}
+                    alt={p.title}
+                    loading="lazy"
+                    className={cn(
+                      "h-full w-full object-cover transition",
+                      !checked && "grayscale",
+                    )}
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{p.title}</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {p.month} {p.year} · {p.sizeMB.toFixed(1)} MB
+                  </p>
+                </div>
+                <div
+                  className={cn(
+                    "flex h-6 w-6 items-center justify-center rounded-md border-2 transition",
+                    checked
+                      ? "border-destructive bg-destructive text-destructive-foreground"
+                      : "border-border bg-background",
+                  )}
+                  aria-checked={checked}
+                  role="checkbox"
+                >
+                  {checked && <Check className="h-3.5 w-3.5" strokeWidth={3} />}
+                </div>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="sticky bottom-24 mt-5 flex flex-col gap-2 bg-gradient-to-t from-background via-background to-transparent pb-2 pt-4">
+        <button
+          onClick={() => onConfirm(checkedIds)}
+          disabled={count === 0}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-destructive py-3.5 text-sm font-semibold text-destructive-foreground shadow-card transition hover:opacity-90 disabled:opacity-40"
+        >
+          <Trash2 className="h-4 w-4" />
+          {count === 0
+            ? "Nothing to delete"
+            : `Delete ${count} photo${count === 1 ? "" : "s"} · ${totalMB.toFixed(1)} MB`}
+        </button>
+        <button
+          onClick={() => onConfirm(new Set())}
+          className="text-xs font-medium text-muted-foreground hover:text-foreground"
+        >
+          Keep them all
+        </button>
+      </div>
+    </div>
+  );
+}
