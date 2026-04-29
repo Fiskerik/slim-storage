@@ -212,6 +212,37 @@ export function SwipeDeck() {
     return <Onboarding onDone={() => setShowOnboarding(false)} />;
   }
 
+  if (permissionDenied) {
+    return (
+      <div className="flex flex-col items-center px-6 pt-16 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-warm/30 text-warm-foreground">
+          <Lock className="h-7 w-7" />
+        </div>
+        <h2 className="mt-4 font-display text-2xl font-bold">Photo access needed</h2>
+        <p className="mt-2 max-w-xs text-sm text-muted-foreground">
+          Slim works on the photos already in your library. Open Settings → Slim → Photos and enable access.
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="mt-6 inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-card"
+        >
+          <RefreshCw className="h-4 w-4" /> I've enabled it
+        </button>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center px-6 pt-20 text-center">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-muted border-t-primary" />
+        <p className="mt-4 text-sm text-muted-foreground">
+          {isNativeApp() ? "Loading your photos…" : "Loading sample photos…"}
+        </p>
+      </div>
+    );
+  }
+
   if (confirmList) {
     return (
       <DeleteConfirmStep
