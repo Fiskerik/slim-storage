@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Shield, Layers, Flame, ArrowRight, Lock } from "lucide-react";
+import { Lock, Scissors, Flame, MoveRight, ArrowLeft, ArrowUp, ArrowRight } from "lucide-react";
 import { updateSettings } from "@/lib/storage";
 
 export function Onboarding({ onDone }: { onDone: () => void }) {
@@ -8,17 +8,17 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
 
   const steps = [
     {
-      icon: <Shield className="h-7 w-7" />,
+      icon: <Lock className="h-7 w-7" strokeWidth={2.4} />,
       title: "Private by default",
       body: "Your photos never leave your phone.",
     },
     {
-      icon: <Layers className="h-7 w-7" />,
+      icon: <Scissors className="h-7 w-7" strokeWidth={2.4} />,
       title: "Swipe to clean",
-      body: "← Keep · ↑ Trim · → Delete.",
+      body: "Keep, trim, or delete with a flick.",
     },
     {
-      icon: <Flame className="h-7 w-7" />,
+      icon: <Flame className="h-7 w-7" strokeWidth={2.4} />,
       title: "5 minutes a day",
       body: "Free GBs. Keep your streak.",
     },
