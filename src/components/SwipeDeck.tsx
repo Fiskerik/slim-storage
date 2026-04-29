@@ -163,15 +163,19 @@ export function SwipeDeck() {
     }
   }
 
-  function reset() {
-    setQueue(shuffle(SAMPLE_PHOTOS).slice(0, cardsPerRound));
+  async function reset() {
+    setLoading(true);
+    const photos = await getPhotoSource().getRandom(cardsPerRound);
+    setQueue(photos);
     setRecap(null);
     deletedPhotosRef.current = [];
+    setLoading(false);
   }
 
-  function handleConfirmDeletion(keepIds: Set<string>) {
+  async function handleConfirmDeletion(keepIds: Set<string>) {
     // For any photo the user unchecked (i.e. NOT in keepIds), restore it.
     const sess = sessionRef.current;
+    const toDelete: SamplePhoto[] = [];
     deletedPhotosRef.current.forEach((photo) => {
       if (!keepIds.has(photo.id)) {
         undoDelete(photo.id);
@@ -182,8 +186,21 @@ export function SwipeDeck() {
         }));
         sess.deleted = Math.max(0, sess.deleted - 1);
         sess.freed = Math.max(0, sess.freed - photo.sizeMB);
+      } else {
+        toDelete.push(photo);
       }
     });
+
+    // On native iOS, actually remove the confirmed photos from the device library.
+    const nativeIds = toDelete.filter((p) => p.isNative && p.nativeId).map((p) => p.nativeId!);
+    if (nativeIds.length > 0) {
+      try {
+        await getPhotoSource().deletePhotos(nativeIds);
+      } catch (e) {
+        console.warn("[Slim] native delete failed", e);
+      }
+    }
+
     const finalRecap = { ...sess };
     sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
     deletedPhotosRef.current = [];
