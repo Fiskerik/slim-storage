@@ -60,12 +60,13 @@ export function SwipeDeck() {
     setStats((s) => ({ ...s, deleted: s.deleted + 1, mbFreed: s.mbFreed + photo.sizeMB }));
     logDay({ deleted: 1, mbFreed: photo.sizeMB });
     softDelete({ id: photo.id, title: photo.title, sizeMB: photo.sizeMB });
+    deletedPhotosRef.current = [...deletedPhotosRef.current, photo];
 
     // 30s undo window
     toast.success(`Deleted · freed ${photo.sizeMB.toFixed(1)} MB`, {
       duration: 5000,
       icon: <Undo2 className="h-4 w-4" />,
-      description: "Tap Undo to restore. Stays in Recently Deleted for 30 days.",
+      description: "Tap Undo to restore. You can also confirm at the end of the set.",
       action: {
         label: "Undo",
         onClick: () => {
@@ -77,6 +78,7 @@ export function SwipeDeck() {
           }));
           sess.deleted = Math.max(0, sess.deleted - 1);
           sess.freed = Math.max(0, sess.freed - photo.sizeMB);
+          deletedPhotosRef.current = deletedPhotosRef.current.filter((p) => p.id !== photo.id);
           // Put it back at the top
           setQueue((q) => [photo, ...q]);
           toast.success("Restored");
@@ -92,8 +94,13 @@ export function SwipeDeck() {
       const rest = q.slice(1);
       if (rest.length === 0) {
         bumpStreak();
-        setRecap({ ...sessionRef.current });
-        sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
+        // If anything was marked for delete, ask for confirmation first.
+        if (deletedPhotosRef.current.length > 0) {
+          setConfirmList(deletedPhotosRef.current);
+        } else {
+          setRecap({ ...sessionRef.current });
+          sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
+        }
       }
       return rest;
     });
