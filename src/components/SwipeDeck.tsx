@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useTransform, type PanInfo, AnimatePresence } from "framer-motion";
 import { ArrowLeft, ArrowUp, ArrowRight, MapPin, Sparkles, RefreshCw, Lock, Cloud, Undo2, PartyPopper, Trash2, Check } from "lucide-react";
-import { SAMPLE_PHOTOS, type SamplePhoto } from "@/lib/photos";
+import { getPhotoSource, isNativeApp, type LibraryPhoto } from "@/lib/photo-source";
 import { setStats, bumpStreak, canTrim, recordTrim, logDay, trimsRemainingToday, setPro, FREE_TRIM_LIMIT, softDelete, undoDelete, updateSettings } from "@/lib/storage";
 import { useStats } from "@/hooks/use-stats";
 import { Onboarding } from "@/components/Onboarding";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+
+type SamplePhoto = LibraryPhoto;
 
 type Action = "keep" | "trim" | "delete";
 
@@ -31,8 +33,9 @@ function shuffle<T>(arr: T[]): T[] {
 export function SwipeDeck() {
   const stats = useStats();
   const cardsPerRound = Math.min(30, Math.max(5, stats.settings.cardsPerRound));
-  // Start with a deterministic order for SSR; shuffle after mount to avoid hydration mismatch.
-  const [queue, setQueue] = useState<SamplePhoto[]>(() => SAMPLE_PHOTOS.slice(0, cardsPerRound));
+  const [queue, setQueue] = useState<SamplePhoto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [permissionDenied, setPermissionDenied] = useState(false);
   const [recap, setRecap] = useState<SessionRecap | null>(null);
   const [confirmList, setConfirmList] = useState<SamplePhoto[] | null>(null);
   const [paywallOpen, setPaywallOpen] = useState(false);
@@ -40,9 +43,26 @@ export function SwipeDeck() {
   const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
-    setQueue((q) => (q === SAMPLE_PHOTOS.slice(0, cardsPerRound) ? shuffle(SAMPLE_PHOTOS).slice(0, cardsPerRound) : q));
+    let cancelled = false;
+    (async () => {
+      const src = getPhotoSource();
+      if (src.isNative) {
+        const ok = await src.requestPermission();
+        if (!ok) {
+          if (!cancelled) {
+            setPermissionDenied(true);
+            setLoading(false);
+          }
+          return;
+        }
+      }
+      const photos = await src.getRandom(cardsPerRound);
+      if (cancelled) return;
+      setQueue(photos);
+      setLoading(false);
+    })();
     if (!stats.settings.onboarded) setShowOnboarding(true);
-    // Run once on mount
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
@@ -143,15 +163,19 @@ export function SwipeDeck() {
     }
   }
 
-  function reset() {
-    setQueue(shuffle(SAMPLE_PHOTOS).slice(0, cardsPerRound));
+  async function reset() {
+    setLoading(true);
+    const photos = await getPhotoSource().getRandom(cardsPerRound);
+    setQueue(photos);
     setRecap(null);
     deletedPhotosRef.current = [];
+    setLoading(false);
   }
 
-  function handleConfirmDeletion(keepIds: Set<string>) {
+  async function handleConfirmDeletion(keepIds: Set<string>) {
     // For any photo the user unchecked (i.e. NOT in keepIds), restore it.
     const sess = sessionRef.current;
+    const toDelete: SamplePhoto[] = [];
     deletedPhotosRef.current.forEach((photo) => {
       if (!keepIds.has(photo.id)) {
         undoDelete(photo.id);
@@ -162,8 +186,21 @@ export function SwipeDeck() {
         }));
         sess.deleted = Math.max(0, sess.deleted - 1);
         sess.freed = Math.max(0, sess.freed - photo.sizeMB);
+      } else {
+        toDelete.push(photo);
       }
     });
+
+    // On native iOS, actually remove the confirmed photos from the device library.
+    const nativeIds = toDelete.filter((p) => p.isNative && p.nativeId).map((p) => p.nativeId!);
+    if (nativeIds.length > 0) {
+      try {
+        await getPhotoSource().deletePhotos(nativeIds);
+      } catch (e) {
+        console.warn("[Slim] native delete failed", e);
+      }
+    }
+
     const finalRecap = { ...sess };
     sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
     deletedPhotosRef.current = [];
@@ -173,6 +210,37 @@ export function SwipeDeck() {
 
   if (showOnboarding) {
     return <Onboarding onDone={() => setShowOnboarding(false)} />;
+  }
+
+  if (permissionDenied) {
+    return (
+      <div className="flex flex-col items-center px-6 pt-16 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-warm/30 text-warm-foreground">
+          <Lock className="h-7 w-7" />
+        </div>
+        <h2 className="mt-4 font-display text-2xl font-bold">Photo access needed</h2>
+        <p className="mt-2 max-w-xs text-sm text-muted-foreground">
+          Slim works on the photos already in your library. Open Settings → Slim → Photos and enable access.
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="mt-6 inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-card"
+        >
+          <RefreshCw className="h-4 w-4" /> I've enabled it
+        </button>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center px-6 pt-20 text-center">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-muted border-t-primary" />
+        <p className="mt-4 text-sm text-muted-foreground">
+          {isNativeApp() ? "Loading your photos…" : "Loading sample photos…"}
+        </p>
+      </div>
+    );
   }
 
   if (confirmList) {

@@ -110,3 +110,14 @@
   }
   .text-balance { text-wrap: balance; }
 }
+
+/* iOS native shell — respect notch / home indicator. */
+@layer utilities {
+  .native-ios body { background-color: var(--color-background); }
+  .native-ios .pt-safe { padding-top: env(safe-area-inset-top); }
+  .native-ios .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+}
+.native-ios body {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}

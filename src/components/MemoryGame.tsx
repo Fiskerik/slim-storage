@@ -1,11 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Brain, Check, Trash2, Sparkles, ArrowRight } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
-import { MEMORY_POOL, type SamplePhoto } from "@/lib/photos";
+import { getPhotoSource, type LibraryPhoto } from "@/lib/photo-source";
 import { setStats, logDay } from "@/lib/storage";
 import { useStats } from "@/hooks/use-stats";
 import { cn } from "@/lib/utils";
+
+type SamplePhoto = LibraryPhoto;
 
 // ROUND_SIZE comes from user settings (5–30)
 const MIN_YEAR = 2010;
@@ -13,18 +15,14 @@ const MAX_YEAR = new Date().getFullYear();
 
 type Phase = "intro" | "guess" | "reveal" | "done";
 
-function pickRound(n: number): SamplePhoto[] {
-  const pool = [...MEMORY_POOL];
-  const out: SamplePhoto[] = [];
-  while (out.length < n && pool.length) {
-    const i = Math.floor(Math.random() * pool.length);
-    out.push(pool.splice(i, 1)[0]);
-  }
-  // If pool is smaller than n, repeat with shuffle
-  while (out.length < n) {
-    out.push(MEMORY_POOL[Math.floor(Math.random() * MEMORY_POOL.length)]);
-  }
-  return out;
+async function pickRound(n: number): Promise<SamplePhoto[]> {
+  // Memory game prefers older photos (anything older than 4 years).
+  const cutoff = new Date().getFullYear() - 4;
+  const out = await getPhotoSource().getOlder(cutoff, n);
+  if (out.length >= n) return out;
+  // Fall back: top up with random photos if not enough older ones available.
+  const extra = await getPhotoSource().getRandom(n - out.length);
+  return [...out, ...extra];
 }
 
 export function MemoryGame() {
@@ -39,11 +37,13 @@ export function MemoryGame() {
 
   function start() {
     const size = Math.min(30, Math.max(5, stats.settings.cardsPerRound));
-    setRound(pickRound(size));
-    setIdx(0);
-    setGuess(2018);
-    setResults([]);
-    setPhase("guess");
+    pickRound(size).then((photos) => {
+      setRound(photos);
+      setIdx(0);
+      setGuess(2018);
+      setResults([]);
+      setPhase("guess");
+    });
   }
 
   function submitGuess() {
