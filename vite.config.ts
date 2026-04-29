@@ -6,4 +6,26 @@
 // You can pass additional config via defineConfig({ vite: { ... } }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
-export default defineConfig();
+// Prerender all known routes at build time so the resulting `dist/client` works as a
+// pure static SPA inside the iOS Capacitor webview.
+export default defineConfig({
+  tanstackStart: {
+    prerender: {
+      enabled: true,
+      crawlLinks: true,
+      // Routes that should exist as static HTML files in dist/client.
+      // Capacitor will load index.html on launch; in-app navigation uses TanStack Router.
+      routes: [
+        "/",
+        "/games",
+        "/memory",
+        "/stats",
+        "/profile",
+        "/privacy",
+        "/games/speed-round",
+        "/games/storage-budget",
+        "/games/this-or-that",
+      ],
+    },
+  },
+});
