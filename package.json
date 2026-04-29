@@ -10,9 +10,10 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "ios:sync": "vite build && cap sync ios",
+    "ios:prerender": "bun scripts/build-ios.ts",
+    "ios:sync": "vite build && bun scripts/build-ios.ts && cap sync ios",
     "ios:open": "cap open ios",
-    "ios:run": "vite build && cap sync ios && cap run ios"
+    "ios:run": "vite build && bun scripts/build-ios.ts && cap sync ios && cap run ios"
   },
   "dependencies": {
     "@capacitor-community/media": "^9.1.0",
