@@ -5,6 +5,7 @@
       "root": ".",
       "builds": {
         "ios": {
+          "preBuild": "cd ios/App && sed -i '' 's/DEVELOPMENT_TEAM = \"\";/DEVELOPMENT_TEAM = 96W298LAAK;/g' App.xcodeproj/project.pbxproj",
           "environment": {
             "ENABLE_SPM_SUPPORT": "true"
           }

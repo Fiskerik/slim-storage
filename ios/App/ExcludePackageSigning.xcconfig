@@ -1,0 +1,3 @@
+// Disable signing for SPM dependencies
+DISABLE_AUTOMATIC_PACKAGE_RESOLUTION = NO
+CODE_SIGNING_ALLOWED = NO
