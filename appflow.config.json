@@ -5,7 +5,9 @@
       "root": ".",
       "builds": {
         "ios": {
-          "preBuild": "npx cap add ios && npx cap sync ios && cd ios/App && pod install"
+          "environment": {
+            "ENABLE_SPM_SUPPORT": "true"
+          }
         }
       }
     }
