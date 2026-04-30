@@ -1,15 +1,13 @@
 {
-  "expo": {
-    "extra": {
-      "eas": {
-        "projectId": "0856b4eb-d588-478d-ad26-72ad462b12a3"
-      }
-    },
-    "ios": {
-      "bundleIdentifier": "com.fiskerik.trimswipe",
-      "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+  "apps": [
+    {
+      "appId": "e5189595",
+      "root": ".",
+      "builds": {
+        "ios": {
+          "preBuild": "cd ios/App && pod install"
+        }
       }
     }
-  }
+  ]
 }
