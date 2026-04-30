@@ -1,21 +1,10 @@
 {
-  "cli": {
-    "version": ">= 18.8.1",
-    "appVersionSource": "remote"
-  },
   "build": {
-    "development": {
-      "developmentClient": true,
-      "distribution": "internal"
-    },
-    "preview": {
-      "distribution": "internal"
-    },
     "production": {
-      "autoIncrement": true
+      "ios": {
+        "image": "macos-sonoma-15.0-xcode-16.2"
+      },
+      "node": "20.10.0"
     }
-  },
-  "submit": {
-    "production": {}
   }
 }
