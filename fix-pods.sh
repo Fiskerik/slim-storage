@@ -1,7 +1,6 @@
 #!/bin/bash
-# Gå in i ios-mappen
+# Navigera till iOS-projektets plats
 cd ios/App
-# Lägg till den magiska raden i Podfile för att tillåta modul-mappar
+# Lägg till global inställning för modulära headers i Podfile
 echo "use_modular_headers!" >> Podfile
-# Gå tillbaka
 cd ../..
