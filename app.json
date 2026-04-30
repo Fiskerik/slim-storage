@@ -1,18 +1,10 @@
 {
-  "apps": [
-    {
-      "appId": "e5189595",
-      "root": ".",
-      "builds": {
-        "ios": {
-          "preBuild": "cd ios/App && pod install"
-        }
-      }
-    }
-  ],
-  "extra": {
-    "eas": {
-      "projectId": "0856b4eb-d588-478d-ad26-72ad462b12a3"
+  "expo": {
+    "name": "Trimswipe",
+    "slug": "trim-swipe",
+    "version": "1.0.0",
+    "ios": {
+      "bundleIdentifier": "com.fiskerik.trimswipe"
     }
   }
 }

@@ -14,8 +14,8 @@
     "ios:sync": "vite build && bun scripts/build-ios.ts && cap sync ios",
     "ios:open": "cap open ios",
     "ios:run": "vite build && bun scripts/build-ios.ts && cap sync ios && cap run ios",
-    "eas-build-pre-install": "mkdir -p dist/client && touch dist/client/index.html",
-    "eas-build-post-install": "npm run build && npx cap sync ios"
+    "eas-build-post-install": "npm run build && (npx cap add ios || true) && npx cap sync ios",
+    "eas-build-pre-install": "mkdir -p dist/client && touch dist/client/index.html"
   },
   "dependencies": {
     "@capacitor-community/media": "^9.1.0",
