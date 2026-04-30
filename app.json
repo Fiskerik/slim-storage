@@ -4,7 +4,10 @@
     "slug": "trim-swipe",
     "version": "1.0.0",
     "ios": {
-      "bundleIdentifier": "com.fiskerik.trimswipe"
+      "bundleIdentifier": "com.fiskerik.trimswipe",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "extra": {
       "eas": {

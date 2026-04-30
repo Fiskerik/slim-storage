@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build && mkdir -p dist/client && touch dist/client/index.html && npx cap sync ios",
+    "build": "vite build",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
@@ -14,7 +14,8 @@
     "ios:sync": "vite build && bun scripts/build-ios.ts && cap sync ios",
     "ios:open": "cap open ios",
     "ios:run": "vite build && bun scripts/build-ios.ts && cap sync ios && cap run ios",
-    "eas-build-pre-install": "mkdir -p dist/client && touch dist/client/index.html && npm run build && npx cap add ios && npx cap sync ios"
+    "eas-build-pre-install": "mkdir -p dist/client && touch dist/client/index.html",
+    "eas-build-post-install": "npm run build && npx cap add ios && npx cap sync ios"
   },
   "dependencies": {
     "@capacitor-community/media": "^9.1.0",
