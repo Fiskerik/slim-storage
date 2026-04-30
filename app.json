@@ -5,6 +5,12 @@
     "version": "1.0.0",
     "ios": {
       "bundleIdentifier": "com.fiskerik.trimswipe"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "ab53ebf6-4e67-4696-afc2-077c76247d41"
+      }
+    },
+    "owner": "ea-consulting"
   }
 }

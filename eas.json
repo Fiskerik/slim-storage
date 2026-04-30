@@ -1,9 +1,9 @@
 {
   "build": {
     "production": {
-      "channel": "production",
       "ios": {
-        "image": "macos-sonoma-15.0-xcode-16.2"
+        "image": "macos-sonoma-15.0-xcode-16.2",
+        "buildConfiguration": "generic"
       }
     }
   }
