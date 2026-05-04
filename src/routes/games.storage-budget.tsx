@@ -76,6 +76,10 @@ function StorageBudget() {
       cleaned: s.cleaned + kept.size,
       deleted: s.deleted + cleared.length,
       mbFreed: s.mbFreed + freed,
+      storageBudgetPlayed: s.storageBudgetPlayed + 1,
+      storageBudgetTotalKept: s.storageBudgetTotalKept + kept.size,
+      storageBudgetTotalCleared: s.storageBudgetTotalCleared + cleared.length,
+      storageBudgetTotalMbFreed: s.storageBudgetTotalMbFreed + freed,
     }));
     logDay({ kept: kept.size, deleted: cleared.length, mbFreed: freed });
     setDone(true);
