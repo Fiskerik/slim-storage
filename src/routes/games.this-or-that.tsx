@@ -3,7 +3,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Scale, Sparkles, RefreshCw, ArrowLeft } from "lucide-react";
 import { Link } from "@tanstack/react-router";
-import { SAMPLE_PHOTOS, type SamplePhoto } from "@/lib/photos";
+import { SAMPLE_PHOTOS, BURST_GROUPS, type SamplePhoto } from "@/lib/photos";
 import { setStats, logDay } from "@/lib/storage";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
