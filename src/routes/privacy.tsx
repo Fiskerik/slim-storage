@@ -110,19 +110,19 @@ function PrivacyPage() {
       <Section title="9. Contact">
         Questions about privacy? Reach out at{" "}
         <a
-          href="mailto:hello@slim.app"
+          href="mailto:eaconsulting.supp@gmail.com"
           className="font-medium text-primary underline underline-offset-2"
         >
-          hello@slim.app
+          eaconsulting.supp@gmail.com
         </a>
         .
       </Section>
 
       <a
-        href="mailto:hello@slim.app"
+        href="mailto:eaconsulting.supp@gmail.com"
         className="mt-8 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-border bg-card py-3 text-sm font-semibold transition hover:border-primary/40"
       >
-        <Mail className="h-4 w-4" /> hello@slim.app
+        <Mail className="h-4 w-4" /> eaconsulting.supp@gmail.com
       </a>
 
       <p className="mt-6 text-center text-[10px] text-muted-foreground">
