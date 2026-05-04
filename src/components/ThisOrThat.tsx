@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { Scale, Sparkles, RefreshCw } from "lucide-react";
 import { getPhotoSource, type LibraryPhoto } from "@/lib/photo-source";
 import { setStats, logDay } from "@/lib/storage";
-import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 type SamplePhoto = LibraryPhoto;
