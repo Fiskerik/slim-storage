@@ -84,7 +84,7 @@ function SpeedRound() {
     setCount((c) => { const n = c + 1; countRef.current = n; return n; });
 
     if (!keep) {
-      setFreed((f) => parseFloat((f + top.sizeMB).toFixed(2)));
+      setFreed((f) => { const n = parseFloat((f + top.sizeMB).toFixed(2)); freedRef.current = n; return n; });
       setStats((s) => ({
         ...s,
         deleted: s.deleted + 1,
