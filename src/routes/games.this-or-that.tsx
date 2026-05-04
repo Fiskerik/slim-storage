@@ -47,10 +47,11 @@ function ThisOrThat() {
       setFreed((f) => parseFloat((f + loser.sizeMB).toFixed(2)));
       setStats((s) => ({
         ...s,
-        // one kept, one deleted
         cleaned: s.cleaned + 1,
         deleted: s.deleted + 1,
         mbFreed: s.mbFreed + loser.sizeMB,
+        thisOrThatDeleted: s.thisOrThatDeleted + 1,
+        thisOrThatMbFreed: s.thisOrThatMbFreed + loser.sizeMB,
       }));
       logDay({ kept: 1, deleted: 1, mbFreed: loser.sizeMB });
       toast.success(`Saved ${loser.sizeMB.toFixed(1)} MB`, { duration: 1500 });
