@@ -1,41 +1,38 @@
 // One-shot native shell setup: status bar style, splash hide, safe-area padding.
-// Safe to call on web — it's a no-op when not running inside Capacitor.
-
-import { Capacitor } from "@capacitor/core";
+// Nu anpassad för Expo/Web istället för Capacitor.
 
 let initialised = false;
 
+/**
+ * Initialiserar inställningar för den inbyggda miljön.
+ * Eftersom vi inte använder Capacitor längre är detta främst en placeholder
+ * eller plats för Expo-specifik logik.
+ */
 export async function initNativeShell() {
   if (initialised) return;
   initialised = true;
+  
   if (typeof window === "undefined") return;
-  if (!Capacitor.isNativePlatform()) return;
 
-  try {
-    const { StatusBar, Style } = await import("@capacitor/status-bar");
-    await StatusBar.setStyle({ style: Style.Dark }); // dark text on light bg
-    await StatusBar.setOverlaysWebView({ overlay: false });
-  } catch (e) {
-    console.warn("[Slim] StatusBar setup failed", e);
-  }
+  // Om du senare installerar 'expo-status-bar' eller 'expo-splash-screen'
+  // är det här du anropar dem. Just nu gör vi ingenting för att undvika fel.
+  console.log("[Slim] Native shell initialised (Web/Expo mode)");
 
-  try {
-    const { SplashScreen } = await import("@capacitor/splash-screen");
-    await SplashScreen.hide({ fadeOutDuration: 250 });
-  } catch (e) {
-    console.warn("[Slim] SplashScreen hide failed", e);
-  }
-
-  // Add a class so CSS can apply iOS-specific tweaks (e.g. safe-area).
-  document.documentElement.classList.add("native-ios");
+  // Vi kan fortfarande behålla klassen om du har CSS-regler som använder den,
+  // men i Expo sköts ofta safe-area via React Native-komponenter.
+  // document.documentElement.classList.add("native-ios");
 }
 
+/**
+ * Utför en haptisk feedback (vibration).
+ * Kräver 'expo-haptics' för att fungera på riktigt.
+ */
 export async function hapticTap() {
-  if (typeof window === "undefined" || !Capacitor.isNativePlatform()) return;
-  try {
-    const { Haptics, ImpactStyle } = await import("@capacitor/haptics");
-    await Haptics.impact({ style: ImpactStyle.Light });
-  } catch {
-    /* ignore */
-  }
+  if (typeof window === "undefined") return;
+  
+  // Exempel på hur det skulle se ut med Expo:
+  // const Haptics = await import('expo-haptics');
+  // await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  
+  console.log("[Slim] Haptic tap requested (no-op without expo-haptics)");
 }
