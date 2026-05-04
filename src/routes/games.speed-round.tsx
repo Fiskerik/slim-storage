@@ -1,3 +1,4 @@
+import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Timer, Trash2, Check, Sparkles, Play, ArrowLeft } from "lucide-react";
@@ -5,6 +6,10 @@ import { Link } from "@tanstack/react-router";
 import { SAMPLE_PHOTOS, type SamplePhoto } from "@/lib/photos";
 import { setStats, logDay } from "@/lib/storage";
 import { cn } from "@/lib/utils";
+
+export const Route = createFileRoute("/games/speed-round")({
+  component: SpeedRound,
+});
 
 const DURATION = 30;
 
@@ -24,7 +29,7 @@ function buildQueue(): SamplePhoto[] {
 
 type Phase = "intro" | "play" | "done";
 
-export function SpeedRound() {
+function SpeedRound() {
   const [phase, setPhase] = useState<Phase>("intro");
   const [queue, setQueue] = useState<SamplePhoto[]>([]);
   const [time, setTime] = useState(DURATION);

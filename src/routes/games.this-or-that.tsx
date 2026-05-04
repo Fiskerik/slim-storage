@@ -1,3 +1,4 @@
+import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Scale, Sparkles, RefreshCw, ArrowLeft } from "lucide-react";
@@ -6,6 +7,10 @@ import { SAMPLE_PHOTOS, type SamplePhoto } from "@/lib/photos";
 import { setStats, logDay } from "@/lib/storage";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+
+export const Route = createFileRoute("/games/this-or-that")({
+  component: ThisOrThat,
+});
 
 const ROUND = 6;
 
@@ -18,7 +23,7 @@ function buildPairs(photos: SamplePhoto[]): [SamplePhoto, SamplePhoto][] {
   return out;
 }
 
-export function ThisOrThat() {
+function ThisOrThat() {
   // Initialize directly in useState — avoids the blank-frame flash from useEffect
   const [round, setRound] = useState<[SamplePhoto, SamplePhoto][]>(() =>
     buildPairs(SAMPLE_PHOTOS),
