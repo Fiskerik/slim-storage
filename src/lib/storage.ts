@@ -32,6 +32,21 @@ export type Stats = {
   memoryBestStreak: number;
   memoryCurrentStreak: number;
   memoryTotalDelta: number;  // sum of |guess - actual|
+  // This or That
+  thisOrThatRounds: number;
+  thisOrThatDeleted: number;
+  thisOrThatMbFreed: number;
+  // Speed Round
+  speedRoundPlayed: number;
+  speedRoundBestCount: number;
+  speedRoundBestMb: number;
+  speedRoundTotalReviewed: number;
+  speedRoundTotalMbFreed: number;
+  // Storage Budget
+  storageBudgetPlayed: number;
+  storageBudgetTotalKept: number;
+  storageBudgetTotalCleared: number;
+  storageBudgetTotalMbFreed: number;
   // Pro / daily limit
   isPro: boolean;
   trimsToday: number;
