@@ -2,7 +2,7 @@
   "expo": {
     "name": "Trimswipe",
     "slug": "trim-swipe",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "ios": {
       "bundleIdentifier": "com.fiskerik.trimswipe",
       "infoPlist": {
