@@ -2,11 +2,19 @@
   "expo": {
     "name": "Trimswipe",
     "slug": "slim-storage",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "ios": {
       "bundleIdentifier": "com.fiskerik.trimswipe",
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
-    "plugins": [] 
+    "plugins": [],
+    "extra": {
+      "eas": {
+        "projectId": "a31a8610-5a85-4c06-a193-5c73ee23946e"
+      }
+    }
   }
 }
