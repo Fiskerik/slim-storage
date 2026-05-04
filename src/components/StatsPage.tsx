@@ -83,43 +83,51 @@ export function StatsPage() {
         <StatCard icon={<HardDrive className="h-4 w-4" />} label="MB Freed" value={freed.toFixed(0)} />
       </div>
 
-      <h2 className="mt-7 px-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-        Memory Lane
-      </h2>
-      <div className="mt-3 grid grid-cols-2 gap-3">
-        <StatCard icon={<Brain className="h-4 w-4" />} label="Played" value={s.memoryPlayed} />
-        <StatCard icon={<Target className="h-4 w-4" />} label="Accuracy" value={`${accuracy}%`} accent />
-        <StatCard icon={<Flame className="h-4 w-4" />} label="Best streak" value={s.memoryBestStreak} />
-        <StatCard icon={<Sparkles className="h-4 w-4" />} label="Avg yrs off" value={avgDelta} />
+      <div className="mt-5 rounded-3xl border border-primary/20 bg-primary/[0.04] p-4">
+        <h2 className="px-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+          Memory Lane
+        </h2>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <StatCard icon={<Brain className="h-4 w-4" />} label="Played" value={s.memoryPlayed} tint="text-primary" />
+          <StatCard icon={<Target className="h-4 w-4" />} label="Accuracy" value={`${accuracy}%`} accent tint="text-primary" />
+          <StatCard icon={<Flame className="h-4 w-4" />} label="Best streak" value={s.memoryBestStreak} tint="text-primary" />
+          <StatCard icon={<Sparkles className="h-4 w-4" />} label="Avg yrs off" value={avgDelta} tint="text-primary" />
+        </div>
       </div>
 
-      <h2 className="mt-7 px-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-        This or That
-      </h2>
-      <div className="mt-3 grid grid-cols-2 gap-3">
-        <StatCard icon={<Scale className="h-4 w-4" />} label="Rounds" value={s.thisOrThatRounds} />
-        <StatCard icon={<Trash2 className="h-4 w-4" />} label="Deleted" value={s.thisOrThatDeleted} />
-        <StatCard icon={<HardDrive className="h-4 w-4" />} label="MB Freed" value={s.thisOrThatMbFreed.toFixed(0)} accent />
+      <div className="mt-5 rounded-3xl border border-accent/20 bg-accent/[0.04] p-4">
+        <h2 className="px-1 text-xs font-semibold uppercase tracking-[0.18em] text-accent-foreground">
+          This or That
+        </h2>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <StatCard icon={<Scale className="h-4 w-4" />} label="Rounds" value={s.thisOrThatRounds} tint="text-accent-foreground" />
+          <StatCard icon={<Trash2 className="h-4 w-4" />} label="Deleted" value={s.thisOrThatDeleted} tint="text-accent-foreground" />
+          <StatCard icon={<HardDrive className="h-4 w-4" />} label="MB Freed" value={s.thisOrThatMbFreed.toFixed(0)} accent tint="text-accent-foreground" />
+        </div>
       </div>
 
-      <h2 className="mt-7 px-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-        Speed Round
-      </h2>
-      <div className="mt-3 grid grid-cols-2 gap-3">
-        <StatCard icon={<Timer className="h-4 w-4" />} label="Played" value={s.speedRoundPlayed} />
-        <StatCard icon={<Trophy className="h-4 w-4" />} label="Best count" value={s.speedRoundBestCount} accent />
-        <StatCard icon={<ImageIcon className="h-4 w-4" />} label="Total reviewed" value={s.speedRoundTotalReviewed} />
-        <StatCard icon={<HardDrive className="h-4 w-4" />} label="MB Freed" value={s.speedRoundTotalMbFreed.toFixed(0)} />
+      <div className="mt-5 rounded-3xl border border-warm/20 bg-warm/[0.04] p-4">
+        <h2 className="px-1 text-xs font-semibold uppercase tracking-[0.18em] text-warm-foreground">
+          Speed Round
+        </h2>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <StatCard icon={<Timer className="h-4 w-4" />} label="Played" value={s.speedRoundPlayed} tint="text-warm-foreground" />
+          <StatCard icon={<Trophy className="h-4 w-4" />} label="Best count" value={s.speedRoundBestCount} accent tint="text-warm-foreground" />
+          <StatCard icon={<ImageIcon className="h-4 w-4" />} label="Total reviewed" value={s.speedRoundTotalReviewed} tint="text-warm-foreground" />
+          <StatCard icon={<HardDrive className="h-4 w-4" />} label="MB Freed" value={s.speedRoundTotalMbFreed.toFixed(0)} tint="text-warm-foreground" />
+        </div>
       </div>
 
-      <h2 className="mt-7 px-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-        Storage Budget
-      </h2>
-      <div className="mt-3 grid grid-cols-2 gap-3">
-        <StatCard icon={<HardDrive className="h-4 w-4" />} label="Played" value={s.storageBudgetPlayed} />
-        <StatCard icon={<ImageIcon className="h-4 w-4" />} label="Total kept" value={s.storageBudgetTotalKept} />
-        <StatCard icon={<Trash2 className="h-4 w-4" />} label="Total cleared" value={s.storageBudgetTotalCleared} />
-        <StatCard icon={<Sparkles className="h-4 w-4" />} label="MB Freed" value={s.storageBudgetTotalMbFreed.toFixed(0)} accent />
+      <div className="mt-5 rounded-3xl border border-success/20 bg-success/[0.04] p-4">
+        <h2 className="px-1 text-xs font-semibold uppercase tracking-[0.18em] text-success-foreground">
+          Storage Budget
+        </h2>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <StatCard icon={<HardDrive className="h-4 w-4" />} label="Played" value={s.storageBudgetPlayed} tint="text-success-foreground" />
+          <StatCard icon={<ImageIcon className="h-4 w-4" />} label="Total kept" value={s.storageBudgetTotalKept} tint="text-success-foreground" />
+          <StatCard icon={<Trash2 className="h-4 w-4" />} label="Total cleared" value={s.storageBudgetTotalCleared} tint="text-success-foreground" />
+          <StatCard icon={<Sparkles className="h-4 w-4" />} label="MB Freed" value={s.storageBudgetTotalMbFreed.toFixed(0)} accent tint="text-success-foreground" />
+        </div>
       </div>
 
       <button
