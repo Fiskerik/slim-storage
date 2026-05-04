@@ -393,11 +393,21 @@ function ICloudWarnModal({
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-warm/30 text-warm-foreground">
           <Cloud className="h-5 w-5" />
         </div>
-        <h3 className="mt-4 font-display text-2xl font-bold">Backed up to iCloud?</h3>
+        <h3 className="mt-4 font-display text-2xl font-bold">
+          {photo.isCloudAsset ? "Only in iCloud" : "Backed up to iCloud?"}
+        </h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          We can't tell yet whether <span className="font-medium text-foreground">{photo.title}</span> is backed up.
-          Once you delete it from your library, it's gone for good after 30 days in Recently Deleted.
-          Make sure iCloud Photos has finished syncing before you continue.
+          {photo.isCloudAsset
+            ? <>
+                <span className="font-medium text-foreground">{photo.title}</span> is stored in iCloud but not downloaded locally.
+                Deleting it will remove it everywhere after 30 days in Recently Deleted.
+              </>
+            : <>
+                We can't confirm whether <span className="font-medium text-foreground">{photo.title}</span> is backed up.
+                Once you delete it from your library, it's gone for good after 30 days in Recently Deleted.
+                Make sure iCloud Photos has finished syncing before you continue.
+              </>
+          }
         </p>
 
         <label className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
