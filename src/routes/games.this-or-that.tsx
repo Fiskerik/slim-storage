@@ -15,12 +15,45 @@ export const Route = createFileRoute("/games/this-or-that")({
 const ROUND = 6;
 
 function buildPairs(photos: SamplePhoto[]): [SamplePhoto, SamplePhoto][] {
-  const pool = [...photos].sort(() => Math.random() - 0.5);
   const out: [SamplePhoto, SamplePhoto][] = [];
-  for (let i = 0; i + 1 < pool.length && out.length < ROUND; i += 2) {
-    out.push([pool[i], pool[i + 1]]);
+
+  // 1. Prefer burst groups (photos from the same session)
+  const usedBursts = new Set<string>();
+  for (const group of BURST_GROUPS) {
+    if (out.length >= ROUND) break;
+    const shuffled = [...group].sort(() => Math.random() - 0.5);
+    for (let i = 0; i + 1 < shuffled.length && out.length < ROUND; i += 2) {
+      out.push([shuffled[i], shuffled[i + 1]]);
+      usedBursts.add(shuffled[i].id);
+      usedBursts.add(shuffled[i + 1].id);
+    }
   }
-  return out;
+
+  // 2. Group remaining by month+year (same day/session)
+  const remaining = photos.filter((p) => !usedBursts.has(p.id) && !p.burstId);
+  const bySession = new Map<string, SamplePhoto[]>();
+  for (const p of remaining) {
+    const key = `${p.year}-${p.month}`;
+    (bySession.get(key) ?? (bySession.set(key, []), bySession.get(key)!)).push(p);
+  }
+  for (const group of bySession.values()) {
+    if (out.length >= ROUND) break;
+    const shuffled = [...group].sort(() => Math.random() - 0.5);
+    for (let i = 0; i + 1 < shuffled.length && out.length < ROUND; i += 2) {
+      out.push([shuffled[i], shuffled[i + 1]]);
+    }
+  }
+
+  // 3. Fill with random pairs if not enough similar photos
+  if (out.length < ROUND) {
+    const usedIds = new Set(out.flat().map((p) => p.id));
+    const pool = photos.filter((p) => !usedIds.has(p.id)).sort(() => Math.random() - 0.5);
+    for (let i = 0; i + 1 < pool.length && out.length < ROUND; i += 2) {
+      out.push([pool[i], pool[i + 1]]);
+    }
+  }
+
+  return out.sort(() => Math.random() - 0.5);
 }
 
 function ThisOrThat() {
