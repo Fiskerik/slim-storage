@@ -126,7 +126,7 @@ export function MemoryGame() {
   if (!photo) return null;
 
   return (
-    <div className="flex flex-col items-center px-5 pt-4">
+    <div className="flex flex-col items-center px-5 pt-2">
       <div className="flex w-full max-w-sm items-center justify-between text-xs text-muted-foreground">
         <span className="uppercase tracking-[0.18em]">Memory · {idx + 1}/{round.length}</span>
         <span className="tabular-nums">Streak 🔥 {stats.memoryCurrentStreak}</span>
