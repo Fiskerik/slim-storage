@@ -51,8 +51,8 @@ export function MemoryGame() {
   const [phase, setPhase] = useState<Phase>("intro");
   const [round, setRound] = useState<SamplePhoto[]>([]);
   const [idx, setIdx] = useState(0);
-  const [guess, setGuess] = useState<number>(2018);
-  const [results, setResults] = useState<{ delta: number; correct: boolean; kept: boolean }[]>([]);
+  const [guess, setGuess] = useState<number | null>(null);
+  const [yearOptions, setYearOptions] = useState<number[]>([]);
   const stats = useStats();
 
   const photo = round[idx];
