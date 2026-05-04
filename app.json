@@ -7,8 +7,6 @@
       "bundleIdentifier": "com.fiskerik.trimswipe",
       "supportsTablet": true
     },
-    "plugins": [
-      "react-native-webview"
-    ]
+    "plugins": [] 
   }
 }
