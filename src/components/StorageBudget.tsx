@@ -17,15 +17,20 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 export function StorageBudget() {
-  const [pool, setPool] = useState<SamplePhoto[]>([]);
+  const [pool, setPool] = useState<LibraryPhoto[]>([]);
   const [kept, setKept] = useState<Set<string>>(new Set());
   const [done, setDone] = useState(false);
 
-  useEffect(() => {
-    // Pull a 12-photo board with mixed sizes that exceed budget.
-    setPool(shuffle([...SAMPLE_PHOTOS, ...SAMPLE_PHOTOS]).slice(0, 12));
+  async function loadPhotos() {
+    const src = getPhotoSource();
+    const photos = await src.getRandom(12);
+    setPool(photos);
     setKept(new Set());
     setDone(false);
+  }
+
+  useEffect(() => {
+    loadPhotos();
   }, []);
 
   const usedMB = useMemo(
