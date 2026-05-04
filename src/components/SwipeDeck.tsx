@@ -138,6 +138,7 @@ export function SwipeDeck() {
       sess.kept += 1;
       setStats((s) => ({ ...s, cleaned: s.cleaned + 1 }));
       logDay({ kept: 1 });
+      hapticTap();
       advance();
     } else if (action === "trim") {
       const saved = +(photo.sizeMB * 0.32).toFixed(2);
@@ -147,6 +148,7 @@ export function SwipeDeck() {
       logDay({ trimmed: 1, mbFreed: saved });
       recordTrim();
       const remaining = trimsRemainingToday();
+      hapticSuccess();
       toast.success(`Slimmed · saved ${saved.toFixed(1)} MB`, {
         description: stats.isPro
           ? (photo.hasGPS ? "GPS & device tags stripped" : "Metadata stripped")
@@ -154,12 +156,14 @@ export function SwipeDeck() {
       });
       advance();
     } else if (action === "delete") {
-      // iCloud backup awareness — show warning the first time per session
-      if (stats.settings.iCloudBackupWarn && !seenICloudWarnRef.current) {
+      // iCloud backup awareness — show warning if photo is cloud-only or first time per session
+      const isCloud = photo.isCloudAsset === true;
+      if ((isCloud || (stats.settings.iCloudBackupWarn && !seenICloudWarnRef.current)) && isNativeApp()) {
         seenICloudWarnRef.current = true;
         setICloudWarn({ photo });
         return;
       }
+      hapticError();
       commitDelete(photo);
     }
   }
