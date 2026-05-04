@@ -83,29 +83,7 @@ export function SwipeDeck() {
     softDelete({ id: photo.id, title: photo.title, sizeMB: photo.sizeMB });
     deletedPhotosRef.current = [...deletedPhotosRef.current, photo];
 
-    // 30s undo window
-    toast.success(`Deleted · freed ${photo.sizeMB.toFixed(1)} MB`, {
-      duration: 5000,
-      icon: <Undo2 className="h-4 w-4" />,
-      description: "Tap Undo to restore. You can also confirm at the end of the set.",
-      action: {
-        label: "Undo",
-        onClick: () => {
-          undoDelete(photo.id);
-          setStats((s) => ({
-            ...s,
-            deleted: Math.max(0, s.deleted - 1),
-            mbFreed: Math.max(0, s.mbFreed - photo.sizeMB),
-          }));
-          sess.deleted = Math.max(0, sess.deleted - 1);
-          sess.freed = Math.max(0, sess.freed - photo.sizeMB);
-          deletedPhotosRef.current = deletedPhotosRef.current.filter((p) => p.id !== photo.id);
-          // Put it back at the top
-          setQueue((q) => [photo, ...q]);
-          toast.success("Restored");
-        },
-      },
-    });
+    // No per-swipe toast — summary is shown at the end
 
     advance();
   }
