@@ -12,9 +12,6 @@
         "NSPhotoLibraryAddUsageDescription": "Trimswipe behöver rättighet att ändra i fotobiblioteket."
       }
     },
-    "plugins": [
-      "react-native-webview"
-    ],
     "extra": {
       "eas": {
         "projectId": "ab53ebf6-4e67-4696-afc2-077c76247d41"
