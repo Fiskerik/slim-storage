@@ -1,6 +1,7 @@
 import * as MediaLibrary from 'expo-media-library';
 import * as Haptics from 'expo-haptics';
 import * as FileSystem from 'expo-file-system';
+import { handlePurchaseMessage } from './purchases';
 
 type BridgeRequest = {
   id: string;
@@ -50,6 +51,11 @@ export async function handleBridgeMessage(request: BridgeRequest): Promise<Bridg
         result = { ok: true };
         break;
       default:
+        // Check if it's a purchase-related method
+        if (method.startsWith('purchases_')) {
+          result = await handlePurchaseMessage(method, data);
+          break;
+        }
         return { __bridge_response: true, id, error: `Unknown method: ${method}` };
     }
 
