@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { HardDrive, Sparkles, Check, X, RotateCcw } from "lucide-react";
-import { SAMPLE_PHOTOS, type SamplePhoto } from "@/lib/photos";
+import { getPhotoSource, type LibraryPhoto } from "@/lib/photo-source";
 import { setStats, logDay } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
@@ -17,15 +17,20 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 export function StorageBudget() {
-  const [pool, setPool] = useState<SamplePhoto[]>([]);
+  const [pool, setPool] = useState<LibraryPhoto[]>([]);
   const [kept, setKept] = useState<Set<string>>(new Set());
   const [done, setDone] = useState(false);
 
-  useEffect(() => {
-    // Pull a 12-photo board with mixed sizes that exceed budget.
-    setPool(shuffle([...SAMPLE_PHOTOS, ...SAMPLE_PHOTOS]).slice(0, 12));
+  async function loadPhotos() {
+    const src = getPhotoSource();
+    const photos = await src.getRandom(12);
+    setPool(photos);
     setKept(new Set());
     setDone(false);
+  }
+
+  useEffect(() => {
+    loadPhotos();
   }, []);
 
   const usedMB = useMemo(
@@ -35,7 +40,7 @@ export function StorageBudget() {
   const remainingMB = +(BUDGET_MB - usedMB).toFixed(2);
   const overBudget = remainingMB < 0;
 
-  function toggle(p: SamplePhoto) {
+  function toggle(p: LibraryPhoto) {
     if (done) return;
     setKept((prev) => {
       const next = new Set(prev);
@@ -60,9 +65,7 @@ export function StorageBudget() {
   }
 
   function restart() {
-    setPool(shuffle([...SAMPLE_PHOTOS, ...SAMPLE_PHOTOS]).slice(0, 12));
-    setKept(new Set());
-    setDone(false);
+    loadPhotos();
   }
 
   if (done) {

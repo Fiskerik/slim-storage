@@ -127,11 +127,7 @@ export function SwipeDeck() {
       recordTrim();
       const remaining = trimsRemainingToday();
       hapticSuccess();
-      toast.success(`Slimmed · saved ${saved.toFixed(1)} MB`, {
-        description: stats.isPro
-          ? (photo.hasGPS ? "GPS & device tags stripped" : "Metadata stripped")
-          : `${remaining} free trim${remaining === 1 ? "" : "s"} left today`,
-      });
+      // No per-swipe toast — summary is shown at the end
       advance();
     } else if (action === "delete") {
       // iCloud backup awareness — show warning if photo is cloud-only or first time per session

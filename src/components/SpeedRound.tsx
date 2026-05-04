@@ -1,29 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Timer, Trash2, Check, Sparkles, Play } from "lucide-react";
-import { SAMPLE_PHOTOS, type SamplePhoto } from "@/lib/photos";
+import { getPhotoSource, type LibraryPhoto } from "@/lib/photo-source";
 import { setStats, logDay } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
 const DURATION = 30;
 
-function shuffle<T>(arr: T[]): T[] {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
+type Phase = "intro" | "play" | "summary" | "done";
 
-type Phase = "intro" | "play" | "done";
+type Decision = { photo: LibraryPhoto; keep: boolean };
 
 export function SpeedRound() {
   const [phase, setPhase] = useState<Phase>("intro");
-  const [queue, setQueue] = useState<SamplePhoto[]>([]);
+  const [queue, setQueue] = useState<LibraryPhoto[]>([]);
   const [time, setTime] = useState(DURATION);
-  const [freed, setFreed] = useState(0);
-  const [count, setCount] = useState(0);
+  const [decisions, setDecisions] = useState<Decision[]>([]);
   const tickRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -32,7 +24,7 @@ export function SpeedRound() {
       setTime((t) => {
         if (t <= 1) {
           if (tickRef.current) window.clearInterval(tickRef.current);
-          setPhase("done");
+          setPhase("summary");
           return 0;
         }
         return t - 1;
@@ -43,20 +35,20 @@ export function SpeedRound() {
     };
   }, [phase]);
 
-  function start() {
-    setQueue(shuffle([...SAMPLE_PHOTOS, ...SAMPLE_PHOTOS]));
+  async function start() {
+    const src = getPhotoSource();
+    const photos = await src.getRandom(40);
+    setQueue(photos);
     setTime(DURATION);
-    setFreed(0);
-    setCount(0);
+    setDecisions([]);
     setPhase("play");
   }
 
   function decide(keep: boolean) {
     const top = queue[0];
     if (!top) return;
-    setCount((c) => c + 1);
+    setDecisions((d) => [...d, { photo: top, keep }]);
     if (!keep) {
-      setFreed((f) => +(f + top.sizeMB).toFixed(2));
       setStats((s) => ({
         ...s,
         deleted: s.deleted + 1,
@@ -70,6 +62,22 @@ export function SpeedRound() {
     setQueue((q) => q.slice(1));
   }
 
+  const trashed = decisions.filter((d) => !d.keep);
+  const freedMB = trashed.reduce((s, d) => s + d.photo.sizeMB, 0);
+
+  async function confirmDelete() {
+    const src = getPhotoSource();
+    const ids = trashed.map((d) => d.photo.nativeId || d.photo.id);
+    if (src.isNative && ids.length > 0) {
+      await src.deletePhotos(ids);
+    }
+    setPhase("done");
+  }
+
+  function skipDelete() {
+    setPhase("done");
+  }
+
   if (phase === "intro") {
     return (
       <div className="flex flex-col items-center px-6 pt-10 text-center">
@@ -78,7 +86,7 @@ export function SpeedRound() {
         </div>
         <h2 className="mt-4 font-display text-3xl font-bold">Speed Round</h2>
         <p className="mt-2 max-w-xs text-sm text-muted-foreground text-balance">
-          30 seconds. Tap Keep or Trash as fast as you can. Score = MB freed.
+          30 seconds. Tap Keep or Trash as fast as you can.
         </p>
         <button
           onClick={start}
@@ -90,15 +98,58 @@ export function SpeedRound() {
     );
   }
 
+  if (phase === "summary") {
+    return (
+      <div className="flex flex-col items-center px-6 pt-10 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/15 text-primary">
+          <Sparkles className="h-7 w-7" />
+        </div>
+        <h2 className="mt-4 font-display text-2xl font-bold">Time's up!</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {decisions.length} photos reviewed · {trashed.length} marked for deletion
+        </p>
+        {trashed.length > 0 && (
+          <p className="mt-1 text-sm text-muted-foreground">
+            You can free {freedMB.toFixed(1)} MB
+          </p>
+        )}
+
+        {trashed.length > 0 ? (
+          <div className="mt-6 flex w-full max-w-xs flex-col gap-3">
+            <button
+              onClick={confirmDelete}
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-destructive px-6 py-3 text-sm font-semibold text-destructive-foreground shadow-card hover:opacity-90"
+            >
+              <Trash2 className="h-4 w-4" /> Delete {trashed.length} photos
+            </button>
+            <button
+              onClick={skipDelete}
+              className="inline-flex items-center justify-center gap-2 rounded-full border border-border bg-card px-6 py-3 text-sm font-semibold text-foreground hover:bg-muted"
+            >
+              Skip — keep all
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setPhase("done")}
+            className="mt-6 inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-card hover:opacity-90"
+          >
+            Continue
+          </button>
+        )}
+      </div>
+    );
+  }
+
   if (phase === "done") {
     return (
       <div className="flex flex-col items-center px-6 pt-10 text-center">
         <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/15 text-primary">
           <Sparkles className="h-7 w-7" />
         </div>
-        <h2 className="mt-4 font-display text-2xl font-bold">Time's up</h2>
+        <h2 className="mt-4 font-display text-2xl font-bold">Round complete</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          {count} photos in {DURATION}s · freed {freed.toFixed(1)} MB
+          {decisions.length} photos in {DURATION}s
         </p>
         <button
           onClick={start}
@@ -112,6 +163,8 @@ export function SpeedRound() {
 
   const top = queue[0];
   const pct = (time / DURATION) * 100;
+  const count = decisions.length;
+  const freed = freedMB;
 
   return (
     <div className="flex flex-col items-center px-5 pt-4">
@@ -135,7 +188,7 @@ export function SpeedRound() {
         </div>
         <div className="mt-2 flex justify-between text-[11px] text-muted-foreground">
           <span>{count} reviewed</span>
-          <span className="tabular-nums">{freed.toFixed(1)} MB freed</span>
+          <span className="tabular-nums">{freed.toFixed(1)} MB marked</span>
         </div>
       </div>
 
