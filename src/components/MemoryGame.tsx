@@ -205,7 +205,7 @@ export function MemoryGame() {
       )}
 
       {phase === "reveal" && (
-        <div className="mt-6 grid w-full max-w-sm grid-cols-2 gap-3">
+        <div className="mt-3 grid w-full max-w-sm grid-cols-2 gap-3">
           <button
             onClick={() => decide(true)}
             className="flex flex-col items-center gap-1 rounded-2xl border border-border bg-card py-4 transition hover:border-accent hover:bg-accent/15"
