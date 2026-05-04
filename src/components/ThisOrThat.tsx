@@ -66,7 +66,7 @@ export function ThisOrThat() {
       mbFreed: s.mbFreed + loser.sizeMB,
     }));
     logDay({ kept: 1, deleted: 1, mbFreed: loser.sizeMB });
-    toast.success(`Kept the better one · saved ${loser.sizeMB.toFixed(1)} MB`);
+    
 
     if (idx + 1 >= round.length) {
       setDone(true);
