@@ -40,7 +40,7 @@ export function StorageBudget() {
   const remainingMB = +(BUDGET_MB - usedMB).toFixed(2);
   const overBudget = remainingMB < 0;
 
-  function toggle(p: SamplePhoto) {
+  function toggle(p: LibraryPhoto) {
     if (done) return;
     setKept((prev) => {
       const next = new Set(prev);
