@@ -6,6 +6,11 @@ const empty: Stats = {
   streak: 0, lastSessionDate: null,
   memoryPlayed: 0, memoryCorrect: 0, memoryBestStreak: 0,
   memoryCurrentStreak: 0, memoryTotalDelta: 0,
+  thisOrThatRounds: 0, thisOrThatDeleted: 0, thisOrThatMbFreed: 0,
+  speedRoundPlayed: 0, speedRoundBestCount: 0, speedRoundBestMb: 0,
+  speedRoundTotalReviewed: 0, speedRoundTotalMbFreed: 0,
+  storageBudgetPlayed: 0, storageBudgetTotalKept: 0,
+  storageBudgetTotalCleared: 0, storageBudgetTotalMbFreed: 0,
   isPro: false, trimsToday: 0, trimsTodayDate: null, daily: [],
   settings: {
     cardsPerRound: 10,
