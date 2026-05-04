@@ -5,10 +5,16 @@
     "version": "1.0.1",
     "ios": {
       "bundleIdentifier": "com.fiskerik.trimswipe",
+      "supportsTablet": true,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSPhotoLibraryUsageDescription": "Trimswipe behöver åtkomst till dina foton för att kunna hantera lagringsutrymme.",
+        "NSPhotoLibraryAddUsageDescription": "Trimswipe behöver rättighet att ändra i fotobiblioteket."
       }
     },
+    "plugins": [
+      "react-native-webview"
+    ],
     "extra": {
       "eas": {
         "projectId": "ab53ebf6-4e67-4696-afc2-077c76247d41"
