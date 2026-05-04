@@ -81,7 +81,7 @@ function SpeedRound() {
     const top = queue[0];
     if (!top) return;
 
-    setCount((c) => c + 1);
+    setCount((c) => { const n = c + 1; countRef.current = n; return n; });
 
     if (!keep) {
       setFreed((f) => parseFloat((f + top.sizeMB).toFixed(2)));
