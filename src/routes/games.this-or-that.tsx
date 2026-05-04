@@ -58,6 +58,7 @@ function ThisOrThat() {
 
       setChosen(null);
       if (idx + 1 >= round.length) {
+        setStats((prev) => ({ ...prev, thisOrThatRounds: prev.thisOrThatRounds + 1 }));
         setDone(true);
       } else {
         setIdx((i) => i + 1);
