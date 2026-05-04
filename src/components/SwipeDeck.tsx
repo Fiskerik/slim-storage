@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useTransform, type PanInfo, AnimatePresence } from "framer-motion";
 import { ArrowLeft, ArrowUp, ArrowRight, MapPin, Sparkles, RefreshCw, Lock, Cloud, Undo2, PartyPopper, Trash2, Check } from "lucide-react";
 import { getPhotoSource, isNativeApp, type LibraryPhoto } from "@/lib/photo-source";
+import { hapticTap, hapticSuccess, hapticError } from "@/lib/native-shell";
 import { setStats, bumpStreak, canTrim, recordTrim, logDay, trimsRemainingToday, setPro, FREE_TRIM_LIMIT, softDelete, undoDelete, updateSettings } from "@/lib/storage";
 import { useStats } from "@/hooks/use-stats";
 import { Onboarding } from "@/components/Onboarding";
@@ -137,6 +138,7 @@ export function SwipeDeck() {
       sess.kept += 1;
       setStats((s) => ({ ...s, cleaned: s.cleaned + 1 }));
       logDay({ kept: 1 });
+      hapticTap();
       advance();
     } else if (action === "trim") {
       const saved = +(photo.sizeMB * 0.32).toFixed(2);
@@ -146,6 +148,7 @@ export function SwipeDeck() {
       logDay({ trimmed: 1, mbFreed: saved });
       recordTrim();
       const remaining = trimsRemainingToday();
+      hapticSuccess();
       toast.success(`Slimmed · saved ${saved.toFixed(1)} MB`, {
         description: stats.isPro
           ? (photo.hasGPS ? "GPS & device tags stripped" : "Metadata stripped")
@@ -153,12 +156,14 @@ export function SwipeDeck() {
       });
       advance();
     } else if (action === "delete") {
-      // iCloud backup awareness — show warning the first time per session
-      if (stats.settings.iCloudBackupWarn && !seenICloudWarnRef.current) {
+      // iCloud backup awareness — show warning if photo is cloud-only or first time per session
+      const isCloud = photo.isCloudAsset === true;
+      if ((isCloud || (stats.settings.iCloudBackupWarn && !seenICloudWarnRef.current)) && isNativeApp()) {
         seenICloudWarnRef.current = true;
         setICloudWarn({ photo });
         return;
       }
+      hapticError();
       commitDelete(photo);
     }
   }
@@ -388,11 +393,21 @@ function ICloudWarnModal({
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-warm/30 text-warm-foreground">
           <Cloud className="h-5 w-5" />
         </div>
-        <h3 className="mt-4 font-display text-2xl font-bold">Backed up to iCloud?</h3>
+        <h3 className="mt-4 font-display text-2xl font-bold">
+          {photo.isCloudAsset ? "Only in iCloud" : "Backed up to iCloud?"}
+        </h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          We can't tell yet whether <span className="font-medium text-foreground">{photo.title}</span> is backed up.
-          Once you delete it from your library, it's gone for good after 30 days in Recently Deleted.
-          Make sure iCloud Photos has finished syncing before you continue.
+          {photo.isCloudAsset
+            ? <>
+                <span className="font-medium text-foreground">{photo.title}</span> is stored in iCloud but not downloaded locally.
+                Deleting it will remove it everywhere after 30 days in Recently Deleted.
+              </>
+            : <>
+                We can't confirm whether <span className="font-medium text-foreground">{photo.title}</span> is backed up.
+                Once you delete it from your library, it's gone for good after 30 days in Recently Deleted.
+                Make sure iCloud Photos has finished syncing before you continue.
+              </>
+          }
         </p>
 
         <label className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
