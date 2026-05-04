@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   User,
   Cloud,
@@ -18,6 +18,8 @@ import {
 import { Link } from "@tanstack/react-router";
 import { useStats } from "@/hooks/use-stats";
 import { updateSettings, deleteAllData, setPro } from "@/lib/storage";
+import { isNativeApp } from "@/lib/photo-source";
+import { purchaseProduct, restorePurchases, checkProStatus, getProducts, type PurchaseProduct } from "@/lib/purchases";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { ShareStatsCard } from "@/components/ShareStatsCard";
