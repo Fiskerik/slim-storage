@@ -80,6 +80,8 @@ function SpeedRound() {
     setTime(DURATION);
     setFreed(0);
     setCount(0);
+    countRef.current = 0;
+    freedRef.current = 0;
     setPhase("play");
   }
 
