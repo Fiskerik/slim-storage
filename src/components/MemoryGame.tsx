@@ -166,24 +166,24 @@ export function MemoryGame() {
       </div>
 
       {phase === "guess" && (
-        <div className="mt-6 w-full max-w-sm">
-          <div className="rounded-2xl border border-border bg-card p-5">
+        <div className="mt-3 w-full max-w-sm">
+          <div className="rounded-2xl border border-border bg-card p-4">
             <p className="text-center text-xs uppercase tracking-wider text-muted-foreground">
               What year was this taken?
             </p>
             {guess !== null && (
-              <p className="mt-2 text-center font-display text-5xl font-bold tabular-nums">{guess}</p>
+              <p className="mt-1 text-center font-display text-4xl font-bold tabular-nums">{guess}</p>
             )}
             {guess === null && (
-              <p className="mt-2 text-center font-display text-2xl font-medium text-muted-foreground">Pick a year</p>
+              <p className="mt-1 text-center font-display text-xl font-medium text-muted-foreground">Pick a year</p>
             )}
-            <div className="mt-4 grid grid-cols-4 gap-2">
+            <div className="mt-3 grid grid-cols-4 gap-2">
               {yearOptions.map((yr) => (
                 <button
                   key={yr}
                   onClick={() => setGuess(yr)}
                   className={cn(
-                    "rounded-xl border-2 py-3 font-display text-lg font-bold tabular-nums transition",
+                    "rounded-xl border-2 py-2.5 font-display text-base font-bold tabular-nums transition",
                     guess === yr
                       ? "border-primary bg-primary/15 text-primary"
                       : "border-border bg-background text-foreground hover:border-primary/40"
@@ -197,7 +197,7 @@ export function MemoryGame() {
           <button
             onClick={submitGuess}
             disabled={guess === null}
-            className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3 text-sm font-semibold text-primary-foreground shadow-card transition hover:opacity-90 disabled:opacity-40"
+            className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3 text-sm font-semibold text-primary-foreground shadow-card transition hover:opacity-90 disabled:opacity-40"
           >
             Reveal <ArrowRight className="h-4 w-4" />
           </button>
