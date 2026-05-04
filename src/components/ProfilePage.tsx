@@ -239,6 +239,28 @@ export function ProfilePage() {
         Account
       </h2>
       <div className="mt-3 space-y-2">
+        <button
+          onClick={async () => {
+            try {
+              const restored = await restorePurchases();
+              if (restored) {
+                setPro(true);
+                toast.success("Purchases restored!");
+              } else {
+                toast("No previous purchases found");
+              }
+            } catch {
+              toast.error("Could not restore purchases");
+            }
+          }}
+          className="flex w-full items-center justify-between rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/40"
+        >
+          <div className="flex items-center gap-3">
+            <RotateCcw className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">Restore purchases</span>
+          </div>
+          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+        </button>
         {stats.isPro && (
           <button
             onClick={() => {

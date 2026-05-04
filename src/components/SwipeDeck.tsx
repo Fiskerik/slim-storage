@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useTransform, type PanInfo, AnimatePresence } from "framer-motion";
-import { ArrowLeft, ArrowUp, ArrowRight, MapPin, Sparkles, RefreshCw, Lock, Cloud, Undo2, PartyPopper, Trash2, Check } from "lucide-react";
+import { ArrowLeft, ArrowUp, ArrowRight, MapPin, Sparkles, RefreshCw, Lock, Cloud, PartyPopper, Trash2, Check } from "lucide-react";
 import { getPhotoSource, isNativeApp, type LibraryPhoto } from "@/lib/photo-source";
 import { hapticTap, hapticSuccess, hapticError } from "@/lib/native-shell";
 import { setStats, bumpStreak, canTrim, recordTrim, logDay, trimsRemainingToday, setPro, FREE_TRIM_LIMIT, softDelete, undoDelete, updateSettings } from "@/lib/storage";
@@ -83,29 +83,7 @@ export function SwipeDeck() {
     softDelete({ id: photo.id, title: photo.title, sizeMB: photo.sizeMB });
     deletedPhotosRef.current = [...deletedPhotosRef.current, photo];
 
-    // 30s undo window
-    toast.success(`Deleted · freed ${photo.sizeMB.toFixed(1)} MB`, {
-      duration: 5000,
-      icon: <Undo2 className="h-4 w-4" />,
-      description: "Tap Undo to restore. You can also confirm at the end of the set.",
-      action: {
-        label: "Undo",
-        onClick: () => {
-          undoDelete(photo.id);
-          setStats((s) => ({
-            ...s,
-            deleted: Math.max(0, s.deleted - 1),
-            mbFreed: Math.max(0, s.mbFreed - photo.sizeMB),
-          }));
-          sess.deleted = Math.max(0, sess.deleted - 1);
-          sess.freed = Math.max(0, sess.freed - photo.sizeMB);
-          deletedPhotosRef.current = deletedPhotosRef.current.filter((p) => p.id !== photo.id);
-          // Put it back at the top
-          setQueue((q) => [photo, ...q]);
-          toast.success("Restored");
-        },
-      },
-    });
+    // No per-swipe toast — summary is shown at the end
 
     advance();
   }
@@ -313,9 +291,6 @@ export function SwipeDeck() {
         />
       </div>
 
-      <p className="mt-5 text-center text-xs text-muted-foreground">
-        ← Keep · ↑ Trim (slim & strip metadata) · → Delete
-      </p>
 
       {paywallOpen && (
         <PaywallModal
