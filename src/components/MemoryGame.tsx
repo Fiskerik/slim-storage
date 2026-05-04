@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Brain, Check, Trash2, Sparkles, ArrowRight } from "lucide-react";
-import { Slider } from "@/components/ui/slider";
 import { getPhotoSource, type LibraryPhoto } from "@/lib/photo-source";
 import { setStats, logDay } from "@/lib/storage";
 import { useStats } from "@/hooks/use-stats";
