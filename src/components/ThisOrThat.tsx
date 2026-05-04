@@ -121,14 +121,11 @@ export function ThisOrThat() {
       </p>
 
       <div className="mt-4 grid w-full max-w-sm grid-cols-2 gap-3">
-        <AnimatePresence mode="wait">
           {[0, 1].map((i) => (
             <motion.button
-              key={cards[i].id + idx}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2, delay: i * 0.05 }}
+              key={cards[i].id}
+              initial={false}
+              animate={{ opacity: 1 }}
               onClick={() => pick(i as 0 | 1)}
               className="group relative aspect-[3/4] overflow-hidden rounded-2xl border border-border bg-card shadow-card transition hover:border-primary/60 active:scale-[0.97]"
             >
@@ -149,7 +146,6 @@ export function ThisOrThat() {
               </div>
             </motion.button>
           ))}
-        </AnimatePresence>
       </div>
 
       <p className={cn("mt-5 text-center text-[11px] text-muted-foreground")}>
