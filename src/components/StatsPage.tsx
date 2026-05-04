@@ -244,19 +244,22 @@ function StatCard({
   label,
   value,
   accent,
+  tint,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string | number;
   accent?: boolean;
+  tint?: string;
 }) {
+  const iconColor = tint || (accent ? "text-primary" : "");
   return (
     <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
       <div className="flex items-center gap-2 text-muted-foreground">
-        <span className={accent ? "text-primary" : ""}>{icon}</span>
+        <span className={iconColor}>{icon}</span>
         <span className="text-[11px] font-medium uppercase tracking-wider">{label}</span>
       </div>
-      <p className={`mt-2 font-display text-2xl font-bold tabular-nums ${accent ? "text-primary" : ""}`}>
+      <p className={`mt-2 font-display text-2xl font-bold tabular-nums ${accent ? (tint || "text-primary") : ""}`}>
         {value}
       </p>
     </div>
