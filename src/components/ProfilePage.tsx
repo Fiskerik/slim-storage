@@ -223,16 +223,6 @@ export function ProfilePage() {
         Account
       </h2>
       <div className="mt-3 space-y-2">
-        <button
-          onClick={() => toast.success("Restoring purchases…")}
-          className="flex w-full items-center justify-between rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/40"
-        >
-          <div className="flex items-center gap-3">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <span className="text-sm font-medium">Restore purchases</span>
-          </div>
-          <ChevronRight className="h-4 w-4 text-muted-foreground" />
-        </button>
         {stats.isPro && (
           <button
             onClick={() => {
