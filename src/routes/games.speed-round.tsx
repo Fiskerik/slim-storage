@@ -36,6 +36,8 @@ function SpeedRound() {
   const [freed, setFreed] = useState(0);
   const [count, setCount] = useState(0);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const countRef = useRef(0);
+  const freedRef = useRef(0);
 
   // Clean up timer on unmount
   useEffect(() => {
