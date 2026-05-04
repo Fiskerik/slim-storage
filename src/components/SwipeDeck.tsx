@@ -291,9 +291,6 @@ export function SwipeDeck() {
         />
       </div>
 
-      <p className="mt-5 text-center text-xs text-muted-foreground">
-        ← Keep · ↑ Trim (slim & strip metadata) · → Delete
-      </p>
 
       {paywallOpen && (
         <PaywallModal
