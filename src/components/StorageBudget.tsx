@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { HardDrive, Sparkles, Check, X, RotateCcw } from "lucide-react";
-import { SAMPLE_PHOTOS, type SamplePhoto } from "@/lib/photos";
+import { getPhotoSource, type LibraryPhoto } from "@/lib/photo-source";
 import { setStats, logDay } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
