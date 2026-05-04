@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   User,
   Cloud,
@@ -18,6 +18,8 @@ import {
 import { Link } from "@tanstack/react-router";
 import { useStats } from "@/hooks/use-stats";
 import { updateSettings, deleteAllData, setPro } from "@/lib/storage";
+import { isNativeApp } from "@/lib/photo-source";
+import { purchaseProduct, restorePurchases, checkProStatus, getProducts, type PurchaseProduct } from "@/lib/purchases";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { ShareStatsCard } from "@/components/ShareStatsCard";
@@ -113,9 +115,23 @@ export function ProfilePage() {
       {/* Pro upsell (free users only) */}
       {!stats.isPro && (
         <button
-          onClick={() => {
-            setPro(true);
-            toast.success("Slim Pro unlocked");
+          onClick={async () => {
+            if (isNativeApp()) {
+              const products = await getProducts();
+              if (products.length > 0) {
+                const success = await purchaseProduct(products[0].id);
+                if (success) {
+                  setPro(true);
+                  toast.success("Slim Pro unlocked!");
+                }
+              } else {
+                toast.error("No products available yet");
+              }
+            } else {
+              // Web fallback: instant unlock for testing
+              setPro(true);
+              toast.success("Slim Pro unlocked");
+            }
           }}
           className="mt-3 flex w-full items-center justify-between rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 to-warm/15 p-4 text-left transition hover:from-primary/15"
         >
@@ -223,16 +239,6 @@ export function ProfilePage() {
         Account
       </h2>
       <div className="mt-3 space-y-2">
-        <button
-          onClick={() => toast.success("Restoring purchases…")}
-          className="flex w-full items-center justify-between rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/40"
-        >
-          <div className="flex items-center gap-3">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <span className="text-sm font-medium">Restore purchases</span>
-          </div>
-          <ChevronRight className="h-4 w-4 text-muted-foreground" />
-        </button>
         {stats.isPro && (
           <button
             onClick={() => {

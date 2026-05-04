@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useStats } from "@/hooks/use-stats";
 import { resetStats } from "@/lib/storage";
 import type { DayLog } from "@/lib/storage";
-import { Trash2, Sparkles, Brain, Flame, HardDrive, Image as ImageIcon, Target, RotateCcw, X } from "lucide-react";
+import { Trash2, Sparkles, Brain, Flame, HardDrive, Image as ImageIcon, Target, RotateCcw, X, Scale, Timer, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function StatsPage() {
@@ -84,13 +84,42 @@ export function StatsPage() {
       </div>
 
       <h2 className="mt-7 px-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-        Memory game
+        Memory Lane
       </h2>
       <div className="mt-3 grid grid-cols-2 gap-3">
         <StatCard icon={<Brain className="h-4 w-4" />} label="Played" value={s.memoryPlayed} />
         <StatCard icon={<Target className="h-4 w-4" />} label="Accuracy" value={`${accuracy}%`} accent />
         <StatCard icon={<Flame className="h-4 w-4" />} label="Best streak" value={s.memoryBestStreak} />
         <StatCard icon={<Sparkles className="h-4 w-4" />} label="Avg yrs off" value={avgDelta} />
+      </div>
+
+      <h2 className="mt-7 px-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+        This or That
+      </h2>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <StatCard icon={<Scale className="h-4 w-4" />} label="Rounds" value={s.thisOrThatRounds} />
+        <StatCard icon={<Trash2 className="h-4 w-4" />} label="Deleted" value={s.thisOrThatDeleted} />
+        <StatCard icon={<HardDrive className="h-4 w-4" />} label="MB Freed" value={s.thisOrThatMbFreed.toFixed(0)} accent />
+      </div>
+
+      <h2 className="mt-7 px-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+        Speed Round
+      </h2>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <StatCard icon={<Timer className="h-4 w-4" />} label="Played" value={s.speedRoundPlayed} />
+        <StatCard icon={<Trophy className="h-4 w-4" />} label="Best count" value={s.speedRoundBestCount} accent />
+        <StatCard icon={<ImageIcon className="h-4 w-4" />} label="Total reviewed" value={s.speedRoundTotalReviewed} />
+        <StatCard icon={<HardDrive className="h-4 w-4" />} label="MB Freed" value={s.speedRoundTotalMbFreed.toFixed(0)} />
+      </div>
+
+      <h2 className="mt-7 px-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+        Storage Budget
+      </h2>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <StatCard icon={<HardDrive className="h-4 w-4" />} label="Played" value={s.storageBudgetPlayed} />
+        <StatCard icon={<ImageIcon className="h-4 w-4" />} label="Total kept" value={s.storageBudgetTotalKept} />
+        <StatCard icon={<Trash2 className="h-4 w-4" />} label="Total cleared" value={s.storageBudgetTotalCleared} />
+        <StatCard icon={<Sparkles className="h-4 w-4" />} label="MB Freed" value={s.storageBudgetTotalMbFreed.toFixed(0)} accent />
       </div>
 
       <button

@@ -1,3 +1,4 @@
+import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { HardDrive, Sparkles, Check, X, RotateCcw, ArrowLeft } from "lucide-react";
@@ -5,6 +6,10 @@ import { Link } from "@tanstack/react-router";
 import { SAMPLE_PHOTOS, type SamplePhoto } from "@/lib/photos";
 import { setStats, logDay } from "@/lib/storage";
 import { cn } from "@/lib/utils";
+
+export const Route = createFileRoute("/games/storage-budget")({
+  component: StorageBudget,
+});
 
 const BUDGET_MB = 50;
 
@@ -32,7 +37,7 @@ function newPool(): PoolEntry[] {
   return buildPool();
 }
 
-export function StorageBudget() {
+function StorageBudget() {
   const [pool, setPool] = useState<PoolEntry[]>(() => newPool());
   // kept tracks poolKey (unique per slot), not photo id
   const [kept, setKept] = useState<Set<string>>(new Set());
@@ -71,6 +76,10 @@ export function StorageBudget() {
       cleaned: s.cleaned + kept.size,
       deleted: s.deleted + cleared.length,
       mbFreed: s.mbFreed + freed,
+      storageBudgetPlayed: s.storageBudgetPlayed + 1,
+      storageBudgetTotalKept: s.storageBudgetTotalKept + kept.size,
+      storageBudgetTotalCleared: s.storageBudgetTotalCleared + cleared.length,
+      storageBudgetTotalMbFreed: s.storageBudgetTotalMbFreed + freed,
     }));
     logDay({ kept: kept.size, deleted: cleared.length, mbFreed: freed });
     setDone(true);

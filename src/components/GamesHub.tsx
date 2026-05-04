@@ -1,6 +1,5 @@
 import { Link } from "@tanstack/react-router";
 import { Brain, Scale, Timer, HardDrive, ArrowRight } from "lucide-react";
-import { useStats } from "@/hooks/use-stats";
 
 type Game = {
   to: string;
@@ -13,7 +12,6 @@ type Game = {
 };
 
 export function GamesHub() {
-  const stats = useStats();
 
   const games: Game[] = [
     {
@@ -63,23 +61,6 @@ export function GamesHub() {
           Different ways to clean — same result: less clutter, more space.
         </p>
       </header>
-
-      <div className="mt-6 rounded-2xl border border-border bg-card p-4 shadow-soft">
-        <div className="flex items-center justify-between text-xs">
-          <div>
-            <p className="uppercase tracking-wider text-muted-foreground">Memory streak</p>
-            <p className="mt-1 font-display text-xl font-bold tabular-nums">
-              🔥 {stats.memoryCurrentStreak}
-            </p>
-          </div>
-          <div className="text-right">
-            <p className="uppercase tracking-wider text-muted-foreground">Best</p>
-            <p className="mt-1 font-display text-xl font-bold tabular-nums">
-              {stats.memoryBestStreak}
-            </p>
-          </div>
-        </div>
-      </div>
 
       <div className="mt-5 space-y-3">
         {games.map((g) => (
