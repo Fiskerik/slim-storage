@@ -132,7 +132,7 @@ export function MemoryGame() {
         <span className="tabular-nums">Streak 🔥 {stats.memoryCurrentStreak}</span>
       </div>
 
-      <div className="relative mt-4 h-[420px] w-full max-w-sm overflow-hidden rounded-3xl border border-border bg-card shadow-card">
+      <div className="relative mt-2 h-[300px] w-full max-w-sm overflow-hidden rounded-2xl border border-border bg-card shadow-card">
         <AnimatePresence mode="wait">
           <motion.img
             key={photo.id}
