@@ -12,6 +12,29 @@ type SamplePhoto = LibraryPhoto;
 const MIN_YEAR = 2010;
 const MAX_YEAR = new Date().getFullYear();
 
+/** Generate 4 year options: the correct year + 3 close alternatives */
+function generateYearOptions(correctYear: number): number[] {
+  const opts = new Set<number>();
+  opts.add(correctYear);
+  // Add close years (within ±3) that are in range
+  const offsets = [-2, -1, 1, 2, -3, 3];
+  for (const offset of offsets) {
+    if (opts.size >= 4) break;
+    const y = correctYear + offset;
+    if (y >= MIN_YEAR && y <= MAX_YEAR) opts.add(y);
+  }
+  // If still not enough, expand
+  let expand = 4;
+  while (opts.size < 4 && expand < 10) {
+    const y1 = correctYear + expand;
+    const y2 = correctYear - expand;
+    if (y1 <= MAX_YEAR) opts.add(y1);
+    if (y2 >= MIN_YEAR) opts.add(y2);
+    expand++;
+  }
+  return [...opts].sort((a, b) => a - b);
+}
+
 type Phase = "intro" | "guess" | "reveal" | "done";
 
 async function pickRound(n: number): Promise<SamplePhoto[]> {
