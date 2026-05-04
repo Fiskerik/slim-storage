@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Brain, Check, Trash2, Sparkles, ArrowRight } from "lucide-react";
 import { getPhotoSource, type LibraryPhoto } from "@/lib/photo-source";
@@ -8,41 +8,34 @@ import { cn } from "@/lib/utils";
 
 type SamplePhoto = LibraryPhoto;
 
-// ROUND_SIZE comes from user settings (5–30)
 const MIN_YEAR = 2010;
 const MAX_YEAR = new Date().getFullYear();
+
+type Phase = "intro" | "guess" | "reveal" | "done";
 
 /** Generate 4 year options: the correct year + 3 close alternatives */
 function generateYearOptions(correctYear: number): number[] {
   const opts = new Set<number>();
   opts.add(correctYear);
-  // Add close years (within ±3) that are in range
   const offsets = [-2, -1, 1, 2, -3, 3];
   for (const offset of offsets) {
     if (opts.size >= 4) break;
     const y = correctYear + offset;
     if (y >= MIN_YEAR && y <= MAX_YEAR) opts.add(y);
   }
-  // If still not enough, expand
   let expand = 4;
   while (opts.size < 4 && expand < 10) {
-    const y1 = correctYear + expand;
-    const y2 = correctYear - expand;
-    if (y1 <= MAX_YEAR) opts.add(y1);
-    if (y2 >= MIN_YEAR) opts.add(y2);
+    if (correctYear + expand <= MAX_YEAR) opts.add(correctYear + expand);
+    if (correctYear - expand >= MIN_YEAR) opts.add(correctYear - expand);
     expand++;
   }
   return [...opts].sort((a, b) => a - b);
 }
 
-type Phase = "intro" | "guess" | "reveal" | "done";
-
 async function pickRound(n: number): Promise<SamplePhoto[]> {
-  // Memory game prefers older photos (anything older than 4 years).
   const cutoff = new Date().getFullYear() - 4;
   const out = await getPhotoSource().getOlder(cutoff, n);
   if (out.length >= n) return out;
-  // Fall back: top up with random photos if not enough older ones available.
   const extra = await getPhotoSource().getRandom(n - out.length);
   return [...out, ...extra];
 }
@@ -53,6 +46,7 @@ export function MemoryGame() {
   const [idx, setIdx] = useState(0);
   const [guess, setGuess] = useState<number | null>(null);
   const [yearOptions, setYearOptions] = useState<number[]>([]);
+  const [results, setResults] = useState<{ delta: number; correct: boolean; kept: boolean }[]>([]);
   const stats = useStats();
 
   const photo = round[idx];
@@ -62,19 +56,22 @@ export function MemoryGame() {
     pickRound(size).then((photos) => {
       setRound(photos);
       setIdx(0);
-      setGuess(2018);
+      setGuess(null);
       setResults([]);
+      if (photos.length > 0) {
+        setYearOptions(generateYearOptions(photos[0].year));
+      }
       setPhase("guess");
     });
   }
 
   function submitGuess() {
-    if (!photo) return;
+    if (!photo || guess === null) return;
     setPhase("reveal");
   }
 
   function decide(keep: boolean) {
-    if (!photo) return;
+    if (!photo || guess === null) return;
     const delta = Math.abs(guess - photo.year);
     const correct = delta <= 1;
     const newResults = [...results, { delta, correct, kept: keep }];
@@ -88,7 +85,6 @@ export function MemoryGame() {
         memoryCurrentStreak: nextStreak,
         memoryBestStreak: Math.max(s.memoryBestStreak, nextStreak),
         memoryTotalDelta: s.memoryTotalDelta + delta,
-        // If user chose to clear it, count as deleted + freed
         deleted: keep ? s.deleted : s.deleted + 1,
         cleaned: keep ? s.cleaned + 1 : s.cleaned,
         mbFreed: keep ? s.mbFreed : s.mbFreed + photo.sizeMB,
@@ -107,8 +103,12 @@ export function MemoryGame() {
     if (idx + 1 >= round.length) {
       setPhase("done");
     } else {
-      setIdx(idx + 1);
-      setGuess(2018);
+      const nextIdx = idx + 1;
+      setIdx(nextIdx);
+      setGuess(null);
+      if (round[nextIdx]) {
+        setYearOptions(generateYearOptions(round[nextIdx].year));
+      }
       setPhase("guess");
     }
   }
@@ -159,7 +159,7 @@ export function MemoryGame() {
               <p className="font-display text-3xl font-bold tabular-nums">
                 {photo.month} {photo.year}
               </p>
-              <ResultBadge guess={guess} actual={photo.year} />
+              <ResultBadge guess={guess!} actual={photo.year} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -171,23 +171,33 @@ export function MemoryGame() {
             <p className="text-center text-xs uppercase tracking-wider text-muted-foreground">
               What year was this taken?
             </p>
-            <p className="mt-2 text-center font-display text-5xl font-bold tabular-nums">{guess}</p>
-            <Slider
-              value={[guess]}
-              min={MIN_YEAR}
-              max={MAX_YEAR}
-              step={1}
-              onValueChange={(v) => setGuess(v[0])}
-              className="mt-5"
-            />
-            <div className="mt-2 flex justify-between text-[11px] text-muted-foreground">
-              <span>{MIN_YEAR}</span>
-              <span>{MAX_YEAR}</span>
+            {guess !== null && (
+              <p className="mt-2 text-center font-display text-5xl font-bold tabular-nums">{guess}</p>
+            )}
+            {guess === null && (
+              <p className="mt-2 text-center font-display text-2xl font-medium text-muted-foreground">Pick a year</p>
+            )}
+            <div className="mt-4 grid grid-cols-4 gap-2">
+              {yearOptions.map((yr) => (
+                <button
+                  key={yr}
+                  onClick={() => setGuess(yr)}
+                  className={cn(
+                    "rounded-xl border-2 py-3 font-display text-lg font-bold tabular-nums transition",
+                    guess === yr
+                      ? "border-primary bg-primary/15 text-primary"
+                      : "border-border bg-background text-foreground hover:border-primary/40"
+                  )}
+                >
+                  {yr}
+                </button>
+              ))}
             </div>
           </div>
           <button
             onClick={submitGuess}
-            className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3 text-sm font-semibold text-primary-foreground shadow-card transition hover:opacity-90"
+            disabled={guess === null}
+            className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3 text-sm font-semibold text-primary-foreground shadow-card transition hover:opacity-90 disabled:opacity-40"
           >
             Reveal <ArrowRight className="h-4 w-4" />
           </button>
@@ -304,5 +314,3 @@ function DoneScreen({
     </div>
   );
 }
-
-void useMemo;
