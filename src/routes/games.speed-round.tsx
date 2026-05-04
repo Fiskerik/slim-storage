@@ -54,6 +54,15 @@ function SpeedRound() {
         if (t <= 1) {
           if (tickRef.current) clearInterval(tickRef.current);
           setPhase("done");
+          // Record speed round stats
+          setStats((s) => ({
+            ...s,
+            speedRoundPlayed: s.speedRoundPlayed + 1,
+            speedRoundTotalReviewed: s.speedRoundTotalReviewed + countRef.current,
+            speedRoundTotalMbFreed: s.speedRoundTotalMbFreed + freedRef.current,
+            speedRoundBestCount: Math.max(s.speedRoundBestCount, countRef.current),
+            speedRoundBestMb: Math.max(s.speedRoundBestMb, freedRef.current),
+          }));
           return 0;
         }
         return t - 1;
