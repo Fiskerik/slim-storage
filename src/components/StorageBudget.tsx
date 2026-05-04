@@ -65,9 +65,7 @@ export function StorageBudget() {
   }
 
   function restart() {
-    setPool(shuffle([...SAMPLE_PHOTOS, ...SAMPLE_PHOTOS]).slice(0, 12));
-    setKept(new Set());
-    setDone(false);
+    loadPhotos();
   }
 
   if (done) {
