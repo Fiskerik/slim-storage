@@ -7,9 +7,8 @@ const App = () => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
-      <WebView 
-        // Byt ut URL:en nedan till din faktiska sajt (t.ex. på Vercel/Netlify)
-        source={{ uri: 'https://din-webb-url.com' }} 
+      <WebView
+        source={{ uri: 'https://trimswipe.lovable.app' }} 
         style={{ flex: 1 }}
         startInLoadingState={true}
         // Tillåt inline-video och andra mobilfunktioner
