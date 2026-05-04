@@ -115,9 +115,23 @@ export function ProfilePage() {
       {/* Pro upsell (free users only) */}
       {!stats.isPro && (
         <button
-          onClick={() => {
-            setPro(true);
-            toast.success("Slim Pro unlocked");
+          onClick={async () => {
+            if (isNativeApp()) {
+              const products = await getProducts();
+              if (products.length > 0) {
+                const success = await purchaseProduct(products[0].id);
+                if (success) {
+                  setPro(true);
+                  toast.success("Slim Pro unlocked!");
+                }
+              } else {
+                toast.error("No products available yet");
+              }
+            } else {
+              // Web fallback: instant unlock for testing
+              setPro(true);
+              toast.success("Slim Pro unlocked");
+            }
           }}
           className="mt-3 flex w-full items-center justify-between rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 to-warm/15 p-4 text-left transition hover:from-primary/15"
         >
