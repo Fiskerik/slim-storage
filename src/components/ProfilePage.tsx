@@ -271,6 +271,24 @@ export function ProfilePage() {
             <ChevronRight className="h-4 w-4 text-muted-foreground" />
           </button>
         )}
+        {stats.isPro && (
+          <button
+            onClick={async () => {
+              if (isNativeApp()) {
+                await presentCustomerCenter();
+              } else {
+                toast("Customer Center is only available in the app");
+              }
+            }}
+            className="flex w-full items-center justify-between rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/40"
+          >
+            <div className="flex items-center gap-3">
+              <Crown className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Manage subscription</span>
+            </div>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          </button>
+        )
         <button
           onClick={deleteAll}
           className="flex w-full items-center justify-between rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-left text-destructive transition hover:bg-destructive/10"
