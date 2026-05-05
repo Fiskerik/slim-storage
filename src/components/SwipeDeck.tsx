@@ -37,6 +37,7 @@ export function SwipeDeck() {
   const [queue, setQueue] = useState<SamplePhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [permissionDenied, setPermissionDenied] = useState(false);
+  const [permissionLimited, setPermissionLimited] = useState(false);
   const [recap, setRecap] = useState<SessionRecap | null>(null);
   const [confirmList, setConfirmList] = useState<SamplePhoto[] | null>(null);
   const [paywallOpen, setPaywallOpen] = useState(false);
@@ -48,13 +49,17 @@ export function SwipeDeck() {
     (async () => {
       const src = getPhotoSource();
       if (src.isNative) {
-        const ok = await src.requestPermission();
-        if (!ok) {
+        const permission = await src.requestPermission();
+        if (!permission.granted) {
           if (!cancelled) {
             setPermissionDenied(true);
+            setPermissionLimited(false);
             setLoading(false);
           }
           return;
+        }
+        if (!cancelled) {
+          setPermissionLimited(permission.limited);
         }
       }
       const photos = await src.getRandom(cardsPerRound);
@@ -247,6 +252,13 @@ export function SwipeDeck() {
           </span>
         )}
       </div>
+
+
+      {permissionLimited && (
+        <div className="mt-3 w-full max-w-sm rounded-xl border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          You're using limited Photos access. Some photos may be hidden. Manage selection in iOS Settings → Slim → Photos.
+        </div>
+      )}
 
       <div className="relative mt-4 h-[460px] w-full max-w-sm">
         <AnimatePresence>

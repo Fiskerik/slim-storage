@@ -13,9 +13,15 @@ export type LibraryPhoto = SamplePhoto & {
   isCloudAsset?: boolean;
 };
 
+export type PhotoPermission = {
+  granted: boolean;
+  limited: boolean;
+  canAskAgain: boolean;
+};
+
 export type PhotoSource = {
   isNative: boolean;
-  requestPermission: () => Promise<boolean>;
+  requestPermission: () => Promise<PhotoPermission>;
   getRandom: (count: number) => Promise<LibraryPhoto[]>;
   getOlder: (beforeYear: number, count: number) => Promise<LibraryPhoto[]>;
   getBurstGroups: (maxGroups: number) => Promise<LibraryPhoto[][]>;
@@ -66,7 +72,11 @@ const nativeBridgeSource: PhotoSource = {
 
   async requestPermission() {
     const result = await bridgeCall("requestPermission");
-    return result?.granted === true;
+    return {
+      granted: result?.granted === true,
+      limited: result?.limited === true,
+      canAskAgain: result?.canAskAgain !== false,
+    };
   },
 
   async getRandom(count) {
@@ -99,7 +109,7 @@ function toLib(p: SamplePhoto): LibraryPhoto {
 const webSource: PhotoSource = {
   isNative: false,
   async requestPermission() {
-    return true;
+    return { granted: true, limited: false, canAskAgain: true };
   },
   async getRandom(count) {
     const shuffled = [...SAMPLE_PHOTOS].sort(() => Math.random() - 0.5);
