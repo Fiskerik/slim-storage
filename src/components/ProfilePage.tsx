@@ -19,7 +19,7 @@ import { Link } from "@tanstack/react-router";
 import { useStats } from "@/hooks/use-stats";
 import { updateSettings, deleteAllData, setPro } from "@/lib/storage";
 import { isNativeApp } from "@/lib/photo-source";
-import { purchaseProduct, restorePurchases, checkProStatus, getProducts, type PurchaseProduct } from "@/lib/purchases";
+import { purchaseProduct, restorePurchases, checkProStatus, getProducts, presentPaywall, presentCustomerCenter, type PurchaseProduct } from "@/lib/purchases";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { ShareStatsCard } from "@/components/ShareStatsCard";
@@ -117,20 +117,15 @@ export function ProfilePage() {
         <button
           onClick={async () => {
             if (isNativeApp()) {
-              const products = await getProducts();
-              if (products.length > 0) {
-                const success = await purchaseProduct(products[0].id);
-                if (success) {
-                  setPro(true);
-                  toast.success("Slim Pro unlocked!");
-                }
-              } else {
-                toast.error("No products available yet");
+              const success = await presentPaywall();
+              if (success) {
+                setPro(true);
+                toast.success("TrimSwipe Pro unlocked!");
               }
             } else {
               // Web fallback: instant unlock for testing
               setPro(true);
-              toast.success("Slim Pro unlocked");
+              toast.success("TrimSwipe Pro unlocked");
             }
           }}
           className="mt-3 flex w-full items-center justify-between rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 to-warm/15 p-4 text-left transition hover:from-primary/15"
@@ -140,8 +135,8 @@ export function ProfilePage() {
               <Crown className="h-5 w-5" />
             </div>
             <div>
-              <p className="font-semibold">Upgrade to Slim Pro</p>
-              <p className="text-xs text-muted-foreground">Unlimited trims · bulk metadata strip</p>
+              <p className="font-semibold">Upgrade to TrimSwipe Pro</p>
+              <p className="text-xs text-muted-foreground">Unlimited trims · lifetime access</p>
             </div>
           </div>
           <ChevronRight className="h-4 w-4 text-muted-foreground" />
@@ -272,6 +267,24 @@ export function ProfilePage() {
             <div className="flex items-center gap-3">
               <RotateCcw className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm font-medium">Switch back to free (test)</span>
+            </div>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          </button>
+        )}
+        {stats.isPro && (
+          <button
+            onClick={async () => {
+              if (isNativeApp()) {
+                await presentCustomerCenter();
+              } else {
+                toast("Customer Center is only available in the app");
+              }
+            }}
+            className="flex w-full items-center justify-between rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/40"
+          >
+            <div className="flex items-center gap-3">
+              <Crown className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Manage subscription</span>
             </div>
             <ChevronRight className="h-4 w-4 text-muted-foreground" />
           </button>
