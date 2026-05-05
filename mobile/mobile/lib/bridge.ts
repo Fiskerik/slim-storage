@@ -67,9 +67,10 @@ export async function handleBridgeMessage(request: BridgeRequest): Promise<Bridg
 
 // ─── Permission ──────────────────────────────────
 
-async function requestPermission(): Promise<{ granted: boolean }> {
-  const { status } = await MediaLibrary.requestPermissionsAsync();
-  return { granted: status === 'granted' };
+async function requestPermission(): Promise<{ granted: boolean; limited: boolean; canAskAgain: boolean }> {
+  const { status, accessPrivileges, canAskAgain } = await MediaLibrary.requestPermissionsAsync();
+  const limited = accessPrivileges === 'limited';
+  return { granted: status === 'granted', limited, canAskAgain };
 }
 
 // ─── Photo fetching ──────────────────────────────
