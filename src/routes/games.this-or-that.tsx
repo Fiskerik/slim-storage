@@ -87,7 +87,7 @@ function ThisOrThat() {
         thisOrThatMbFreed: s.thisOrThatMbFreed + loser.sizeMB,
       }));
       logDay({ kept: 1, deleted: 1, mbFreed: loser.sizeMB });
-      toast.success(`Saved ${loser.sizeMB.toFixed(1)} MB`, { duration: 1500 });
+      
 
       setChosen(null);
       if (idx + 1 >= round.length) {
