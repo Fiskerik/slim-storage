@@ -6,10 +6,7 @@
         "image": "macos-sequoia-15.6-xcode-26.2"
       },
       "env": {
-        "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
-        "EXPO_PUBLIC_RC_KEY": "your_revenuecat_key",
-        "EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID": "your_product_id",
-        "EXPO_PUBLIC_RC_ENTITLEMENT_ID": "TrimSwipe Pro"
+        "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
       }
     }
   },
