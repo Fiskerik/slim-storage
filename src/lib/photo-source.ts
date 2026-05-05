@@ -34,36 +34,52 @@ declare global {
   interface Window {
     __SLIM_NATIVE__?: boolean;
     __SLIM_SAFE_AREA__?: { top: number; bottom: number; left: number; right: number };
-    __slimBridgeCall?: (method: string, data?: Record<string, any>) => Promise<any>;
+    __slimBridgeCall?: (method: string, data?: Record<string, unknown>) => Promise<unknown>;
     ReactNativeWebView?: { postMessage: (msg: string) => void };
   }
 }
 
 function hasBridge(): boolean {
-  return typeof window !== "undefined" && !!window.__SLIM_NATIVE__ && !!window.__slimBridgeCall;
+  if (typeof window === "undefined") return false;
+
+  const hasCallableBridge = typeof window.__slimBridgeCall === "function";
+  const hasRNWebView = typeof window.ReactNativeWebView?.postMessage === "function";
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
+  const uaLooksNative = /ReactNative|Expo|CFNetwork/i.test(ua);
+
+  // Some TestFlight/App Store wrappers may not set __SLIM_NATIVE__ consistently.
+  // Treat a working bridge (or known native wrapper UA) as native.
+  return hasCallableBridge || hasRNWebView || !!window.__SLIM_NATIVE__ || uaLooksNative;
 }
 
-async function bridgeCall(method: string, data?: Record<string, any>): Promise<any> {
-  if (!window.__slimBridgeCall) throw new Error("Bridge not available");
+async function bridgeCall(method: string, data?: Record<string, unknown>): Promise<unknown> {
+  if (!window.__slimBridgeCall) {
+    console.log("[photo-source] bridge missing", {
+      nativeFlag: window.__SLIM_NATIVE__,
+      hasRNWebView: !!window.ReactNativeWebView,
+      method,
+    });
+    throw new Error("Bridge not available");
+  }
   return window.__slimBridgeCall(method, data);
 }
 
 // ─── Native bridge source ───────────────────────
 
-function dtoToLibraryPhoto(dto: any): LibraryPhoto {
+function dtoToLibraryPhoto(dto: Record<string, unknown>): LibraryPhoto {
   return {
-    id: dto.id,
-    url: dto.uri,
-    thumb: dto.thumbUri || dto.uri,
-    title: dto.title || "Photo",
-    year: dto.year || new Date().getFullYear(),
-    month: dto.month || "Jan",
-    device: dto.device || "iPhone",
-    sizeMB: dto.sizeMB || 0,
-    hasGPS: dto.hasGPS || false,
+    id: String(dto.id ?? ""),
+    url: String(dto.uri ?? ""),
+    thumb: String(dto.thumbUri ?? dto.uri ?? ""),
+    title: String(dto.title ?? "Photo"),
+    year: Number(dto.year ?? new Date().getFullYear()),
+    month: String(dto.month ?? "Jan"),
+    device: String(dto.device ?? "iPhone"),
+    sizeMB: Number(dto.sizeMB ?? 0),
+    hasGPS: Boolean(dto.hasGPS),
     isNative: true,
-    nativeId: dto.nativeId || dto.id,
-    isCloudAsset: dto.isCloudAsset || false,
+    nativeId: String(dto.nativeId ?? dto.id ?? ""),
+    isCloudAsset: Boolean(dto.isCloudAsset),
   };
 }
 
@@ -91,7 +107,9 @@ const nativeBridgeSource: PhotoSource = {
 
   async getBurstGroups(maxGroups) {
     const groups = await bridgeCall("getBurstGroups", { maxGroups });
-    return (groups || []).map((g: any[]) => g.map(dtoToLibraryPhoto));
+    return ((groups as Record<string, unknown>[][] | null | undefined) || []).map((g) =>
+      g.map(dtoToLibraryPhoto),
+    );
   },
 
   async deletePhotos(ids) {
@@ -134,7 +152,13 @@ let cached: PhotoSource | null = null;
 
 export function getPhotoSource(): PhotoSource {
   if (cached) return cached;
-  cached = hasBridge() ? nativeBridgeSource : webSource;
+  const native = hasBridge();
+  console.log("[photo-source] resolved source", {
+    native,
+    nativeFlag: typeof window !== "undefined" ? window.__SLIM_NATIVE__ : false,
+    hasBridgeCall: typeof window !== "undefined" ? !!window.__slimBridgeCall : false,
+  });
+  cached = native ? nativeBridgeSource : webSource;
   return cached;
 }
 
