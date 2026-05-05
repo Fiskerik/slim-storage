@@ -288,7 +288,7 @@ export function ProfilePage() {
             </div>
             <ChevronRight className="h-4 w-4 text-muted-foreground" />
           </button>
-        )
+        )}
         <button
           onClick={deleteAll}
           className="flex w-full items-center justify-between rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-left text-destructive transition hover:bg-destructive/10"
