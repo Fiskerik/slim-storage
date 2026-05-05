@@ -81,8 +81,7 @@ export function GamesHub() {
 
       {/* Main game — Swipe */}
       <Link
-        to="/"
-        search={{}}
+        to="/swipe"
         className="mt-5 block w-full overflow-hidden rounded-2xl border border-border bg-card shadow-card transition hover:border-primary/40 hover:shadow-lg"
       >
         <div className="flex items-center gap-4 p-5">
