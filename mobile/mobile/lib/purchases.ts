@@ -9,9 +9,9 @@ import Purchases, {
 } from 'react-native-purchases';
 
 const REVENUECAT_API_KEY = process.env.EXPO_PUBLIC_RC_KEY ?? '';
-const LIFETIME_PRODUCT_ID = process.env.EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID ?? 'prod5debd6b43b';
-
-const ENTITLEMENT_ID = 'TrimSwipe Pro';
+const LIFETIME_PRODUCT_ID = process.env.EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID ?? '';
+const ENTITLEMENT_ID = process.env.EXPO_PUBLIC_RC_ENTITLEMENT_ID ?? 'TrimSwipe Pro';
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 type PurchaseRequest = {
   productId?: string;
@@ -49,8 +49,18 @@ export async function initializePurchases(): Promise<boolean> {
     return false;
   }
 
+  if (!ENTITLEMENT_ID) {
+    console.error('[RevenueCat] Missing EXPO_PUBLIC_RC_ENTITLEMENT_ID');
+    return false;
+  }
+
+  if (!LIFETIME_PRODUCT_ID) {
+    console.error('[RevenueCat] Missing EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID');
+    return false;
+  }
+
   try {
-    Purchases.setLogLevel(LOG_LEVEL.DEBUG);
+    Purchases.setLogLevel(IS_PRODUCTION ? LOG_LEVEL.ERROR : LOG_LEVEL.DEBUG);
     Purchases.configure({ apiKey: REVENUECAT_API_KEY });
     configured = true;
     console.log('[RevenueCat] Configured successfully');

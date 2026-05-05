@@ -123,9 +123,7 @@ export function ProfilePage() {
                 toast.success("TrimSwipe Pro unlocked!");
               }
             } else {
-              // Web fallback: instant unlock for testing
-              setPro(true);
-              toast.success("TrimSwipe Pro unlocked");
+              toast.error("Upgrades are only available in the iOS app.");
             }
           }}
           className="mt-3 flex w-full items-center justify-between rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 to-warm/15 p-4 text-left transition hover:from-primary/15"
@@ -136,7 +134,7 @@ export function ProfilePage() {
             </div>
             <div>
               <p className="font-semibold">Upgrade to TrimSwipe Pro</p>
-              <p className="text-xs text-muted-foreground">Unlimited trims · lifetime access</p>
+              <p className="text-xs text-muted-foreground">Unlimited trims · lifetime access · purchase shown in native paywall</p>
             </div>
           </div>
           <ChevronRight className="h-4 w-4 text-muted-foreground" />
@@ -225,6 +223,16 @@ export function ProfilePage() {
           <div className="flex items-center gap-3">
             <FileText className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium">Privacy Policy</span>
+          </div>
+          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+        </Link>
+        <Link
+          to="/terms"
+          className="flex w-full items-center justify-between rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/40"
+        >
+          <div className="flex items-center gap-3">
+            <FileText className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">Terms of Use (EULA)</span>
           </div>
           <ChevronRight className="h-4 w-4 text-muted-foreground" />
         </Link>
