@@ -27,7 +27,7 @@ export function HomePage() {
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Freed</p>
         </div>
         <div className="rounded-2xl border border-border bg-card p-3 text-center">
-          <ImageIcon className="mx-auto h-4 w-4 text-accent-foreground" />
+          <Image className="mx-auto h-4 w-4 text-accent-foreground" />
           <p className="mt-1 font-display text-lg font-bold tabular-nums">{totalReviewed}</p>
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Reviewed</p>
         </div>
