@@ -8,7 +8,8 @@ import Purchases, {
   type PurchasesPackage,
 } from 'react-native-purchases';
 
-const REVENUECAT_API_KEY = 'test_lmttGalilULrHPLQIMkYIACrWmj';
+const REVENUECAT_API_KEY = process.env.EXPO_PUBLIC_RC_KEY ?? '';
+
 const ENTITLEMENT_ID = 'TrimSwipe Pro';
 
 type PurchaseRequest = {
@@ -39,8 +40,13 @@ type PurchaseResult = {
 
 let configured = false;
 
-async function ensureConfigured(): Promise<boolean> {
+export async function initializePurchases(): Promise<boolean> {
   if (configured) return true;
+
+  if (!REVENUECAT_API_KEY) {
+    console.error('[RevenueCat] Missing EXPO_PUBLIC_RC_KEY');
+    return false;
+  }
 
   try {
     Purchases.setLogLevel(LOG_LEVEL.DEBUG);
@@ -79,7 +85,7 @@ export async function handlePurchaseMessage(
   method: string,
   data: PurchaseRequest
 ): Promise<PurchaseResult> {
-  const ok = await ensureConfigured();
+  const ok = await initializePurchases();
   if (!ok) return { error: 'RevenueCat not configured', isPro: false };
 
   switch (method) {
