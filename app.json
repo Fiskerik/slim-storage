@@ -15,6 +15,9 @@
       "eas": {
         "projectId": "a31a8610-5a85-4c06-a193-5c73ee23946e"
       }
+    },
+    "android": {
+      "package": "com.fiskerik.trimswipe"
     }
   }
 }

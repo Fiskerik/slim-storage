@@ -1,0 +1,207 @@
+{
+  "%23tanstack-start-plugin-adapters": {
+    "file": "assets/__23tanstack-start-plugin-adapters-Cwee5PKy.js",
+    "name": "__23tanstack-start-plugin-adapters",
+    "src": "%23tanstack-start-plugin-adapters",
+    "isDynamicEntry": true
+  },
+  "/workspaces/slim-storage/src/styles.css": {
+    "file": "assets/styles-D3ylehUI.css",
+    "src": "/workspaces/slim-storage/src/styles.css"
+  },
+  "_arrow-right-DIiZInzO.js": {
+    "file": "assets/arrow-right-DIiZInzO.js",
+    "name": "arrow-right",
+    "imports": [
+      "_router-DXWOG26a.js"
+    ]
+  },
+  "_brain-L_Qp_JdL.js": {
+    "file": "assets/brain-L_Qp_JdL.js",
+    "name": "brain",
+    "imports": [
+      "_router-DXWOG26a.js"
+    ]
+  },
+  "_cloud-DpVw2JWT.js": {
+    "file": "assets/cloud-DpVw2JWT.js",
+    "name": "cloud",
+    "imports": [
+      "_router-DXWOG26a.js"
+    ]
+  },
+  "_flame-BWkEcf9y.js": {
+    "file": "assets/flame-BWkEcf9y.js",
+    "name": "flame",
+    "imports": [
+      "_router-DXWOG26a.js"
+    ]
+  },
+  "_hard-drive-CBdyrgk3.js": {
+    "file": "assets/hard-drive-CBdyrgk3.js",
+    "name": "hard-drive",
+    "imports": [
+      "_router-DXWOG26a.js"
+    ]
+  },
+  "_photos-BtnfcJev.js": {
+    "file": "assets/photos-BtnfcJev.js",
+    "name": "photos",
+    "imports": [
+      "_worker-entry-CoKMp4xS.js"
+    ]
+  },
+  "_router-DXWOG26a.js": {
+    "file": "assets/router-DXWOG26a.js",
+    "name": "router",
+    "isDynamicEntry": true,
+    "imports": [
+      "_worker-entry-CoKMp4xS.js"
+    ],
+    "dynamicImports": [
+      "src/routes/stats.tsx?tsr-split=component",
+      "src/routes/profile.tsx?tsr-split=component",
+      "src/routes/memory.tsx?tsr-split=component",
+      "src/routes/games.tsx?tsr-split=component",
+      "src/routes/index.tsx?tsr-split=component"
+    ],
+    "assets": [
+      "assets/styles-D3ylehUI.css"
+    ]
+  },
+  "_slider-Cu8amGKK.js": {
+    "file": "assets/slider-Cu8amGKK.js",
+    "name": "slider",
+    "imports": [
+      "_router-DXWOG26a.js",
+      "_worker-entry-CoKMp4xS.js"
+    ]
+  },
+  "_sparkles-Dq14kSuc.js": {
+    "file": "assets/sparkles-Dq14kSuc.js",
+    "name": "sparkles",
+    "imports": [
+      "_router-DXWOG26a.js"
+    ]
+  },
+  "_trash-2-DaOcsTfD.js": {
+    "file": "assets/trash-2-DaOcsTfD.js",
+    "name": "trash-2",
+    "imports": [
+      "_router-DXWOG26a.js"
+    ]
+  },
+  "_worker-entry-CoKMp4xS.js": {
+    "file": "assets/worker-entry-CoKMp4xS.js",
+    "name": "worker-entry",
+    "dynamicImports": [
+      "tanstack-start-manifest:v",
+      "_router-DXWOG26a.js",
+      "node_modules/@tanstack/react-start/dist/plugin/default-entry/start.ts",
+      "%23tanstack-start-plugin-adapters"
+    ]
+  },
+  "_x-BelgsWCN.js": {
+    "file": "assets/x-BelgsWCN.js",
+    "name": "x",
+    "imports": [
+      "_router-DXWOG26a.js"
+    ]
+  },
+  "node_modules/@tanstack/react-start/dist/plugin/default-entry/start.ts": {
+    "file": "assets/start-HYkvq4Ni.js",
+    "name": "start",
+    "src": "node_modules/@tanstack/react-start/dist/plugin/default-entry/start.ts",
+    "isDynamicEntry": true
+  },
+  "src/routes/games.tsx?tsr-split=component": {
+    "file": "assets/games-BvXVI1jI.js",
+    "name": "games",
+    "src": "src/routes/games.tsx?tsr-split=component",
+    "isDynamicEntry": true,
+    "imports": [
+      "_worker-entry-CoKMp4xS.js",
+      "_router-DXWOG26a.js",
+      "_arrow-right-DIiZInzO.js",
+      "_brain-L_Qp_JdL.js",
+      "_hard-drive-CBdyrgk3.js"
+    ]
+  },
+  "src/routes/index.tsx?tsr-split=component": {
+    "file": "assets/index-B59cF7QG.js",
+    "name": "index",
+    "src": "src/routes/index.tsx?tsr-split=component",
+    "isDynamicEntry": true,
+    "imports": [
+      "_worker-entry-CoKMp4xS.js",
+      "_photos-BtnfcJev.js",
+      "_router-DXWOG26a.js",
+      "_arrow-right-DIiZInzO.js",
+      "_flame-BWkEcf9y.js",
+      "_sparkles-Dq14kSuc.js",
+      "_cloud-DpVw2JWT.js"
+    ]
+  },
+  "src/routes/memory.tsx?tsr-split=component": {
+    "file": "assets/memory-Cx9Jb2vF.js",
+    "name": "memory",
+    "src": "src/routes/memory.tsx?tsr-split=component",
+    "isDynamicEntry": true,
+    "imports": [
+      "_worker-entry-CoKMp4xS.js",
+      "_slider-Cu8amGKK.js",
+      "_photos-BtnfcJev.js",
+      "_router-DXWOG26a.js",
+      "_arrow-right-DIiZInzO.js",
+      "_trash-2-DaOcsTfD.js",
+      "_brain-L_Qp_JdL.js",
+      "_sparkles-Dq14kSuc.js"
+    ]
+  },
+  "src/routes/profile.tsx?tsr-split=component": {
+    "file": "assets/profile-0PZgrwj8.js",
+    "name": "profile",
+    "src": "src/routes/profile.tsx?tsr-split=component",
+    "isDynamicEntry": true,
+    "imports": [
+      "_worker-entry-CoKMp4xS.js",
+      "_router-DXWOG26a.js",
+      "_slider-Cu8amGKK.js",
+      "_x-BelgsWCN.js",
+      "_sparkles-Dq14kSuc.js",
+      "_cloud-DpVw2JWT.js",
+      "_trash-2-DaOcsTfD.js"
+    ]
+  },
+  "src/routes/stats.tsx?tsr-split=component": {
+    "file": "assets/stats-BHwCM2ed.js",
+    "name": "stats",
+    "src": "src/routes/stats.tsx?tsr-split=component",
+    "isDynamicEntry": true,
+    "imports": [
+      "_worker-entry-CoKMp4xS.js",
+      "_router-DXWOG26a.js",
+      "_sparkles-Dq14kSuc.js",
+      "_trash-2-DaOcsTfD.js",
+      "_hard-drive-CBdyrgk3.js",
+      "_brain-L_Qp_JdL.js",
+      "_flame-BWkEcf9y.js",
+      "_x-BelgsWCN.js"
+    ]
+  },
+  "tanstack-start-manifest:v": {
+    "file": "assets/_tanstack-start-manifest_v-BqD6dh8Y.js",
+    "name": "_tanstack-start-manifest_v",
+    "src": "tanstack-start-manifest:v",
+    "isDynamicEntry": true
+  },
+  "virtual:cloudflare/worker-entry": {
+    "file": "index.js",
+    "name": "index",
+    "src": "virtual:cloudflare/worker-entry",
+    "isEntry": true,
+    "imports": [
+      "_worker-entry-CoKMp4xS.js"
+    ]
+  }
+}
