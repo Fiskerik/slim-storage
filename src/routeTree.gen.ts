@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as SwipeRouteImport } from './routes/swipe'
 import { Route as StatsRouteImport } from './routes/stats'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as PrivacyRouteImport } from './routes/privacy'
@@ -23,6 +24,11 @@ import { Route as GamesSpeedRoundRouteImport } from './routes/games.speed-round'
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SwipeRoute = SwipeRouteImport.update({
+  id: '/swipe',
+  path: '/swipe',
   getParentRoute: () => rootRouteImport,
 } as any)
 const StatsRoute = StatsRouteImport.update({
@@ -78,6 +84,7 @@ export interface FileRoutesByFullPath {
   '/privacy': typeof PrivacyRoute
   '/profile': typeof ProfileRoute
   '/stats': typeof StatsRoute
+  '/swipe': typeof SwipeRoute
   '/terms': typeof TermsRoute
   '/games/speed-round': typeof GamesSpeedRoundRoute
   '/games/storage-budget': typeof GamesStorageBudgetRoute
@@ -90,6 +97,7 @@ export interface FileRoutesByTo {
   '/privacy': typeof PrivacyRoute
   '/profile': typeof ProfileRoute
   '/stats': typeof StatsRoute
+  '/swipe': typeof SwipeRoute
   '/terms': typeof TermsRoute
   '/games/speed-round': typeof GamesSpeedRoundRoute
   '/games/storage-budget': typeof GamesStorageBudgetRoute
@@ -103,6 +111,7 @@ export interface FileRoutesById {
   '/privacy': typeof PrivacyRoute
   '/profile': typeof ProfileRoute
   '/stats': typeof StatsRoute
+  '/swipe': typeof SwipeRoute
   '/terms': typeof TermsRoute
   '/games/speed-round': typeof GamesSpeedRoundRoute
   '/games/storage-budget': typeof GamesStorageBudgetRoute
@@ -117,6 +126,7 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/profile'
     | '/stats'
+    | '/swipe'
     | '/terms'
     | '/games/speed-round'
     | '/games/storage-budget'
@@ -129,6 +139,7 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/profile'
     | '/stats'
+    | '/swipe'
     | '/terms'
     | '/games/speed-round'
     | '/games/storage-budget'
@@ -141,6 +152,7 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/profile'
     | '/stats'
+    | '/swipe'
     | '/terms'
     | '/games/speed-round'
     | '/games/storage-budget'
@@ -154,6 +166,7 @@ export interface RootRouteChildren {
   PrivacyRoute: typeof PrivacyRoute
   ProfileRoute: typeof ProfileRoute
   StatsRoute: typeof StatsRoute
+  SwipeRoute: typeof SwipeRoute
   TermsRoute: typeof TermsRoute
 }
 
@@ -164,6 +177,13 @@ declare module '@tanstack/react-router' {
       path: '/terms'
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/swipe': {
+      id: '/swipe'
+      path: '/swipe'
+      fullPath: '/swipe'
+      preLoaderRoute: typeof SwipeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/stats': {
@@ -253,17 +273,9 @@ const rootRouteChildren: RootRouteChildren = {
   PrivacyRoute: PrivacyRoute,
   ProfileRoute: ProfileRoute,
   StatsRoute: StatsRoute,
+  SwipeRoute: SwipeRoute,
   TermsRoute: TermsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

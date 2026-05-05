@@ -5,7 +5,7 @@ import { Scale, Sparkles, RefreshCw, ArrowLeft } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { SAMPLE_PHOTOS, BURST_GROUPS, type SamplePhoto } from "@/lib/photos";
 import { setStats, logDay } from "@/lib/storage";
-import { toast } from "sonner";
+
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/games/this-or-that")({
@@ -87,7 +87,7 @@ function ThisOrThat() {
         thisOrThatMbFreed: s.thisOrThatMbFreed + loser.sizeMB,
       }));
       logDay({ kept: 1, deleted: 1, mbFreed: loser.sizeMB });
-      toast.success(`Saved ${loser.sizeMB.toFixed(1)} MB`, { duration: 1500 });
+      
 
       setChosen(null);
       if (idx + 1 >= round.length) {
