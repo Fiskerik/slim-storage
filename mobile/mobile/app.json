@@ -12,9 +12,9 @@
       "bundleIdentifier": "com.fiskerik.trimswipe",
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "Behövs för att skanna bilder.",
-        "NSPhotoLibraryUsageDescription": "Behövs för att välja dina bilder.",
-        "NSPhotoLibraryAddUsageDescription": "Behövs för att spara bilder."
+        "NSCameraUsageDescription": "Needed to find your pictures.",
+        "NSPhotoLibraryUsageDescription": "Needed to select pictures.",
+        "NSPhotoLibraryAddUsageDescription": "Needed to save pictures."
       }
     },
     "plugins": [
