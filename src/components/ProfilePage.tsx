@@ -117,20 +117,15 @@ export function ProfilePage() {
         <button
           onClick={async () => {
             if (isNativeApp()) {
-              const products = await getProducts();
-              if (products.length > 0) {
-                const success = await purchaseProduct(products[0].id);
-                if (success) {
-                  setPro(true);
-                  toast.success("Slim Pro unlocked!");
-                }
-              } else {
-                toast.error("No products available yet");
+              const success = await presentPaywall();
+              if (success) {
+                setPro(true);
+                toast.success("TrimSwipe Pro unlocked!");
               }
             } else {
               // Web fallback: instant unlock for testing
               setPro(true);
-              toast.success("Slim Pro unlocked");
+              toast.success("TrimSwipe Pro unlocked");
             }
           }}
           className="mt-3 flex w-full items-center justify-between rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 to-warm/15 p-4 text-left transition hover:from-primary/15"
@@ -140,8 +135,8 @@ export function ProfilePage() {
               <Crown className="h-5 w-5" />
             </div>
             <div>
-              <p className="font-semibold">Upgrade to Slim Pro</p>
-              <p className="text-xs text-muted-foreground">Unlimited trims · bulk metadata strip</p>
+              <p className="font-semibold">Upgrade to TrimSwipe Pro</p>
+              <p className="text-xs text-muted-foreground">Unlimited trims · lifetime access</p>
             </div>
           </div>
           <ChevronRight className="h-4 w-4 text-muted-foreground" />
