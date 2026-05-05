@@ -9,6 +9,7 @@ import Purchases, {
 } from 'react-native-purchases';
 
 const REVENUECAT_API_KEY = process.env.EXPO_PUBLIC_RC_KEY ?? '';
+const LIFETIME_PRODUCT_ID = process.env.EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID ?? 'prod5debd6b43b';
 
 const ENTITLEMENT_ID = 'TrimSwipe Pro';
 
@@ -215,11 +216,25 @@ async function presentPaywall(): Promise<PurchaseResult> {
   try {
     // Use RevenueCat's built-in paywall UI
     const RevenueCatUI = require('react-native-purchases-ui');
+    console.log('[RevenueCat] presentPaywall start', {
+      expectedLifetimeProductId: LIFETIME_PRODUCT_ID,
+    });
     const result = await RevenueCatUI.presentPaywall();
+    console.log('[RevenueCat] presentPaywall result:', result);
 
     if (result === RevenueCatUI.PAYWALL_RESULT.PURCHASED ||
         result === RevenueCatUI.PAYWALL_RESULT.RESTORED) {
       const info = await Purchases.getCustomerInfo();
+      const purchasedIds = [...info.allPurchasedProductIdentifiers];
+      console.log('[RevenueCat] post-paywall purchased ids:', purchasedIds);
+
+      if (!purchasedIds.includes(LIFETIME_PRODUCT_ID)) {
+        console.warn('[RevenueCat] expected lifetime product not found after paywall flow', {
+          expectedLifetimeProductId: LIFETIME_PRODUCT_ID,
+          purchasedIds,
+        });
+      }
+
       return {
         success: true,
         isPro: isProFromInfo(info),
