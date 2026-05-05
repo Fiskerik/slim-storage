@@ -1,5 +1,5 @@
 {
-  "name": "tanstack_start_ts",
+  "name": "slim-storage",
   "private": true,
   "main": "index.js",
   "sideEffects": false,
@@ -15,7 +15,8 @@
     "ios:sync": "vite build && bun scripts/build-ios.ts && cap sync ios",
     "ios:open": "cap open ios",
     "ios:run": "vite build && bun scripts/build-ios.ts && cap sync ios && cap run ios",
-    "eas-build-post-install": "npm run build"
+    "eas-build-post-install": "npm run build",
+    "doctor": "expo-doctor"
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "^1.25.5",
@@ -97,6 +98,7 @@
     "prettier": "^3.7.3",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "expo-doctor": "^1.17.11"
   }
 }
