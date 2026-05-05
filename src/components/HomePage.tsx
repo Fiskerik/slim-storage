@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useStats } from "@/hooks/use-stats";
-import { Scissors, Flame, HardDrive, ImageIcon } from "lucide-react";
+import { Scissors, Flame, HardDrive, Image } from "lucide-react";
 
 export function HomePage() {
   const s = useStats();
