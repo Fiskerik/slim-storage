@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useTransform, type PanInfo, AnimatePresence } from "framer-motion";
 import { ArrowLeft, ArrowUp, ArrowRight, MapPin, Sparkles, RefreshCw, Lock, Cloud, PartyPopper, Trash2, Check } from "lucide-react";
-import { getPhotoSource, isNativeApp, type LibraryPhoto } from "@/lib/photo-source";
+import { getPhotoSource, getPhotoSourceAsync, isNativeApp, type LibraryPhoto } from "@/lib/photo-source";
 import { hapticTap, hapticSuccess, hapticError } from "@/lib/native-shell";
 import { setStats, bumpStreak, canTrim, recordTrim, logDay, trimsRemainingToday, setPro, FREE_TRIM_LIMIT, softDelete, undoDelete, updateSettings } from "@/lib/storage";
 import { useStats } from "@/hooks/use-stats";
@@ -47,7 +47,7 @@ export function SwipeDeck() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const src = getPhotoSource();
+      const src = await getPhotoSourceAsync();
       if (src.isNative) {
         const permission = await src.requestPermission();
         if (!permission.granted) {
@@ -149,7 +149,7 @@ export function SwipeDeck() {
 
   async function reset() {
     setLoading(true);
-    const photos = await getPhotoSource().getRandom(cardsPerRound);
+    const photos = await (await getPhotoSourceAsync()).getRandom(cardsPerRound);
     setQueue(photos);
     setRecap(null);
     deletedPhotosRef.current = [];
@@ -179,7 +179,7 @@ export function SwipeDeck() {
     const nativeIds = toDelete.filter((p) => p.isNative && p.nativeId).map((p) => p.nativeId!);
     if (nativeIds.length > 0) {
       try {
-        await getPhotoSource().deletePhotos(nativeIds);
+        await (await getPhotoSourceAsync()).deletePhotos(nativeIds);
       } catch (e) {
         console.warn("[Slim] native delete failed", e);
       }

@@ -150,16 +150,43 @@ const webSource: PhotoSource = {
 
 let cached: PhotoSource | null = null;
 
+function waitForBridge(timeoutMs = 3000): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (typeof window === "undefined") {
+      resolve(false);
+      return;
+    }
+
+    if (typeof window.__slimBridgeCall === "function") {
+      resolve(true);
+      return;
+    }
+
+    const onReady = () => { resolve(true); };
+    window.addEventListener("slimBridgeReady", onReady, { once: true });
+
+    setTimeout(() => {
+      window.removeEventListener("slimBridgeReady", onReady);
+      resolve(typeof window.__slimBridgeCall === "function");
+    }, timeoutMs);
+  });
+}
+
+export async function getPhotoSourceAsync(): Promise<PhotoSource> {
+  if (cached) return cached;
+  const bridgeReady = await waitForBridge(3000);
+  cached = bridgeReady ? nativeBridgeSource : webSource;
+  return cached;
+}
+
 export function getPhotoSource(): PhotoSource {
   if (cached) return cached;
-  const native = hasBridge();
-  console.log("[photo-source] resolved source", {
-    native,
-    nativeFlag: typeof window !== "undefined" ? window.__SLIM_NATIVE__ : false,
-    hasBridgeCall: typeof window !== "undefined" ? !!window.__slimBridgeCall : false,
-  });
-  cached = native ? nativeBridgeSource : webSource;
+  cached = hasBridge() ? nativeBridgeSource : webSource;
   return cached;
+}
+
+export async function initPhotoSource(): Promise<void> {
+  await getPhotoSourceAsync();
 }
 
 export function isNativeApp(): boolean {

@@ -69,6 +69,8 @@ export function WebViewScreen() {
           }
         } catch(err) {}
       });
+      window.__SLIM_NATIVE__ = true;
+      window.dispatchEvent(new Event('slimBridgeReady'));
       true;
     })();
   `;
