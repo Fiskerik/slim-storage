@@ -38,14 +38,14 @@ declare global {
 }
 
 function hasBridge(): boolean {
-  return typeof window !== "undefined" && !!window.__SLIM_NATIVE__ && !!window.__slimBridgeCall;
+  return typeof window !== "undefined" && !!window.__SLIM_NATIVE__ && (!!window.__slimBridgeCall || !!window.ReactNativeWebView);
 }
 
 /**
  * Check if user has active "TrimSwipe Pro" entitlement.
  */
 export async function checkProStatus(): Promise<boolean> {
-  if (!hasBridge()) return false;
+  if (!hasBridge()) { console.log("[purchases] no native bridge for checkProStatus"); return false; }
   try {
     const result = await window.__slimBridgeCall!("purchases_checkPro");
     return result?.isPro === true;
@@ -58,7 +58,7 @@ export async function checkProStatus(): Promise<boolean> {
  * Get available products for purchase.
  */
 export async function getProducts(): Promise<PurchaseProduct[]> {
-  if (!hasBridge()) return [];
+  if (!hasBridge()) { console.log("[purchases] no native bridge for getProducts"); return []; }
   try {
     const result = await window.__slimBridgeCall!("purchases_getProducts");
     return result?.products || [];
@@ -71,7 +71,7 @@ export async function getProducts(): Promise<PurchaseProduct[]> {
  * Purchase a product by ID. Returns true if purchase was successful.
  */
 export async function purchaseProduct(productId: string): Promise<boolean> {
-  if (!hasBridge()) return false;
+  if (!hasBridge()) { console.log("[purchases] no native bridge for purchaseProduct"); return false; }
   try {
     const result = await window.__slimBridgeCall!("purchases_purchase", { productId });
     return result?.success === true;

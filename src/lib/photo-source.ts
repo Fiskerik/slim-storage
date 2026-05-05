@@ -40,11 +40,14 @@ declare global {
 }
 
 function hasBridge(): boolean {
-  return typeof window !== "undefined" && !!window.__SLIM_NATIVE__ && !!window.__slimBridgeCall;
+  return typeof window !== "undefined" && !!window.__SLIM_NATIVE__ && (!!window.__slimBridgeCall || !!window.ReactNativeWebView);
 }
 
 async function bridgeCall(method: string, data?: Record<string, any>): Promise<any> {
-  if (!window.__slimBridgeCall) throw new Error("Bridge not available");
+  if (!window.__slimBridgeCall) {
+    console.log("[photo-source] bridge missing", { nativeFlag: window.__SLIM_NATIVE__, hasRNWebView: !!window.ReactNativeWebView, method });
+    throw new Error("Bridge not available");
+  }
   return window.__slimBridgeCall(method, data);
 }
 
@@ -134,7 +137,9 @@ let cached: PhotoSource | null = null;
 
 export function getPhotoSource(): PhotoSource {
   if (cached) return cached;
-  cached = hasBridge() ? nativeBridgeSource : webSource;
+  const native = hasBridge();
+  console.log("[photo-source] resolved source", { native, nativeFlag: typeof window !== "undefined" ? window.__SLIM_NATIVE__ : false, hasBridgeCall: typeof window !== "undefined" ? !!window.__slimBridgeCall : false });
+  cached = native ? nativeBridgeSource : webSource;
   return cached;
 }
 
