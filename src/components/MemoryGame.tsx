@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Brain, Check, Trash2, Sparkles } from "lucide-react";
-import { getPhotoSource, type LibraryPhoto } from "@/lib/photo-source";
+import { getPhotoSourceAsync, type LibraryPhoto } from "@/lib/photo-source";
 import { setStats, logDay } from "@/lib/storage";
 import { useStats } from "@/hooks/use-stats";
 import { cn } from "@/lib/utils";
@@ -40,9 +40,10 @@ function generateYearOptions(correctYear: number): number[] {
 
 async function pickRound(n: number): Promise<SamplePhoto[]> {
   const cutoff = new Date().getFullYear() - 4;
-  const out = await getPhotoSource().getOlder(cutoff, n);
+  const src = await getPhotoSourceAsync();
+  const out = await src.getOlder(cutoff, n);
   if (out.length >= n) return out;
-  const extra = await getPhotoSource().getRandom(n - out.length);
+  const extra = await src.getRandom(n - out.length);
   return [...out, ...extra];
 }
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Timer, Trash2, Check, Sparkles, Play } from "lucide-react";
-import { getPhotoSource, type LibraryPhoto } from "@/lib/photo-source";
+import { getPhotoSourceAsync, type LibraryPhoto } from "@/lib/photo-source";
 import { setStats, logDay } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
@@ -36,7 +36,7 @@ export function SpeedRound() {
   }, [phase]);
 
   async function start() {
-    const src = getPhotoSource();
+    const src = await getPhotoSourceAsync();
     const photos = await src.getRandom(40);
     setQueue(photos);
     setTime(DURATION);
@@ -76,7 +76,7 @@ export function SpeedRound() {
   }, [phase]);
 
   async function confirmDelete() {
-    const src = getPhotoSource();
+    const src = await getPhotoSourceAsync();
     const ids = selectedForDelete.map((d) => d.photo.nativeId || d.photo.id);
     if (src.isNative && ids.length > 0) {
       await src.deletePhotos(ids);

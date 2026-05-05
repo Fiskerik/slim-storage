@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Scale, Sparkles, RefreshCw } from "lucide-react";
-import { getPhotoSource, type LibraryPhoto } from "@/lib/photo-source";
+import { getPhotoSourceAsync, type LibraryPhoto } from "@/lib/photo-source";
 import { setStats, logDay } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
@@ -16,7 +16,8 @@ type BurstPair = {
 
 /** Build pairs only from photos that share a burst/multi-shot group. */
 async function buildPairs(n: number): Promise<BurstPair[]> {
-  const groups = await getPhotoSource().getBurstGroups(n);
+  const src = await getPhotoSourceAsync();
+  const groups = await src.getBurstGroups(n);
   const out: BurstPair[] = [];
   const shuffledGroups = [...groups].sort(() => Math.random() - 0.5);
   for (const group of shuffledGroups) {

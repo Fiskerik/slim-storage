@@ -4,6 +4,7 @@ import { TopBar } from "@/components/TopBar";
 import { BottomNav } from "@/components/BottomNav";
 import { Toaster } from "@/components/ui/sonner";
 import { initNativeShell } from "@/lib/native-shell";
+import { initPhotoSource } from "@/lib/photo-source";
 
 import appCss from "../styles.css?url";
 
@@ -83,6 +84,7 @@ function RootShell({ children }: { children: React.ReactNode }) {
 function RootComponent() {
   useEffect(() => {
     initNativeShell();
+    initPhotoSource();
   }, []);
   return (
     <div className="min-h-dvh bg-background text-foreground">
