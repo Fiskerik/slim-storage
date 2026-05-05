@@ -19,7 +19,15 @@ import { Link } from "@tanstack/react-router";
 import { useStats } from "@/hooks/use-stats";
 import { updateSettings, deleteAllData, setPro } from "@/lib/storage";
 import { isNativeApp } from "@/lib/photo-source";
-import { purchaseProduct, restorePurchases, checkProStatus, getProducts, presentPaywall, presentCustomerCenter, type PurchaseProduct } from "@/lib/purchases";
+import {
+  purchaseProduct,
+  restorePurchases,
+  checkProStatus,
+  getProducts,
+  presentPaywall,
+  presentCustomerCenter,
+  type PurchaseProduct,
+} from "@/lib/purchases";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { ShareStatsCard } from "@/components/ShareStatsCard";
@@ -134,7 +142,9 @@ export function ProfilePage() {
             </div>
             <div>
               <p className="font-semibold">Upgrade to TrimSwipe Pro</p>
-              <p className="text-xs text-muted-foreground">Unlimited trims · lifetime access · purchase shown in native paywall</p>
+              <p className="text-xs text-muted-foreground">
+                Unlimited trims · lifetime access · purchase shown in native paywall
+              </p>
             </div>
           </div>
           <ChevronRight className="h-4 w-4 text-muted-foreground" />
@@ -193,7 +203,7 @@ export function ProfilePage() {
               type="time"
               value={s.reminderTime}
               onChange={(e) => updateSettings({ reminderTime: e.target.value })}
-              className="mt-2 w-full rounded-lg border border-border bg-background px-3 py-2 font-display text-lg font-bold tabular-nums focus:outline-none focus:ring-2 focus:ring-primary"
+              className="mt-2 block min-w-0 w-full appearance-none rounded-lg border border-border bg-background px-3 py-2 font-display text-lg font-bold tabular-nums focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
         )}
