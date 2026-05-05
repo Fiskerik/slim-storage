@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Brain, Check, Trash2, Sparkles, ArrowRight } from "lucide-react";
-import { Slider } from "@/components/ui/slider";
+import { Brain, Check, Trash2, Sparkles } from "lucide-react";
 import { getPhotoSource, type LibraryPhoto } from "@/lib/photo-source";
 import { setStats, logDay } from "@/lib/storage";
 import { useStats } from "@/hooks/use-stats";
@@ -9,18 +8,40 @@ import { cn } from "@/lib/utils";
 
 type SamplePhoto = LibraryPhoto;
 
-// ROUND_SIZE comes from user settings (5–30)
 const MIN_YEAR = 2010;
 const MAX_YEAR = new Date().getFullYear();
+const AUTO_KEEP_SECONDS = 5;
 
 type Phase = "intro" | "guess" | "reveal" | "done";
 
+/** Generate 4 year options with randomized position for the correct answer */
+function generateYearOptions(correctYear: number): number[] {
+  const opts = new Set<number>();
+  // Add some close alternatives first
+  const offsets = [-2, -1, 1, 2, -3, 3];
+  for (const offset of offsets) {
+    if (opts.size >= 3) break;
+    const y = correctYear + offset;
+    if (y >= MIN_YEAR && y <= MAX_YEAR) opts.add(y);
+  }
+  let expand = 4;
+  while (opts.size < 3 && expand < 10) {
+    if (correctYear + expand <= MAX_YEAR) opts.add(correctYear + expand);
+    if (correctYear - expand >= MIN_YEAR) opts.add(correctYear - expand);
+    expand++;
+  }
+  // Convert to array, add correct year, then shuffle
+  const alternatives = [...opts];
+  // Insert correct year at a random position
+  const insertIdx = Math.floor(Math.random() * (alternatives.length + 1));
+  alternatives.splice(insertIdx, 0, correctYear);
+  return alternatives.slice(0, 4);
+}
+
 async function pickRound(n: number): Promise<SamplePhoto[]> {
-  // Memory game prefers older photos (anything older than 4 years).
   const cutoff = new Date().getFullYear() - 4;
   const out = await getPhotoSource().getOlder(cutoff, n);
   if (out.length >= n) return out;
-  // Fall back: top up with random photos if not enough older ones available.
   const extra = await getPhotoSource().getRandom(n - out.length);
   return [...out, ...extra];
 }
@@ -29,8 +50,11 @@ export function MemoryGame() {
   const [phase, setPhase] = useState<Phase>("intro");
   const [round, setRound] = useState<SamplePhoto[]>([]);
   const [idx, setIdx] = useState(0);
-  const [guess, setGuess] = useState<number>(2018);
+  const [guess, setGuess] = useState<number | null>(null);
+  const [yearOptions, setYearOptions] = useState<number[]>([]);
   const [results, setResults] = useState<{ delta: number; correct: boolean; kept: boolean }[]>([]);
+  const [autoKeepTimer, setAutoKeepTimer] = useState<number>(AUTO_KEEP_SECONDS);
+  const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const stats = useStats();
 
   const photo = round[idx];
@@ -40,19 +64,20 @@ export function MemoryGame() {
     pickRound(size).then((photos) => {
       setRound(photos);
       setIdx(0);
-      setGuess(2018);
+      setGuess(null);
       setResults([]);
+      if (photos.length > 0) {
+        setYearOptions(generateYearOptions(photos[0].year));
+      }
       setPhase("guess");
     });
   }
 
-  function submitGuess() {
-    if (!photo) return;
-    setPhase("reveal");
-  }
+  const decide = useCallback((keep: boolean) => {
+    if (!photo || guess === null) return;
+    // Clear timer
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = undefined; }
 
-  function decide(keep: boolean) {
-    if (!photo) return;
     const delta = Math.abs(guess - photo.year);
     const correct = delta <= 1;
     const newResults = [...results, { delta, correct, kept: keep }];
@@ -66,7 +91,6 @@ export function MemoryGame() {
         memoryCurrentStreak: nextStreak,
         memoryBestStreak: Math.max(s.memoryBestStreak, nextStreak),
         memoryTotalDelta: s.memoryTotalDelta + delta,
-        // If user chose to clear it, count as deleted + freed
         deleted: keep ? s.deleted : s.deleted + 1,
         cleaned: keep ? s.cleaned + 1 : s.cleaned,
         mbFreed: keep ? s.mbFreed : s.mbFreed + photo.sizeMB,
@@ -85,11 +109,48 @@ export function MemoryGame() {
     if (idx + 1 >= round.length) {
       setPhase("done");
     } else {
-      setIdx(idx + 1);
-      setGuess(2018);
+      const nextIdx = idx + 1;
+      setIdx(nextIdx);
+      setGuess(null);
+      if (round[nextIdx]) {
+        setYearOptions(generateYearOptions(round[nextIdx].year));
+      }
       setPhase("guess");
     }
+  }, [photo, guess, results, idx, round]);
+
+  // Auto-forward: when user selects a year in guess phase, auto-reveal after a brief moment
+  function selectYear(yr: number) {
+    setGuess(yr);
+    // Auto-advance to reveal after a short delay
+    setTimeout(() => {
+      setPhase("reveal");
+      // Start the auto-keep countdown
+      setAutoKeepTimer(AUTO_KEEP_SECONDS);
+    }, 600);
   }
+
+  // Auto-keep timer during reveal phase
+  useEffect(() => {
+    if (phase !== "reveal") {
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = undefined; }
+      return;
+    }
+    setAutoKeepTimer(AUTO_KEEP_SECONDS);
+    const start = Date.now();
+    timerRef.current = setInterval(() => {
+      const elapsed = (Date.now() - start) / 1000;
+      const remaining = AUTO_KEEP_SECONDS - elapsed;
+      if (remaining <= 0) {
+        clearInterval(timerRef.current!);
+        timerRef.current = undefined;
+        decide(true); // Auto-keep
+      } else {
+        setAutoKeepTimer(remaining);
+      }
+    }, 50);
+    return () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = undefined; } };
+  }, [phase, idx, decide]);
 
   if (phase === "intro") {
     return <Intro onStart={start} accuracy={stats.memoryPlayed ? Math.round((stats.memoryCorrect / stats.memoryPlayed) * 100) : 0} bestStreak={stats.memoryBestStreak} />;
@@ -104,13 +165,13 @@ export function MemoryGame() {
   if (!photo) return null;
 
   return (
-    <div className="flex flex-col items-center px-5 pt-4">
+    <div className="flex flex-col items-center px-5 pt-2">
       <div className="flex w-full max-w-sm items-center justify-between text-xs text-muted-foreground">
         <span className="uppercase tracking-[0.18em]">Memory · {idx + 1}/{round.length}</span>
         <span className="tabular-nums">Streak 🔥 {stats.memoryCurrentStreak}</span>
       </div>
 
-      <div className="relative mt-4 h-[420px] w-full max-w-sm overflow-hidden rounded-3xl border border-border bg-card shadow-card">
+      <div className="relative mt-2 h-[300px] w-full max-w-sm overflow-hidden rounded-2xl border border-border bg-card shadow-card">
         <AnimatePresence mode="wait">
           <motion.img
             key={photo.id}
@@ -137,57 +198,74 @@ export function MemoryGame() {
               <p className="font-display text-3xl font-bold tabular-nums">
                 {photo.month} {photo.year}
               </p>
-              <ResultBadge guess={guess} actual={photo.year} />
+              <ResultBadge guess={guess!} actual={photo.year} />
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
       {phase === "guess" && (
-        <div className="mt-6 w-full max-w-sm">
-          <div className="rounded-2xl border border-border bg-card p-5">
+        <div className="mt-3 w-full max-w-sm">
+          <div className="rounded-2xl border border-border bg-card p-4">
             <p className="text-center text-xs uppercase tracking-wider text-muted-foreground">
               What year was this taken?
             </p>
-            <p className="mt-2 text-center font-display text-5xl font-bold tabular-nums">{guess}</p>
-            <Slider
-              value={[guess]}
-              min={MIN_YEAR}
-              max={MAX_YEAR}
-              step={1}
-              onValueChange={(v) => setGuess(v[0])}
-              className="mt-5"
-            />
-            <div className="mt-2 flex justify-between text-[11px] text-muted-foreground">
-              <span>{MIN_YEAR}</span>
-              <span>{MAX_YEAR}</span>
+            {guess !== null && (
+              <p className="mt-1 text-center font-display text-4xl font-bold tabular-nums">{guess}</p>
+            )}
+            {guess === null && (
+              <p className="mt-1 text-center font-display text-xl font-medium text-muted-foreground">Pick a year</p>
+            )}
+            <div className="mt-3 grid grid-cols-4 gap-2">
+              {yearOptions.map((yr) => (
+                <button
+                  key={yr}
+                  onClick={() => selectYear(yr)}
+                  disabled={guess !== null}
+                  className={cn(
+                    "rounded-xl border-2 py-2.5 font-display text-base font-bold tabular-nums transition",
+                    guess === yr
+                      ? "border-primary bg-primary/15 text-primary"
+                      : "border-border bg-background text-foreground hover:border-primary/40",
+                    guess !== null && guess !== yr && "opacity-40"
+                  )}
+                >
+                  {yr}
+                </button>
+              ))}
             </div>
           </div>
-          <button
-            onClick={submitGuess}
-            className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3 text-sm font-semibold text-primary-foreground shadow-card transition hover:opacity-90"
-          >
-            Reveal <ArrowRight className="h-4 w-4" />
-          </button>
         </div>
       )}
 
       {phase === "reveal" && (
-        <div className="mt-6 grid w-full max-w-sm grid-cols-2 gap-3">
-          <button
-            onClick={() => decide(true)}
-            className="flex flex-col items-center gap-1 rounded-2xl border border-border bg-card py-4 transition hover:border-accent hover:bg-accent/15"
-          >
-            <Check className="h-5 w-5 text-accent-foreground" />
-            <span className="text-sm font-semibold">Keep memory</span>
-          </button>
-          <button
-            onClick={() => decide(false)}
-            className="flex flex-col items-center gap-1 rounded-2xl border border-border bg-card py-4 text-destructive transition hover:border-destructive hover:bg-destructive/10"
-          >
-            <Trash2 className="h-5 w-5" />
-            <span className="text-sm font-semibold">Clear it</span>
-          </button>
+        <div className="mt-3 w-full max-w-sm">
+          {/* Timer bar */}
+          <div className="mb-3 h-1 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full bg-primary transition-all duration-100 ease-linear rounded-full"
+              style={{ width: `${(autoKeepTimer / AUTO_KEEP_SECONDS) * 100}%` }}
+            />
+          </div>
+          <div className="grid w-full grid-cols-2 gap-3">
+            <button
+              onClick={() => decide(true)}
+              className="flex flex-col items-center gap-1 rounded-2xl border border-border bg-card py-4 transition hover:border-accent hover:bg-accent/15"
+            >
+              <Check className="h-5 w-5 text-accent-foreground" />
+              <span className="text-sm font-semibold">Keep memory</span>
+            </button>
+            <button
+              onClick={() => decide(false)}
+              className="flex flex-col items-center gap-1 rounded-2xl border border-border bg-card py-4 text-destructive transition hover:border-destructive hover:bg-destructive/10"
+            >
+              <Trash2 className="h-5 w-5" />
+              <span className="text-sm font-semibold">Clear it</span>
+            </button>
+          </div>
+          <p className="mt-2 text-center text-[10px] text-muted-foreground">
+            Auto-keeping in {Math.ceil(autoKeepTimer)}s…
+          </p>
         </div>
       )}
     </div>
@@ -282,5 +360,3 @@ function DoneScreen({
     </div>
   );
 }
-
-void useMemo;

@@ -32,6 +32,21 @@ export type Stats = {
   memoryBestStreak: number;
   memoryCurrentStreak: number;
   memoryTotalDelta: number;  // sum of |guess - actual|
+  // This or That
+  thisOrThatRounds: number;
+  thisOrThatDeleted: number;
+  thisOrThatMbFreed: number;
+  // Speed Round
+  speedRoundPlayed: number;
+  speedRoundBestCount: number;
+  speedRoundBestMb: number;
+  speedRoundTotalReviewed: number;
+  speedRoundTotalMbFreed: number;
+  // Storage Budget
+  storageBudgetPlayed: number;
+  storageBudgetTotalKept: number;
+  storageBudgetTotalCleared: number;
+  storageBudgetTotalMbFreed: number;
   // Pro / daily limit
   isPro: boolean;
   trimsToday: number;
@@ -71,6 +86,18 @@ const DEFAULT: Stats = {
   memoryBestStreak: 0,
   memoryCurrentStreak: 0,
   memoryTotalDelta: 0,
+  thisOrThatRounds: 0,
+  thisOrThatDeleted: 0,
+  thisOrThatMbFreed: 0,
+  speedRoundPlayed: 0,
+  speedRoundBestCount: 0,
+  speedRoundBestMb: 0,
+  speedRoundTotalReviewed: 0,
+  speedRoundTotalMbFreed: 0,
+  storageBudgetPlayed: 0,
+  storageBudgetTotalKept: 0,
+  storageBudgetTotalCleared: 0,
+  storageBudgetTotalMbFreed: 0,
   isPro: false,
   trimsToday: 0,
   trimsTodayDate: null,

@@ -10,16 +10,25 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as SwipeRouteImport } from './routes/swipe'
 import { Route as StatsRouteImport } from './routes/stats'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as MemoryRouteImport } from './routes/memory'
 import { Route as GamesRouteImport } from './routes/games'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as GamesThisOrThatRouteImport } from './routes/games.this-or-that'
+import { Route as GamesStorageBudgetRouteImport } from './routes/games.storage-budget'
+import { Route as GamesSpeedRoundRouteImport } from './routes/games.speed-round'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SwipeRoute = SwipeRouteImport.update({
+  id: '/swipe',
+  path: '/swipe',
   getParentRoute: () => rootRouteImport,
 } as any)
 const StatsRoute = StatsRouteImport.update({
@@ -52,34 +61,61 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const GamesThisOrThatRoute = GamesThisOrThatRouteImport.update({
+  id: '/this-or-that',
+  path: '/this-or-that',
+  getParentRoute: () => GamesRoute,
+} as any)
+const GamesStorageBudgetRoute = GamesStorageBudgetRouteImport.update({
+  id: '/storage-budget',
+  path: '/storage-budget',
+  getParentRoute: () => GamesRoute,
+} as any)
+const GamesSpeedRoundRoute = GamesSpeedRoundRouteImport.update({
+  id: '/speed-round',
+  path: '/speed-round',
+  getParentRoute: () => GamesRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/games': typeof GamesRoute
+  '/games': typeof GamesRouteWithChildren
   '/memory': typeof MemoryRoute
   '/privacy': typeof PrivacyRoute
   '/profile': typeof ProfileRoute
   '/stats': typeof StatsRoute
+  '/swipe': typeof SwipeRoute
   '/terms': typeof TermsRoute
+  '/games/speed-round': typeof GamesSpeedRoundRoute
+  '/games/storage-budget': typeof GamesStorageBudgetRoute
+  '/games/this-or-that': typeof GamesThisOrThatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/games': typeof GamesRoute
+  '/games': typeof GamesRouteWithChildren
   '/memory': typeof MemoryRoute
   '/privacy': typeof PrivacyRoute
   '/profile': typeof ProfileRoute
   '/stats': typeof StatsRoute
+  '/swipe': typeof SwipeRoute
   '/terms': typeof TermsRoute
+  '/games/speed-round': typeof GamesSpeedRoundRoute
+  '/games/storage-budget': typeof GamesStorageBudgetRoute
+  '/games/this-or-that': typeof GamesThisOrThatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/games': typeof GamesRoute
+  '/games': typeof GamesRouteWithChildren
   '/memory': typeof MemoryRoute
   '/privacy': typeof PrivacyRoute
   '/profile': typeof ProfileRoute
   '/stats': typeof StatsRoute
+  '/swipe': typeof SwipeRoute
   '/terms': typeof TermsRoute
+  '/games/speed-round': typeof GamesSpeedRoundRoute
+  '/games/storage-budget': typeof GamesStorageBudgetRoute
+  '/games/this-or-that': typeof GamesThisOrThatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -90,9 +126,24 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/profile'
     | '/stats'
+    | '/swipe'
     | '/terms'
+    | '/games/speed-round'
+    | '/games/storage-budget'
+    | '/games/this-or-that'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/games' | '/memory' | '/privacy' | '/profile' | '/stats' | '/terms'
+  to:
+    | '/'
+    | '/games'
+    | '/memory'
+    | '/privacy'
+    | '/profile'
+    | '/stats'
+    | '/swipe'
+    | '/terms'
+    | '/games/speed-round'
+    | '/games/storage-budget'
+    | '/games/this-or-that'
   id:
     | '__root__'
     | '/'
@@ -101,16 +152,21 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/profile'
     | '/stats'
+    | '/swipe'
     | '/terms'
+    | '/games/speed-round'
+    | '/games/storage-budget'
+    | '/games/this-or-that'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  GamesRoute: typeof GamesRoute
+  GamesRoute: typeof GamesRouteWithChildren
   MemoryRoute: typeof MemoryRoute
   PrivacyRoute: typeof PrivacyRoute
   ProfileRoute: typeof ProfileRoute
   StatsRoute: typeof StatsRoute
+  SwipeRoute: typeof SwipeRoute
   TermsRoute: typeof TermsRoute
 }
 
@@ -121,6 +177,13 @@ declare module '@tanstack/react-router' {
       path: '/terms'
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/swipe': {
+      id: '/swipe'
+      path: '/swipe'
+      fullPath: '/swipe'
+      preLoaderRoute: typeof SwipeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/stats': {
@@ -165,27 +228,54 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/games/this-or-that': {
+      id: '/games/this-or-that'
+      path: '/this-or-that'
+      fullPath: '/games/this-or-that'
+      preLoaderRoute: typeof GamesThisOrThatRouteImport
+      parentRoute: typeof GamesRoute
+    }
+    '/games/storage-budget': {
+      id: '/games/storage-budget'
+      path: '/storage-budget'
+      fullPath: '/games/storage-budget'
+      preLoaderRoute: typeof GamesStorageBudgetRouteImport
+      parentRoute: typeof GamesRoute
+    }
+    '/games/speed-round': {
+      id: '/games/speed-round'
+      path: '/speed-round'
+      fullPath: '/games/speed-round'
+      preLoaderRoute: typeof GamesSpeedRoundRouteImport
+      parentRoute: typeof GamesRoute
+    }
   }
 }
 
+interface GamesRouteChildren {
+  GamesSpeedRoundRoute: typeof GamesSpeedRoundRoute
+  GamesStorageBudgetRoute: typeof GamesStorageBudgetRoute
+  GamesThisOrThatRoute: typeof GamesThisOrThatRoute
+}
+
+const GamesRouteChildren: GamesRouteChildren = {
+  GamesSpeedRoundRoute: GamesSpeedRoundRoute,
+  GamesStorageBudgetRoute: GamesStorageBudgetRoute,
+  GamesThisOrThatRoute: GamesThisOrThatRoute,
+}
+
+const GamesRouteWithChildren = GamesRoute._addFileChildren(GamesRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  GamesRoute: GamesRoute,
+  GamesRoute: GamesRouteWithChildren,
   MemoryRoute: MemoryRoute,
   PrivacyRoute: PrivacyRoute,
   ProfileRoute: ProfileRoute,
   StatsRoute: StatsRoute,
+  SwipeRoute: SwipeRoute,
   TermsRoute: TermsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

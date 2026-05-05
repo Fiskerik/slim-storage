@@ -1,9 +1,9 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { Layers, Gamepad2, BarChart3, User } from "lucide-react";
+import { Home, Gamepad2, BarChart3, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const tabs = [
-  { to: "/", label: "Swipe", icon: Layers },
+  { to: "/", label: "Home", icon: Home },
   { to: "/games", label: "Games", icon: Gamepad2 },
   { to: "/stats", label: "Stats", icon: BarChart3 },
   { to: "/profile", label: "Profile", icon: User },

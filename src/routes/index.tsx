@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { SwipeDeck } from "@/components/SwipeDeck";
+import { HomePage } from "@/components/HomePage";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -15,9 +15,5 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
-  return (
-    <div className="flex flex-col">
-      <SwipeDeck />
-    </div>
-  );
+  return <HomePage />;
 }

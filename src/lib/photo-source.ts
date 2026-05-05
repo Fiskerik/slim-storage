@@ -1,5 +1,6 @@
 // src/lib/photo-source.ts
-// Capacitor-beroenden borttagna för att stödja Expo/EAS-bygge
+// Bridges to native iOS photo library when running inside the Expo WebView,
+// falls back to sample photos for web preview.
 
 import { SAMPLE_PHOTOS, BURST_GROUPS, MEMORY_POOL, type SamplePhoto } from "@/lib/photos";
 
@@ -8,23 +9,88 @@ export type LibraryPhoto = SamplePhoto & {
   isNative: boolean;
   /** Native asset identifier — required to delete via PHPhotoLibrary. */
   nativeId?: string;
+  /** True if the photo is only in iCloud and not downloaded locally. */
+  isCloudAsset?: boolean;
 };
 
 export type PhotoSource = {
   isNative: boolean;
-  /** Permission gate. Returns true if access is granted (or N/A on web). */
   requestPermission: () => Promise<boolean>;
-  /** Random sample of `count` photos suitable for the Swipe deck. */
   getRandom: (count: number) => Promise<LibraryPhoto[]>;
-  /** Photos older than the cutoff year (memory game). */
   getOlder: (beforeYear: number, count: number) => Promise<LibraryPhoto[]>;
-  /** Burst / multi-shot groups (This-or-That). */
   getBurstGroups: (maxGroups: number) => Promise<LibraryPhoto[][]>;
-  /** Permanently delete a list of photos from the device library. No-op on web. */
   deletePhotos: (ids: string[]) => Promise<{ deleted: number }>;
 };
 
-// ───────────────────────── Web / dev source ─────────────────────────
+// ─── Bridge detection ───────────────────────────
+
+declare global {
+  interface Window {
+    __SLIM_NATIVE__?: boolean;
+    __SLIM_SAFE_AREA__?: { top: number; bottom: number; left: number; right: number };
+    __slimBridgeCall?: (method: string, data?: Record<string, any>) => Promise<any>;
+    ReactNativeWebView?: { postMessage: (msg: string) => void };
+  }
+}
+
+function hasBridge(): boolean {
+  return typeof window !== "undefined" && !!window.__SLIM_NATIVE__ && !!window.__slimBridgeCall;
+}
+
+async function bridgeCall(method: string, data?: Record<string, any>): Promise<any> {
+  if (!window.__slimBridgeCall) throw new Error("Bridge not available");
+  return window.__slimBridgeCall(method, data);
+}
+
+// ─── Native bridge source ───────────────────────
+
+function dtoToLibraryPhoto(dto: any): LibraryPhoto {
+  return {
+    id: dto.id,
+    url: dto.uri,
+    thumb: dto.thumbUri || dto.uri,
+    title: dto.title || "Photo",
+    year: dto.year || new Date().getFullYear(),
+    month: dto.month || "Jan",
+    device: dto.device || "iPhone",
+    sizeMB: dto.sizeMB || 0,
+    hasGPS: dto.hasGPS || false,
+    isNative: true,
+    nativeId: dto.nativeId || dto.id,
+    isCloudAsset: dto.isCloudAsset || false,
+  };
+}
+
+const nativeBridgeSource: PhotoSource = {
+  isNative: true,
+
+  async requestPermission() {
+    const result = await bridgeCall("requestPermission");
+    return result?.granted === true;
+  },
+
+  async getRandom(count) {
+    const photos = await bridgeCall("getPhotos", { count });
+    return (photos || []).map(dtoToLibraryPhoto);
+  },
+
+  async getOlder(beforeYear, count) {
+    const photos = await bridgeCall("getOlderPhotos", { beforeYear, count });
+    return (photos || []).map(dtoToLibraryPhoto);
+  },
+
+  async getBurstGroups(maxGroups) {
+    const groups = await bridgeCall("getBurstGroups", { maxGroups });
+    return (groups || []).map((g: any[]) => g.map(dtoToLibraryPhoto));
+  },
+
+  async deletePhotos(ids) {
+    const result = await bridgeCall("deletePhotos", { ids });
+    return result || { deleted: 0 };
+  },
+};
+
+// ─── Web / dev fallback source ──────────────────
 
 function toLib(p: SamplePhoto): LibraryPhoto {
   return { ...p, isNative: false };
@@ -48,29 +114,28 @@ const webSource: PhotoSource = {
     return BURST_GROUPS.slice(0, maxGroups).map((g) => g.map(toLib));
   },
   async deletePhotos(ids) {
-    // Web preview: nothing to actually delete on the device.
     return { deleted: ids.length };
   },
 };
 
-// ───────────────────────── Resolver ─────────────────────────
+// ─── Resolver ───────────────────────────────────
 
 let cached: PhotoSource | null = null;
 
-/**
- * Returnerar fotokällan. 
- * Eftersom Capacitor är borttaget används nu alltid webSource.
- */
 export function getPhotoSource(): PhotoSource {
   if (cached) return cached;
-  cached = webSource;
+  cached = hasBridge() ? nativeBridgeSource : webSource;
   return cached;
 }
 
-/** 
- * Kontrollerar om appen körs i en nativ app-skal.
- * Returnerar false som standard nu när Capacitor är borttaget.
- */
 export function isNativeApp(): boolean {
-  return false;
+  return hasBridge();
+}
+
+/** Safe area insets provided by the native shell, or zeros on web. */
+export function getSafeAreaInsets() {
+  if (typeof window !== "undefined" && window.__SLIM_SAFE_AREA__) {
+    return window.__SLIM_SAFE_AREA__;
+  }
+  return { top: 0, bottom: 0, left: 0, right: 0 };
 }

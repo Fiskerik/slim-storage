@@ -1,24 +1,62 @@
+import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Scale, Sparkles, RefreshCw, ArrowLeft } from "lucide-react";
 import { Link } from "@tanstack/react-router";
-import { SAMPLE_PHOTOS, type SamplePhoto } from "@/lib/photos";
+import { SAMPLE_PHOTOS, BURST_GROUPS, type SamplePhoto } from "@/lib/photos";
 import { setStats, logDay } from "@/lib/storage";
-import { toast } from "sonner";
+
 import { cn } from "@/lib/utils";
+
+export const Route = createFileRoute("/games/this-or-that")({
+  component: ThisOrThat,
+});
 
 const ROUND = 6;
 
 function buildPairs(photos: SamplePhoto[]): [SamplePhoto, SamplePhoto][] {
-  const pool = [...photos].sort(() => Math.random() - 0.5);
   const out: [SamplePhoto, SamplePhoto][] = [];
-  for (let i = 0; i + 1 < pool.length && out.length < ROUND; i += 2) {
-    out.push([pool[i], pool[i + 1]]);
+
+  // 1. Prefer burst groups (photos from the same session)
+  const usedBursts = new Set<string>();
+  for (const group of BURST_GROUPS) {
+    if (out.length >= ROUND) break;
+    const shuffled = [...group].sort(() => Math.random() - 0.5);
+    for (let i = 0; i + 1 < shuffled.length && out.length < ROUND; i += 2) {
+      out.push([shuffled[i], shuffled[i + 1]]);
+      usedBursts.add(shuffled[i].id);
+      usedBursts.add(shuffled[i + 1].id);
+    }
   }
-  return out;
+
+  // 2. Group remaining by month+year (same day/session)
+  const remaining = photos.filter((p) => !usedBursts.has(p.id) && !p.burstId);
+  const bySession = new Map<string, SamplePhoto[]>();
+  for (const p of remaining) {
+    const key = `${p.year}-${p.month}`;
+    (bySession.get(key) ?? (bySession.set(key, []), bySession.get(key)!)).push(p);
+  }
+  for (const group of bySession.values()) {
+    if (out.length >= ROUND) break;
+    const shuffled = [...group].sort(() => Math.random() - 0.5);
+    for (let i = 0; i + 1 < shuffled.length && out.length < ROUND; i += 2) {
+      out.push([shuffled[i], shuffled[i + 1]]);
+    }
+  }
+
+  // 3. Fill with random pairs if not enough similar photos
+  if (out.length < ROUND) {
+    const usedIds = new Set(out.flat().map((p) => p.id));
+    const pool = photos.filter((p) => !usedIds.has(p.id)).sort(() => Math.random() - 0.5);
+    for (let i = 0; i + 1 < pool.length && out.length < ROUND; i += 2) {
+      out.push([pool[i], pool[i + 1]]);
+    }
+  }
+
+  return out.sort(() => Math.random() - 0.5);
 }
 
-export function ThisOrThat() {
+function ThisOrThat() {
   // Initialize directly in useState — avoids the blank-frame flash from useEffect
   const [round, setRound] = useState<[SamplePhoto, SamplePhoto][]>(() =>
     buildPairs(SAMPLE_PHOTOS),
@@ -42,16 +80,18 @@ export function ThisOrThat() {
       setFreed((f) => parseFloat((f + loser.sizeMB).toFixed(2)));
       setStats((s) => ({
         ...s,
-        // one kept, one deleted
         cleaned: s.cleaned + 1,
         deleted: s.deleted + 1,
         mbFreed: s.mbFreed + loser.sizeMB,
+        thisOrThatDeleted: s.thisOrThatDeleted + 1,
+        thisOrThatMbFreed: s.thisOrThatMbFreed + loser.sizeMB,
       }));
       logDay({ kept: 1, deleted: 1, mbFreed: loser.sizeMB });
-      toast.success(`Saved ${loser.sizeMB.toFixed(1)} MB`, { duration: 1500 });
+      
 
       setChosen(null);
       if (idx + 1 >= round.length) {
+        setStats((prev) => ({ ...prev, thisOrThatRounds: prev.thisOrThatRounds + 1 }));
         setDone(true);
       } else {
         setIdx((i) => i + 1);

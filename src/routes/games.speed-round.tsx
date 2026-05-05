@@ -1,3 +1,4 @@
+import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Timer, Trash2, Check, Sparkles, Play, ArrowLeft } from "lucide-react";
@@ -5,6 +6,10 @@ import { Link } from "@tanstack/react-router";
 import { SAMPLE_PHOTOS, type SamplePhoto } from "@/lib/photos";
 import { setStats, logDay } from "@/lib/storage";
 import { cn } from "@/lib/utils";
+
+export const Route = createFileRoute("/games/speed-round")({
+  component: SpeedRound,
+});
 
 const DURATION = 30;
 
@@ -24,13 +29,15 @@ function buildQueue(): SamplePhoto[] {
 
 type Phase = "intro" | "play" | "done";
 
-export function SpeedRound() {
+function SpeedRound() {
   const [phase, setPhase] = useState<Phase>("intro");
   const [queue, setQueue] = useState<SamplePhoto[]>([]);
   const [time, setTime] = useState(DURATION);
   const [freed, setFreed] = useState(0);
   const [count, setCount] = useState(0);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const countRef = useRef(0);
+  const freedRef = useRef(0);
 
   // Clean up timer on unmount
   useEffect(() => {
@@ -47,6 +54,15 @@ export function SpeedRound() {
         if (t <= 1) {
           if (tickRef.current) clearInterval(tickRef.current);
           setPhase("done");
+          // Record speed round stats
+          setStats((s) => ({
+            ...s,
+            speedRoundPlayed: s.speedRoundPlayed + 1,
+            speedRoundTotalReviewed: s.speedRoundTotalReviewed + countRef.current,
+            speedRoundTotalMbFreed: s.speedRoundTotalMbFreed + freedRef.current,
+            speedRoundBestCount: Math.max(s.speedRoundBestCount, countRef.current),
+            speedRoundBestMb: Math.max(s.speedRoundBestMb, freedRef.current),
+          }));
           return 0;
         }
         return t - 1;
@@ -64,6 +80,8 @@ export function SpeedRound() {
     setTime(DURATION);
     setFreed(0);
     setCount(0);
+    countRef.current = 0;
+    freedRef.current = 0;
     setPhase("play");
   }
 
@@ -74,10 +92,10 @@ export function SpeedRound() {
     const top = queue[0];
     if (!top) return;
 
-    setCount((c) => c + 1);
+    setCount((c) => { const n = c + 1; countRef.current = n; return n; });
 
     if (!keep) {
-      setFreed((f) => parseFloat((f + top.sizeMB).toFixed(2)));
+      setFreed((f) => { const n = parseFloat((f + top.sizeMB).toFixed(2)); freedRef.current = n; return n; });
       setStats((s) => ({
         ...s,
         deleted: s.deleted + 1,
