@@ -3,6 +3,7 @@
     "name": "Trimswipe",
     "slug": "slim-storage",
     "version": "1.0.3",
+    "icon": "mobile/mobile/assets/images/icon.png",
     "ios": {
       "bundleIdentifier": "com.fiskerik.trimswipe",
       "supportsTablet": true,

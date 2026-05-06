@@ -85,22 +85,26 @@ function withIosStaticAssets(config) {
     const project = config.modResults;
     const projectRoot = config.modRequest.projectRoot;
     const projectName = IOSConfig.XcodeUtils.getProjectName(projectRoot);
+    
+    // Hitta huvudmålet för appen
     const target = project.getTarget("com.apple.product-type.application");
-    const group = project.pbxGroupByName(projectName);
-    const filePath = `${projectName}/${IOS_WEB_FOLDER_NAME}`;
-
     if (!target) {
       throw new Error("Unable to find the iOS application target for static web assets.");
     }
 
+    // Försök hitta projektgruppen, annars använd huvudgruppen
+    const group = project.pbxGroupByName(projectName) || project.getPBXGroupByKey(project.getFirstProject().firstProject.mainGroup);
+    const filePath = `${projectName}/${IOS_WEB_FOLDER_NAME}`;
+
     if (!project.hasFile(filePath)) {
+      // Vi lägger till mappen som en "Folder Reference" (blå mapp i Xcode)
       project.addResourceFile(
         filePath,
         {
           lastKnownFileType: "folder",
           target: target.uuid,
         },
-        group?.uuid,
+        group.uuid // Tog bort ? för att säkerställa att vi har ett värde här nu
       );
     }
 
