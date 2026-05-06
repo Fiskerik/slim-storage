@@ -13,12 +13,21 @@
       }
     },
     "plugins": [
+      "./mobile/mobile/plugins/withStaticServerAssets",
       [
         "expo-media-library",
         {
           "photosPermission": "Trimswipe needs access to your photos so you can review and clean up your camera roll.",
           "savePhotosPermission": "Trimswipe may save optimized versions of your photos.",
           "isAccessMediaLocationEnabled": true
+        }
+      ],
+      [
+        "react-native-purchases",
+        {
+          "ios": {
+            "usesStoreKit2JWS": true
+          }
         }
       ]
     ],

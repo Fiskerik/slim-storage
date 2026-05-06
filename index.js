@@ -1,30 +1,22 @@
 import registerRootComponent from 'expo/src/launch/registerRootComponent';
-import React, { useState } from 'react';
-import { WebView } from 'react-native-webview';
-import { SafeAreaView, ActivityIndicator, Text, View } from 'react-native';
+import React, { useEffect } from 'react';
+import { StatusBar } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { LocalWebViewScreen } from './mobile/mobile/components/LocalWebViewScreen';
+import { initializePurchases } from './mobile/mobile/lib/purchases';
 
 const App = () => {
-  const [error, setError] = useState(false);
-
-  if (error) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <Text>Failed to load. Check your connection.</Text>
-      </View>
-    );
-  }
+  useEffect(() => {
+    initializePurchases().then((ok) => {
+      console.log('[App] RevenueCat initialized:', ok);
+    });
+  }, []);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
-      <WebView
-        source={{ uri: 'https://trimswipe.lovable.app' }}
-        style={{ flex: 1 }}
-        onError={() => setError(true)}
-        onHttpError={() => setError(true)}
-        startInLoadingState
-        renderLoading={() => <ActivityIndicator style={{ flex: 1 }} />}
-      />
-    </SafeAreaView>
+    <SafeAreaProvider>
+      <StatusBar barStyle="light-content" />
+      <LocalWebViewScreen />
+    </SafeAreaProvider>
   );
 };
 

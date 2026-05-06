@@ -60,7 +60,15 @@ function hasBridge(): boolean {
   return false;
 }
 
+function hasCallableBridge(): boolean {
+  return typeof window !== "undefined" && typeof window.__slimBridgeCall === "function";
+}
+
 async function bridgeCall(method: string, data?: Record<string, unknown>): Promise<unknown> {
+  if (!hasCallableBridge()) {
+    await waitForBridgeCall(5000);
+  }
+
   if (!window.__slimBridgeCall) {
     console.log("[photo-source] bridge missing", {
       nativeFlag: window.__SLIM_NATIVE__,
@@ -164,14 +172,14 @@ const webSource: PhotoSource = {
 
 let cached: PhotoSource | null = null;
 
-function waitForBridge(timeoutMs = 5000): Promise<boolean> {
+function waitForBridgeCall(timeoutMs = 5000): Promise<boolean> {
   return new Promise((resolve) => {
     if (typeof window === "undefined") {
       resolve(false);
       return;
     }
 
-    if (hasBridge()) {
+    if (hasCallableBridge()) {
       resolve(true);
       return;
     }
@@ -183,7 +191,7 @@ function waitForBridge(timeoutMs = 5000): Promise<boolean> {
 
     setTimeout(() => {
       window.removeEventListener("slimBridgeReady", onReady);
-      resolve(hasBridge());
+      resolve(hasCallableBridge());
     }, timeoutMs);
   });
 }
@@ -192,7 +200,7 @@ if (typeof window !== "undefined") {
   window.addEventListener(
     "slimBridgeReady",
     () => {
-      if (cached === webSource) cached = nativeBridgeSource;
+      if (hasCallableBridge() && cached === webSource) cached = nativeBridgeSource;
     },
     { once: true },
   );
@@ -200,12 +208,11 @@ if (typeof window !== "undefined") {
 
 export async function getPhotoSourceAsync(): Promise<PhotoSource> {
   if (cached) return cached;
-  // If native markers are already set by the bundled HTML, use bridge immediately.
-  if (hasNativeMarker()) {
+  if (hasCallableBridge()) {
     cached = nativeBridgeSource;
     return cached;
   }
-  const bridgeReady = await waitForBridge(5000);
+  const bridgeReady = await waitForBridgeCall(hasNativeMarker() ? 7000 : 5000);
   cached = bridgeReady ? nativeBridgeSource : webSource;
   return cached;
 }

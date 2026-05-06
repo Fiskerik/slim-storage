@@ -264,6 +264,7 @@ export function LocalWebViewScreen() {
             console.log("[LocalWebView] Load error:", description);
             setLoadError(description);
           }}
+          injectedJavaScriptBeforeContentLoaded={injectedJS}
           injectedJavaScript={injectedJS}
           onLoadEnd={() => {
             webViewRef.current?.injectJavaScript(injectedJS);
