@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { WebViewScreen } from '../components/WebViewScreen';
+import { LocalWebViewScreen } from '../components/LocalWebViewScreen';
 import { initializePurchases } from '../lib/purchases';
 
 export default function RootLayout() {
@@ -14,7 +14,7 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
-      <WebViewScreen />
+      <LocalWebViewScreen />
     </SafeAreaProvider>
   );
 }

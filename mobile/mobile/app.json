@@ -18,6 +18,7 @@
       }
     },
     "plugins": [
+      "./plugins/withStaticServerAssets",
       "expo-router",
       [
         "expo-media-library",
@@ -40,6 +41,9 @@
       "eas": {
         "projectId": "d4669864-8848-4389-9831-f565f1295982"
       }
+    },
+    "android": {
+      "package": "com.fiskerik.trimswipe"
     }
   }
 }

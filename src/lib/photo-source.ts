@@ -35,6 +35,7 @@ type BridgeDeleteResult = { deleted?: number };
 declare global {
   interface Window {
     __SLIM_NATIVE__?: boolean;
+    __SLIM_BUNDLED_NATIVE__?: boolean;
     __SLIM_BRIDGE_VERSION__?: number;
     __SLIM_SAFE_AREA__?: { top: number; bottom: number; left: number; right: number };
     __slimBridgeCall?: (method: string, data?: Record<string, unknown>) => Promise<unknown>;
@@ -42,10 +43,18 @@ declare global {
   }
 }
 
+function hasNativeMarker(): boolean {
+  if (typeof window === "undefined") return false;
+  if (window.__SLIM_NATIVE__ === true) return true;
+  if (window.__SLIM_BUNDLED_NATIVE__ === true) return true;
+
+  const nativeMeta = window.document?.querySelector('meta[name="slim-native"]');
+  return nativeMeta?.getAttribute("content") === "true";
+}
+
 function hasBridge(): boolean {
   if (typeof window === "undefined") return false;
-  // Flag set synchronously by injectedJavaScriptBeforeContentLoaded.
-  if (window.__SLIM_NATIVE__ === true) return true;
+  if (hasNativeMarker()) return true;
   if (typeof window.__slimBridgeCall === "function") return true;
   if (typeof window.ReactNativeWebView?.postMessage === "function") return true;
   return false;
@@ -55,6 +64,10 @@ async function bridgeCall(method: string, data?: Record<string, unknown>): Promi
   if (!window.__slimBridgeCall) {
     console.log("[photo-source] bridge missing", {
       nativeFlag: window.__SLIM_NATIVE__,
+      bundledNativeFlag: window.__SLIM_BUNDLED_NATIVE__,
+      nativeMeta: window.document
+        ?.querySelector('meta[name="slim-native"]')
+        ?.getAttribute("content"),
       hasRNWebView: !!window.ReactNativeWebView,
       method,
     });
@@ -187,8 +200,8 @@ if (typeof window !== "undefined") {
 
 export async function getPhotoSourceAsync(): Promise<PhotoSource> {
   if (cached) return cached;
-  // If native flag is already set, use bridge immediately.
-  if (typeof window !== "undefined" && window.__SLIM_NATIVE__ === true) {
+  // If native markers are already set by the bundled HTML, use bridge immediately.
+  if (hasNativeMarker()) {
     cached = nativeBridgeSource;
     return cached;
   }
