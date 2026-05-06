@@ -3,6 +3,10 @@
     "name": "Trimswipe",
     "slug": "slim-storage",
     "version": "1.0.2",
+    "orientation": "portrait",
+    "scheme": "trimswipe",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
     "ios": {
       "bundleIdentifier": "com.fiskerik.trimswipe",
       "supportsTablet": true,
@@ -13,12 +17,21 @@
       }
     },
     "plugins": [
+      "./mobile/mobile/plugins/withStaticServerAssets",
       [
         "expo-media-library",
         {
           "photosPermission": "Trimswipe needs access to your photos so you can review and clean up your camera roll.",
           "savePhotosPermission": "Trimswipe may save optimized versions of your photos.",
           "isAccessMediaLocationEnabled": true
+        }
+      ],
+      [
+        "react-native-purchases",
+        {
+          "ios": {
+            "usesStoreKit2JWS": true
+          }
         }
       ]
     ],

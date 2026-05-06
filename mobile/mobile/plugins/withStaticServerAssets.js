@@ -10,6 +10,7 @@ const {
 } = require("@expo/config-plugins");
 
 const WEB_ASSETS_RELATIVE_PATH = "assets/www";
+const ROOT_WEB_ASSETS_RELATIVE_PATH = "mobile/mobile/assets/www";
 const IOS_WEB_FOLDER_NAME = "www";
 const ANDROID_ASSETS_SOURCE_SET = "../../assets";
 
@@ -21,6 +22,16 @@ function copyDirectorySync(source, destination) {
   fs.rmSync(destination, { recursive: true, force: true });
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   fs.cpSync(source, destination, { recursive: true });
+}
+
+function resolveWebAssetsPath(projectRoot) {
+  const localAssets = path.join(projectRoot, WEB_ASSETS_RELATIVE_PATH);
+  if (fs.existsSync(localAssets)) return localAssets;
+
+  const rootAssets = path.join(projectRoot, ROOT_WEB_ASSETS_RELATIVE_PATH);
+  if (fs.existsSync(rootAssets)) return rootAssets;
+
+  return localAssets;
 }
 
 function withAndroidCleartextForLocalhost(config) {
@@ -54,7 +65,7 @@ function withAndroidStaticAssets(config) {
 function withIosStaticAssets(config) {
   config = withDangerousMod(config, ["ios", (config) => {
     const projectRoot = config.modRequest.projectRoot;
-    const source = path.join(projectRoot, WEB_ASSETS_RELATIVE_PATH);
+    const source = resolveWebAssetsPath(projectRoot);
     const projectName = IOSConfig.XcodeUtils.getProjectName(projectRoot);
     const destination = path.join(IOSConfig.Paths.getSourceRoot(projectRoot), IOS_WEB_FOLDER_NAME);
 
