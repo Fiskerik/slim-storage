@@ -2,7 +2,7 @@
   "expo": {
     "name": "Trimswipe",
     "slug": "slim-storage",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "ios": {
       "bundleIdentifier": "com.fiskerik.trimswipe",
       "supportsTablet": true,
@@ -24,11 +24,21 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "a31a8610-5a85-4c06-a193-5c73ee23946e"
+        "projectId": "ddf5633b-2fa9-4f34-b960-fbc01e8b5729"
       }
     },
     "android": {
-      "package": "com.fiskerik.trimswipe"
-    }
+      "package": "com.fiskerik.trimswipe",
+      "permissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.ACCESS_MEDIA_LOCATION",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO"
+      ]
+    },
+    "owner": "fiskerik89"
   }
 }
