@@ -27,14 +27,6 @@
           "savePhotosPermission": "Trimswipe may save optimized versions of your photos.",
           "isAccessMediaLocationEnabled": true
         }
-      ],
-      [
-        "react-native-purchases",
-        {
-          "ios": {
-            "usesStoreKit2JWS": true
-          }
-        }
       ]
     ],
     "extra": {
