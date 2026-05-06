@@ -15,8 +15,10 @@
     "ios:sync": "vite build && bun scripts/build-ios.ts && cap sync ios",
     "ios:open": "cap open ios",
     "ios:run": "vite build && bun scripts/build-ios.ts && cap sync ios && cap run ios",
-    "eas-build-post-install": "npm run build",
-    "doctor": "expo-doctor"
+    "eas-build-post-install": "npm run mobile:sync-web",
+    "doctor": "expo-doctor",
+    "build:mobile-spa": "vite build --config vite.mobile.config.ts",
+    "mobile:sync-web": "mobile/mobile/scripts/build-and-sync.sh"
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "^1.25.5",
