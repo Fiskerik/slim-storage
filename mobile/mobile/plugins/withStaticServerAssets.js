@@ -62,6 +62,25 @@ function withAndroidStaticAssets(config) {
   });
 }
 
+function addIosResourceFolder(project, filePath, targetUuid, groupKey) {
+  if (project.hasFile(filePath)) {
+    return;
+  }
+
+  const file = project.addFile(filePath, groupKey, {
+    lastKnownFileType: "folder",
+  });
+
+  if (!file) {
+    return;
+  }
+
+  file.uuid = project.generateUuid();
+  file.target = targetUuid;
+  project.addToPbxBuildFileSection(file);
+  project.addToPbxResourcesBuildPhase(file);
+}
+
 function withIosStaticAssets(config) {
   config = withDangerousMod(config, ["ios", (config) => {
     const projectRoot = config.modRequest.projectRoot;
@@ -74,37 +93,23 @@ function withIosStaticAssets(config) {
     return config;
   }]);
 
-  // mobile/mobile/plugins/withStaticServerAssets.js
+  return withXcodeProject(config, (config) => {
+    const project = config.modResults;
+    const projectRoot = config.modRequest.projectRoot;
+    const projectName = IOSConfig.XcodeUtils.getProjectName(projectRoot);
 
-return withXcodeProject(config, (config) => {
-  const project = config.modResults;
-  const projectRoot = config.modRequest.projectRoot;
-  const projectName = IOSConfig.XcodeUtils.getProjectName(projectRoot);
+    const target = project.getTarget("com.apple.product-type.application");
+    if (!target) {
+      throw new Error("Unable to find the iOS application target for static web assets.");
+    }
 
-  const target = project.getTarget("com.apple.product-type.application");
-  if (!target) {
-    throw new Error("Unable to find the iOS application target for static web assets.");
-  }
-
-  const filePath = `${projectName}/${IOS_WEB_FOLDER_NAME}`;
-
-  if (!project.hasFile(filePath)) {
-    // Use the main group key directly — pbxGroupByName returns the value object,
-    // not a {uuid, ...} wrapper, so group.uuid is always null.
+    const filePath = `${projectName}/${IOS_WEB_FOLDER_NAME}`;
     const mainGroupKey = project.getFirstProject().firstProject.mainGroup;
 
-    project.addResourceFile(
-      filePath,
-      {
-        lastKnownFileType: "folder",
-        target: target.uuid,
-      },
-      mainGroupKey,
-    );
-  }
+    addIosResourceFolder(project, filePath, target.uuid, mainGroupKey);
 
-  return config;
-});
+    return config;
+  });
 }
 
 module.exports = function withStaticServerAssets(config) {
