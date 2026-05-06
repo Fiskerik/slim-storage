@@ -1,11 +1,11 @@
-import { useRef, useCallback, useEffect, useState } from 'react';
-import { View, StyleSheet, Text, Pressable, ActivityIndicator } from 'react-native';
-import { WebView, type WebViewMessageEvent } from 'react-native-webview';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import NetInfo from '@react-native-community/netinfo';
-import { handleBridgeMessage } from '../lib/bridge';
+import { useRef, useCallback, useEffect, useState } from "react";
+import { View, StyleSheet, Text, Pressable, ActivityIndicator } from "react-native";
+import { WebView, type WebViewMessageEvent } from "react-native-webview";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import NetInfo from "@react-native-community/netinfo";
+import { handleBridgeMessage } from "../lib/bridge";
 
-const WEB_URL = 'https://trimswipe.lovable.app';
+const WEB_URL = "https://trimswipe.lovable.app";
 
 export function WebViewScreen() {
   const webViewRef = useRef<WebView>(null);
@@ -17,7 +17,7 @@ export function WebViewScreen() {
   useEffect(() => {
     const unsub = NetInfo.addEventListener((state) => {
       const connected = !!state.isConnected;
-      console.log('[WebView] NetInfo changed:', connected);
+      console.log("[WebView] NetInfo changed:", connected);
       setIsConnected(connected);
     });
     return () => unsub();
@@ -29,13 +29,13 @@ export function WebViewScreen() {
       const response = await handleBridgeMessage(request);
       webViewRef.current?.postMessage(JSON.stringify(response));
     } catch (err) {
-      console.warn('[Bridge] Error handling message:', err);
+      console.warn("[Bridge] Error handling message:", err);
     }
   }, []);
 
-  const injectedJS = `
+  const injectedJS = `window.__SLIM_NATIVE__ = true;
+    window.__SLIM_BRIDGE_VERSION__ = 1;
     (function() {
-      window.__SLIM_NATIVE__ = true;
       window.__SLIM_SAFE_AREA__ = {
         top: ${insets.top},
         bottom: ${insets.bottom},
@@ -69,14 +69,13 @@ export function WebViewScreen() {
           }
         } catch(err) {}
       });
-      window.__SLIM_NATIVE__ = true;
       window.dispatchEvent(new Event('slimBridgeReady'));
       true;
     })();
   `;
 
   return (
-    <View style={[styles.container, { backgroundColor: '#0a0a0a' }]}> 
+    <View style={[styles.container, { backgroundColor: "#0a0a0a" }]}>
       {!isConnected && (
         <View style={styles.offlineBanner}>
           <Text style={styles.offlineText}>You are offline. Trying to reconnect…</Text>
@@ -86,7 +85,13 @@ export function WebViewScreen() {
         <View style={styles.errorContainer}>
           <Text style={styles.errorTitle}>Couldn’t load TrimSwipe</Text>
           <Text style={styles.errorText}>{loadError}</Text>
-          <Pressable onPress={() => { setLoadError(null); setReloadKey((k) => k + 1); }} style={styles.retryButton}>
+          <Pressable
+            onPress={() => {
+              setLoadError(null);
+              setReloadKey((k) => k + 1);
+            }}
+            style={styles.retryButton}
+          >
             <Text style={styles.retryButtonText}>Retry</Text>
           </Pressable>
         </View>
@@ -98,8 +103,8 @@ export function WebViewScreen() {
           style={styles.webview}
           onMessage={onMessage}
           onError={(event) => {
-            const description = event.nativeEvent.description || 'Unknown error';
-            console.log('[WebView] Load error:', description);
+            const description = event.nativeEvent.description || "Unknown error";
+            console.log("[WebView] Load error:", description);
             setLoadError(description);
           }}
           injectedJavaScriptBeforeContentLoaded={injectedJS}
@@ -127,13 +132,24 @@ export function WebViewScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   webview: { flex: 1 },
-  offlineBanner: { backgroundColor: '#78350f', paddingVertical: 8, paddingHorizontal: 12 },
-  offlineText: { color: '#fff7ed', fontSize: 12, textAlign: 'center' },
-  loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: '#0a0a0a' },
-  loadingText: { color: '#cbd5e1', fontSize: 14 },
-  errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 12 },
-  errorTitle: { color: '#f8fafc', fontSize: 20, fontWeight: '600' },
-  errorText: { color: '#94a3b8', fontSize: 14, textAlign: 'center' },
-  retryButton: { backgroundColor: '#2563eb', paddingVertical: 10, paddingHorizontal: 18, borderRadius: 12 },
-  retryButtonText: { color: '#fff', fontWeight: '600' },
+  offlineBanner: { backgroundColor: "#78350f", paddingVertical: 8, paddingHorizontal: 12 },
+  offlineText: { color: "#fff7ed", fontSize: 12, textAlign: "center" },
+  loadingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    backgroundColor: "#0a0a0a",
+  },
+  loadingText: { color: "#cbd5e1", fontSize: 14 },
+  errorContainer: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24, gap: 12 },
+  errorTitle: { color: "#f8fafc", fontSize: 20, fontWeight: "600" },
+  errorText: { color: "#94a3b8", fontSize: 14, textAlign: "center" },
+  retryButton: {
+    backgroundColor: "#2563eb",
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+  },
+  retryButtonText: { color: "#fff", fontWeight: "600" },
 });

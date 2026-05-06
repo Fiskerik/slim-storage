@@ -13,8 +13,8 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Needed to find your pictures.",
-        "NSPhotoLibraryUsageDescription": "Needed to select pictures.",
-        "NSPhotoLibraryAddUsageDescription": "Needed to save pictures."
+        "NSPhotoLibraryUsageDescription": "Trimswipe needs access to your photo library so you can swipe through your photos and free up storage.",
+        "NSPhotoLibraryAddUsageDescription": "Trimswipe may save optimized versions of your photos."
       }
     },
     "plugins": [

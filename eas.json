@@ -6,7 +6,10 @@
         "image": "macos-sequoia-15.6-xcode-26.2"
       },
       "env": {
-        "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
+        "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
+        "EXPO_PUBLIC_RC_KEY": "@rc_api_key",
+        "EXPO_PUBLIC_RC_ENTITLEMENT_ID": "@rc_entitlement_id",
+        "EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID": "@rc_product_id"
       }
     }
   },

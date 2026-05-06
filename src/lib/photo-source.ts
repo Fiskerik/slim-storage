@@ -33,6 +33,7 @@ export type PhotoSource = {
 declare global {
   interface Window {
     __SLIM_NATIVE__?: boolean;
+    __SLIM_BRIDGE_VERSION__?: number;
     __SLIM_SAFE_AREA__?: { top: number; bottom: number; left: number; right: number };
     __slimBridgeCall?: (method: string, data?: Record<string, unknown>) => Promise<unknown>;
     ReactNativeWebView?: { postMessage: (msg: string) => void };
@@ -41,15 +42,11 @@ declare global {
 
 function hasBridge(): boolean {
   if (typeof window === "undefined") return false;
-
-  const hasCallableBridge = typeof window.__slimBridgeCall === "function";
-  const hasRNWebView = typeof window.ReactNativeWebView?.postMessage === "function";
-  const ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
-  const uaLooksNative = /ReactNative|Expo|CFNetwork/i.test(ua);
-
-  // Some TestFlight/App Store wrappers may not set __SLIM_NATIVE__ consistently.
-  // Treat a working bridge (or known native wrapper UA) as native.
-  return hasCallableBridge || hasRNWebView || !!window.__SLIM_NATIVE__ || uaLooksNative;
+  // Flag set synchronously by injectedJavaScriptBeforeContentLoaded.
+  if (window.__SLIM_NATIVE__ === true) return true;
+  if (typeof window.__slimBridgeCall === "function") return true;
+  if (typeof window.ReactNativeWebView?.postMessage === "function") return true;
+  return false;
 }
 
 async function bridgeCall(method: string, data?: Record<string, unknown>): Promise<unknown> {
@@ -150,31 +147,48 @@ const webSource: PhotoSource = {
 
 let cached: PhotoSource | null = null;
 
-function waitForBridge(timeoutMs = 3000): Promise<boolean> {
+function waitForBridge(timeoutMs = 5000): Promise<boolean> {
   return new Promise((resolve) => {
     if (typeof window === "undefined") {
       resolve(false);
       return;
     }
 
-    if (typeof window.__slimBridgeCall === "function") {
+    if (hasBridge()) {
       resolve(true);
       return;
     }
 
-    const onReady = () => { resolve(true); };
+    const onReady = () => {
+      resolve(true);
+    };
     window.addEventListener("slimBridgeReady", onReady, { once: true });
 
     setTimeout(() => {
       window.removeEventListener("slimBridgeReady", onReady);
-      resolve(typeof window.__slimBridgeCall === "function");
+      resolve(hasBridge());
     }, timeoutMs);
   });
 }
 
+if (typeof window !== "undefined") {
+  window.addEventListener(
+    "slimBridgeReady",
+    () => {
+      if (cached === webSource) cached = nativeBridgeSource;
+    },
+    { once: true },
+  );
+}
+
 export async function getPhotoSourceAsync(): Promise<PhotoSource> {
   if (cached) return cached;
-  const bridgeReady = await waitForBridge(3000);
+  // If native flag is already set, use bridge immediately.
+  if (typeof window !== "undefined" && window.__SLIM_NATIVE__ === true) {
+    cached = nativeBridgeSource;
+    return cached;
+  }
+  const bridgeReady = await waitForBridge(5000);
   cached = bridgeReady ? nativeBridgeSource : webSource;
   return cached;
 }
