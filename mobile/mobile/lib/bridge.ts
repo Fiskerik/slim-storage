@@ -175,41 +175,38 @@ async function assetToDTO(asset: MediaLibrary.Asset): Promise<PhotoDTO> {
   };
 }
 
+function assetSizeMB(asset: MediaLibrary.Asset): number {
+  const fileSize = (asset as MediaLibrary.Asset & { fileSize?: number }).fileSize;
+  return fileSize ? fileSize / (1024 * 1024) : 0;
+}
+
+function prioritySortAssets(assets: MediaLibrary.Asset[]): MediaLibrary.Asset[] {
+  return [...assets].sort((a, b) => {
+    const ageDiff = a.creationTime - b.creationTime;
+    if (Math.abs(ageDiff) > 1000 * 60 * 60 * 24 * 30) return ageDiff;
+    return assetSizeMB(b) - assetSizeMB(a);
+  });
+}
+
 async function getPhotos(count: number): Promise<PhotoDTO[]> {
-  const totalAssets = await MediaLibrary.getAssetsAsync({
+  const targetCount = Math.max(1, count);
+  const result = await MediaLibrary.getAssetsAsync({
     mediaType: "photo",
-    first: 1,
+    first: Math.min(250, Math.max(targetCount * 4, targetCount)),
+    sortBy: [[MediaLibrary.SortBy.creationTime, false]],
   });
 
-  const total = totalAssets.totalCount;
-  if (total === 0) return [];
+  if (result.assets.length === 0) return [];
 
-  // Pick random offsets to get a varied selection
-  const indices = new Set<number>();
-  const maxAttempts = count * 3;
-  for (let i = 0; i < maxAttempts && indices.size < Math.min(count, total); i++) {
-    indices.add(Math.floor(Math.random() * total));
-  }
+  const selected = prioritySortAssets(result.assets).slice(0, targetCount);
+  console.log("[Bridge] getPhotos selected prioritized assets", {
+    requested: targetCount,
+    fetched: result.assets.length,
+    returned: selected.length,
+    firstAssetId: selected[0]?.id,
+  });
 
-  const photos: PhotoDTO[] = [];
-  for (const offset of indices) {
-    try {
-      const page = await MediaLibrary.getAssetsAsync({
-        mediaType: "photo",
-        first: 1,
-        offset,
-        sortBy: [MediaLibrary.SortBy.creationTime],
-      } as MediaLibrary.AssetsOptions & { offset: number });
-      if (page.assets.length > 0) {
-        const dto = await assetToDTO(page.assets[0]);
-        photos.push(dto);
-      }
-    } catch {
-      // Skip failed assets
-    }
-  }
-
-  return photos;
+  return Promise.all(selected.map(assetToDTO));
 }
 
 async function getOlderPhotos(beforeYear: number, count: number): Promise<PhotoDTO[]> {
@@ -222,9 +219,8 @@ async function getOlderPhotos(beforeYear: number, count: number): Promise<PhotoD
     sortBy: [[MediaLibrary.SortBy.creationTime, false]], // oldest first
   });
 
-  // Shuffle and take count
-  const shuffled = result.assets.sort(() => Math.random() - 0.5).slice(0, count);
-  return Promise.all(shuffled.map(assetToDTO));
+  const selected = prioritySortAssets(result.assets).slice(0, count);
+  return Promise.all(selected.map(assetToDTO));
 }
 
 async function getBurstGroups(maxGroups: number): Promise<PhotoDTO[][]> {
@@ -261,8 +257,19 @@ async function getBurstGroups(maxGroups: number): Promise<PhotoDTO[][]> {
     groups.push(currentGroup);
   }
 
-  // Take top N groups, sorted by group size descending
-  const topGroups = groups.sort((a, b) => b.length - a.length).slice(0, maxGroups);
+  const topGroups = groups
+    .sort((a, b) => {
+      const aOldest = Math.min(...a.map((asset) => asset.creationTime));
+      const bOldest = Math.min(...b.map((asset) => asset.creationTime));
+      const ageDiff = aOldest - bOldest;
+      if (Math.abs(ageDiff) > 1000 * 60 * 60 * 24 * 30) return ageDiff;
+      const sizeDiff =
+        b.reduce((sum, asset) => sum + assetSizeMB(asset), 0) -
+        a.reduce((sum, asset) => sum + assetSizeMB(asset), 0);
+      if (Math.abs(sizeDiff) > 0.1) return sizeDiff;
+      return b.length - a.length;
+    })
+    .slice(0, maxGroups);
 
   return Promise.all(topGroups.map((group) => Promise.all(group.map(assetToDTO))));
 }
@@ -271,9 +278,11 @@ async function deletePhotos(ids: string[]): Promise<{ deleted: number }> {
   if (ids.length === 0) return { deleted: 0 };
 
   try {
-    const success = await MediaLibrary.deleteAssetsAsync(ids);
-    return { deleted: success ? ids.length : 0 };
-  } catch {
+    await MediaLibrary.deleteAssetsAsync(ids);
+    console.log("[Bridge] deletePhotos completed", { requested: ids.length });
+    return { deleted: ids.length };
+  } catch (error) {
+    console.log("[Bridge] deletePhotos failed", { error });
     return { deleted: 0 };
   }
 }

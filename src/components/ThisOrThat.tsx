@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Scale, Sparkles, RefreshCw } from "lucide-react";
 import { getPhotoSourceAsync, type LibraryPhoto } from "@/lib/photo-source";
 import { setStats, logDay } from "@/lib/storage";
@@ -14,6 +14,14 @@ type BurstPair = {
 };
 
 type CompletionStep = "playing" | "summary";
+
+function preloadPhotoImages(photos: SamplePhoto[]) {
+  if (typeof window === "undefined") return;
+  photos.forEach((photo) => {
+    const image = new Image();
+    image.src = photo.url;
+  });
+}
 
 /** Build pairs only from photos that share a burst/multi-shot group. */
 async function buildPairs(n: number): Promise<BurstPair[]> {
@@ -31,9 +39,13 @@ async function buildPairs(n: number): Promise<BurstPair[]> {
   }
 
   const out: BurstPair[] = [];
-  const shuffledGroups = [...groups].sort(() => Math.random() - 0.5);
-  for (const group of shuffledGroups) {
-    const shuffled = [...group].sort(() => Math.random() - 0.5);
+  const prioritizedGroups = [...groups].sort(
+    (a, b) =>
+      Math.min(...a.map((p) => p.year)) - Math.min(...b.map((p) => p.year)) ||
+      b.reduce((sum, p) => sum + p.sizeMB, 0) - a.reduce((sum, p) => sum + p.sizeMB, 0),
+  );
+  for (const group of prioritizedGroups) {
+    const shuffled = [...group].sort((a, b) => b.sizeMB - a.sizeMB);
     for (let i = 0; i + 1 < shuffled.length && out.length < n; i += 2) {
       const a = shuffled[i];
       const b = shuffled[i + 1];
@@ -58,9 +70,30 @@ export function ThisOrThat() {
   const [step, setStep] = useState<CompletionStep>("playing");
   const [deleteFreed, setDeleteFreed] = useState(0);
   const [selectedIdx, setSelectedIdx] = useState<0 | 1 | null>(null);
+  const preloadedRoundRef = useRef<Promise<BurstPair[]> | null>(null);
+
+  function preloadNextRound() {
+    if (!preloadedRoundRef.current) {
+      preloadedRoundRef.current = buildPairs(ROUND).then((pairs) => {
+        console.log("[ThisOrThat] preloaded next round", { pairCount: pairs.length });
+        preloadPhotoImages(pairs.flatMap((pair) => [pair.a, pair.b]).slice(0, 6));
+        return pairs;
+      });
+    }
+  }
+
+  async function consumeRoundLoad() {
+    const pending = preloadedRoundRef.current;
+    preloadedRoundRef.current = null;
+    return pending ? pending : buildPairs(ROUND);
+  }
 
   useEffect(() => {
-    buildPairs(ROUND).then(setRound);
+    buildPairs(ROUND).then((pairs) => {
+      setRound(pairs);
+      preloadPhotoImages(pairs.flatMap((pair) => [pair.a, pair.b]).slice(0, 6));
+      preloadNextRound();
+    });
   }, []);
 
   const pair = round[idx];
@@ -92,6 +125,17 @@ export function ThisOrThat() {
     }));
     logDay({ kept: 1, deleted: 1, mbFreed: loser.sizeMB });
 
+    if (loser.isNative && loser.nativeId) {
+      getPhotoSourceAsync()
+        .then((src) => src.deletePhotos([loser.nativeId!]))
+        .then((result) =>
+          console.log("[ThisOrThat] native deleted loser", { id: loser.nativeId, result }),
+        )
+        .catch((error) => console.warn("[ThisOrThat] native delete failed", error));
+    }
+
+    if (idx + 2 >= round.length) preloadNextRound();
+
     window.setTimeout(() => {
       setSelectedIdx(null);
       if (idx + 1 >= round.length) {
@@ -103,8 +147,11 @@ export function ThisOrThat() {
     }, SELECTION_ANIMATION_MS);
   }
 
-  function reset() {
-    buildPairs(ROUND).then(setRound);
+  async function reset() {
+    const pairs = await consumeRoundLoad();
+    setRound(pairs);
+    preloadPhotoImages(pairs.flatMap((pair) => [pair.a, pair.b]).slice(0, 6));
+    preloadNextRound();
     setIdx(0);
     setDeleteFreed(0);
     setSelectedIdx(null);
@@ -158,7 +205,7 @@ export function ThisOrThat() {
           const isUnselected = selectedIdx !== null && selectedIdx !== i;
           return (
             <button
-              key={cards[i].id}
+              key={`${cards[i].id}:${i}`}
               disabled={selectedIdx !== null}
               onClick={() => pick(i as 0 | 1)}
               style={{

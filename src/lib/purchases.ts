@@ -194,12 +194,18 @@ export async function presentPaywall(): Promise<boolean> {
 /**
  * Present RevenueCat's Customer Center UI (manage subscriptions, support).
  */
-export async function presentCustomerCenter(): Promise<void> {
-  if (!hasBridge()) return;
+export async function presentCustomerCenter(): Promise<boolean> {
+  if (!hasBridge()) {
+    console.log("[purchases] no native bridge for presentCustomerCenter");
+    return false;
+  }
   try {
-    await purchaseBridgeCall("purchases_presentCustomerCenter");
-  } catch {
-    // silent fail on web
+    const result = await purchaseBridgeCall("purchases_presentCustomerCenter");
+    if (result?.error) console.log("[purchases] presentCustomerCenter error", result.error);
+    return result?.success === true || result?.isPro === true;
+  } catch (error) {
+    console.log("[purchases] presentCustomerCenter exception", error);
+    return false;
   }
 }
 

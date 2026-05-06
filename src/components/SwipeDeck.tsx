@@ -52,6 +52,14 @@ type SessionRecap = {
 
 const SWIPE_THRESHOLD = 110;
 
+function preloadPhotoImages(photos: SamplePhoto[]) {
+  if (typeof window === "undefined") return;
+  photos.forEach((photo) => {
+    const image = new Image();
+    image.src = photo.url;
+  });
+}
+
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -73,6 +81,27 @@ export function SwipeDeck() {
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [iCloudWarn, setICloudWarn] = useState<{ photo: SamplePhoto } | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const preloadedRoundRef = useRef<Promise<SamplePhoto[]> | null>(null);
+
+  function createRoundLoad() {
+    return getPhotoSourceAsync().then((src) => src.getRandom(cardsPerRound));
+  }
+
+  function preloadNextRound() {
+    if (!preloadedRoundRef.current) {
+      preloadedRoundRef.current = createRoundLoad().then((photos) => {
+        console.log("[SwipeDeck] preloaded next set", { count: photos.length });
+        preloadPhotoImages(photos.slice(0, 4));
+        return photos;
+      });
+    }
+  }
+
+  async function consumeRoundLoad() {
+    const pending = preloadedRoundRef.current;
+    preloadedRoundRef.current = null;
+    return pending ? pending : createRoundLoad();
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -96,6 +125,8 @@ export function SwipeDeck() {
       const photos = await src.getRandom(cardsPerRound);
       if (cancelled) return;
       setQueue(photos);
+      preloadPhotoImages(photos.slice(0, 4));
+      preloadNextRound();
       setLoading(false);
     })();
     if (!stats.settings.onboarded) setShowOnboarding(true);
@@ -191,19 +222,25 @@ export function SwipeDeck() {
 
   async function reset() {
     setLoading(true);
-    const photos = await (await getPhotoSourceAsync()).getRandom(cardsPerRound);
+    const photos = await consumeRoundLoad();
     setQueue(photos);
+    preloadPhotoImages(photos.slice(0, 4));
+    preloadNextRound();
     setRecap(null);
+    sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
     deletedPhotosRef.current = [];
     setLoading(false);
   }
 
-  async function handleConfirmDeletion(keepIds: Set<string>) {
-    // For any photo the user unchecked (i.e. NOT in keepIds), restore it.
+  async function handleConfirmDeletion(checkedKeys: Set<string>) {
     const sess = sessionRef.current;
     const toDelete: SamplePhoto[] = [];
-    deletedPhotosRef.current.forEach((photo) => {
-      if (!keepIds.has(photo.id)) {
+
+    deletedPhotosRef.current.forEach((photo, index) => {
+      const key = `${photo.id}:${photo.nativeId ?? "web"}:${index}`;
+      if (checkedKeys.has(key)) {
+        toDelete.push(photo);
+      } else {
         undoDelete(photo.id);
         setStats((s) => ({
           ...s,
@@ -212,16 +249,19 @@ export function SwipeDeck() {
         }));
         sess.deleted = Math.max(0, sess.deleted - 1);
         sess.freed = Math.max(0, sess.freed - photo.sizeMB);
-      } else {
-        toDelete.push(photo);
       }
     });
 
-    // On native iOS, actually remove the confirmed photos from the device library.
+    console.log("[SwipeDeck] confirming deletion", {
+      selected: toDelete.length,
+      kept: deletedPhotosRef.current.length - toDelete.length,
+    });
+
     const nativeIds = toDelete.filter((p) => p.isNative && p.nativeId).map((p) => p.nativeId!);
     if (nativeIds.length > 0) {
       try {
-        await (await getPhotoSourceAsync()).deletePhotos(nativeIds);
+        const result = await (await getPhotoSourceAsync()).deletePhotos(nativeIds);
+        console.log("[SwipeDeck] native delete result", result);
       } catch (e) {
         console.warn("[Slim] native delete failed", e);
       }
@@ -407,7 +447,7 @@ function ICloudWarnModal({
   const [disable, setDisable] = useState(false);
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 px-5 pb-5 pt-[calc(var(--safe-area-top,env(safe-area-inset-top))+1rem)] backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 px-5 pb-5 pt-[calc(var(--safe-area-top,env(safe-area-inset-top))+3rem)] backdrop-blur-sm"
       onClick={onCancel}
     >
       <div
@@ -673,7 +713,7 @@ function Stat({ label, value, tone }: { label: string; value: number; tone: stri
 function PaywallModal({ onClose, onUpgrade }: { onClose: () => void; onUpgrade: () => void }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 px-5 pb-5 pt-[calc(var(--safe-area-top,env(safe-area-inset-top))+1rem)] backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 px-5 pb-5 pt-[calc(var(--safe-area-top,env(safe-area-inset-top))+3rem)] backdrop-blur-sm"
       onClick={onClose}
     >
       <div
@@ -723,26 +763,30 @@ function DeleteConfirmStep({
   onConfirm,
 }: {
   photos: SamplePhoto[];
-  onConfirm: (keepIds: Set<string>) => void;
+  onConfirm: (checkedKeys: Set<string>) => void;
 }) {
   // Default: every photo stays "checked" (will be deleted).
-  const [checkedIds, setCheckedIds] = useState<Set<string>>(() => new Set(photos.map((p) => p.id)));
+  const photoKeys = photos.map((p, index) => `${p.id}:${p.nativeId ?? "web"}:${index}`);
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(() => new Set(photoKeys));
 
-  const totalMB = photos.filter((p) => checkedIds.has(p.id)).reduce((sum, p) => sum + p.sizeMB, 0);
+  const totalMB = photos.reduce(
+    (sum, p, index) => sum + (checkedIds.has(photoKeys[index]) ? p.sizeMB : 0),
+    0,
+  );
   const count = checkedIds.size;
 
-  function toggle(id: string) {
+  function toggle(key: string) {
     setCheckedIds((s) => {
       const next = new Set(s);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
 
   function toggleAll() {
     if (checkedIds.size === photos.length) setCheckedIds(new Set());
-    else setCheckedIds(new Set(photos.map((p) => p.id)));
+    else setCheckedIds(new Set(photoKeys));
   }
 
   return (
@@ -775,12 +819,13 @@ function DeleteConfirmStep({
       </div>
 
       <ul className="mt-3 space-y-2">
-        {photos.map((p) => {
-          const checked = checkedIds.has(p.id);
+        {photos.map((p, index) => {
+          const key = photoKeys[index];
+          const checked = checkedIds.has(key);
           return (
-            <li key={p.id}>
+            <li key={key}>
               <button
-                onClick={() => toggle(p.id)}
+                onClick={() => toggle(key)}
                 className={cn(
                   "flex w-full items-center gap-3 rounded-2xl border bg-card p-2.5 text-left transition",
                   checked

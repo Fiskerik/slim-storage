@@ -14,6 +14,14 @@ const AUTO_KEEP_SECONDS = 5;
 
 type Phase = "intro" | "guess" | "reveal" | "done";
 
+function preloadPhotoImages(photos: SamplePhoto[]) {
+  if (typeof window === "undefined") return;
+  photos.forEach((photo) => {
+    const image = new Image();
+    image.src = photo.url;
+  });
+}
+
 /** Generate 4 year options with randomized position for the correct answer */
 function generateYearOptions(correctYear: number): number[] {
   const opts = new Set<number>();
@@ -56,14 +64,34 @@ export function MemoryGame() {
   const [results, setResults] = useState<{ delta: number; correct: boolean; kept: boolean }[]>([]);
   const [autoKeepTimer, setAutoKeepTimer] = useState<number>(AUTO_KEEP_SECONDS);
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
+  const preloadedRoundRef = useRef<Promise<SamplePhoto[]> | null>(null);
   const stats = useStats();
 
   const photo = round[idx];
 
+  function preloadNextRound(size: number) {
+    if (!preloadedRoundRef.current) {
+      preloadedRoundRef.current = pickRound(size).then((photos) => {
+        console.log("[MemoryGame] preloaded next round", { count: photos.length });
+        preloadPhotoImages(photos.slice(0, 6));
+        return photos;
+      });
+    }
+  }
+
+  useEffect(() => {
+    const size = Math.min(30, Math.max(5, stats.settings.cardsPerRound));
+    preloadNextRound(size);
+  }, []);
+
   function start() {
     const size = Math.min(30, Math.max(5, stats.settings.cardsPerRound));
-    pickRound(size).then((photos) => {
+    const pending = preloadedRoundRef.current;
+    preloadedRoundRef.current = null;
+    (pending ? pending : pickRound(size)).then((photos) => {
       setRound(photos);
+      preloadPhotoImages(photos.slice(0, 6));
+      preloadNextRound(size);
       setIdx(0);
       setGuess(null);
       setResults([]);
@@ -74,51 +102,57 @@ export function MemoryGame() {
     });
   }
 
-  const decide = useCallback((keep: boolean) => {
-    if (!photo || guess === null) return;
-    // Clear timer
-    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = undefined; }
-
-    const delta = Math.abs(guess - photo.year);
-    const correct = delta <= 1;
-    const newResults = [...results, { delta, correct, kept: keep }];
-
-    setStats((s) => {
-      const nextStreak = correct ? s.memoryCurrentStreak + 1 : 0;
-      return {
-        ...s,
-        memoryPlayed: s.memoryPlayed + 1,
-        memoryCorrect: s.memoryCorrect + (correct ? 1 : 0),
-        memoryCurrentStreak: nextStreak,
-        memoryBestStreak: Math.max(s.memoryBestStreak, nextStreak),
-        memoryTotalDelta: s.memoryTotalDelta + delta,
-        deleted: keep ? s.deleted : s.deleted + 1,
-        cleaned: keep ? s.cleaned + 1 : s.cleaned,
-        mbFreed: keep ? s.mbFreed : s.mbFreed + photo.sizeMB,
-      };
-    });
-
-    logDay({
-      memoryPlayed: 1,
-      kept: keep ? 1 : 0,
-      deleted: keep ? 0 : 1,
-      mbFreed: keep ? 0 : photo.sizeMB,
-    });
-
-    setResults(newResults);
-
-    if (idx + 1 >= round.length) {
-      setPhase("done");
-    } else {
-      const nextIdx = idx + 1;
-      setIdx(nextIdx);
-      setGuess(null);
-      if (round[nextIdx]) {
-        setYearOptions(generateYearOptions(round[nextIdx].year));
+  const decide = useCallback(
+    (keep: boolean) => {
+      if (!photo || guess === null) return;
+      // Clear timer
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = undefined;
       }
-      setPhase("guess");
-    }
-  }, [photo, guess, results, idx, round]);
+
+      const delta = Math.abs(guess - photo.year);
+      const correct = delta <= 1;
+      const newResults = [...results, { delta, correct, kept: keep }];
+
+      setStats((s) => {
+        const nextStreak = correct ? s.memoryCurrentStreak + 1 : 0;
+        return {
+          ...s,
+          memoryPlayed: s.memoryPlayed + 1,
+          memoryCorrect: s.memoryCorrect + (correct ? 1 : 0),
+          memoryCurrentStreak: nextStreak,
+          memoryBestStreak: Math.max(s.memoryBestStreak, nextStreak),
+          memoryTotalDelta: s.memoryTotalDelta + delta,
+          deleted: keep ? s.deleted : s.deleted + 1,
+          cleaned: keep ? s.cleaned + 1 : s.cleaned,
+          mbFreed: keep ? s.mbFreed : s.mbFreed + photo.sizeMB,
+        };
+      });
+
+      logDay({
+        memoryPlayed: 1,
+        kept: keep ? 1 : 0,
+        deleted: keep ? 0 : 1,
+        mbFreed: keep ? 0 : photo.sizeMB,
+      });
+
+      setResults(newResults);
+
+      if (idx + 1 >= round.length) {
+        setPhase("done");
+      } else {
+        const nextIdx = idx + 1;
+        setIdx(nextIdx);
+        setGuess(null);
+        if (round[nextIdx]) {
+          setYearOptions(generateYearOptions(round[nextIdx].year));
+        }
+        setPhase("guess");
+      }
+    },
+    [photo, guess, results, idx, round],
+  );
 
   // Auto-forward: when user selects a year in guess phase, auto-reveal after a brief moment
   function selectYear(yr: number) {
@@ -134,7 +168,10 @@ export function MemoryGame() {
   // Auto-keep timer during reveal phase
   useEffect(() => {
     if (phase !== "reveal") {
-      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = undefined; }
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = undefined;
+      }
       return;
     }
     setAutoKeepTimer(AUTO_KEEP_SECONDS);
@@ -150,11 +187,24 @@ export function MemoryGame() {
         setAutoKeepTimer(remaining);
       }
     }, 50);
-    return () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = undefined; } };
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = undefined;
+      }
+    };
   }, [phase, idx, decide]);
 
   if (phase === "intro") {
-    return <Intro onStart={start} accuracy={stats.memoryPlayed ? Math.round((stats.memoryCorrect / stats.memoryPlayed) * 100) : 0} bestStreak={stats.memoryBestStreak} />;
+    return (
+      <Intro
+        onStart={start}
+        accuracy={
+          stats.memoryPlayed ? Math.round((stats.memoryCorrect / stats.memoryPlayed) * 100) : 0
+        }
+        bestStreak={stats.memoryBestStreak}
+      />
+    );
   }
 
   if (phase === "done") {
@@ -168,7 +218,9 @@ export function MemoryGame() {
   return (
     <div className="flex flex-col items-center px-5 pt-2">
       <div className="flex w-full max-w-sm items-center justify-between text-xs text-muted-foreground">
-        <span className="uppercase tracking-[0.18em]">Memory · {idx + 1}/{round.length}</span>
+        <span className="uppercase tracking-[0.18em]">
+          Memory · {idx + 1}/{round.length}
+        </span>
         <span className="tabular-nums">Streak 🔥 {stats.memoryCurrentStreak}</span>
       </div>
 
@@ -212,10 +264,14 @@ export function MemoryGame() {
               What year was this taken?
             </p>
             {guess !== null && (
-              <p className="mt-1 text-center font-display text-4xl font-bold tabular-nums">{guess}</p>
+              <p className="mt-1 text-center font-display text-4xl font-bold tabular-nums">
+                {guess}
+              </p>
             )}
             {guess === null && (
-              <p className="mt-1 text-center font-display text-xl font-medium text-muted-foreground">Pick a year</p>
+              <p className="mt-1 text-center font-display text-xl font-medium text-muted-foreground">
+                Pick a year
+              </p>
             )}
             <div className="mt-3 grid grid-cols-4 gap-2">
               {yearOptions.map((yr) => (
@@ -228,7 +284,7 @@ export function MemoryGame() {
                     guess === yr
                       ? "border-primary bg-primary/15 text-primary"
                       : "border-border bg-background text-foreground hover:border-primary/40",
-                    guess !== null && guess !== yr && "opacity-40"
+                    guess !== null && guess !== yr && "opacity-40",
                   )}
                 >
                   {yr}
@@ -275,19 +331,21 @@ export function MemoryGame() {
 
 function ResultBadge({ guess, actual }: { guess: number; actual: number }) {
   const delta = Math.abs(guess - actual);
-  const tone = delta === 0 ? "Spot on!" : delta <= 1 ? "So close" : delta <= 3 ? "Not bad" : "Way off";
+  const tone =
+    delta === 0 ? "Spot on!" : delta <= 1 ? "So close" : delta <= 3 ? "Not bad" : "Way off";
   const color =
     delta === 0
       ? "text-warm"
       : delta <= 1
-      ? "text-accent"
-      : delta <= 3
-      ? "text-warm-foreground/80"
-      : "text-destructive";
+        ? "text-accent"
+        : delta <= 3
+          ? "text-warm-foreground/80"
+          : "text-destructive";
   const suffix = delta === 0 ? "" : ` (${delta} yr off)`;
   return (
     <p className={cn("mt-2 text-sm font-semibold", color)}>
-      You guessed {guess} · {tone}{suffix}
+      You guessed {guess} · {tone}
+      {suffix}
     </p>
   );
 }
@@ -308,17 +366,22 @@ function Intro({
       </div>
       <h2 className="mt-4 font-display text-3xl font-bold">Memory Lane</h2>
       <p className="mt-2 max-w-xs text-sm text-muted-foreground text-balance">
-        We'll surface 10 older photos. Guess the year each was taken, then decide if it's worth keeping.
+        We'll surface 10 older photos. Guess the year each was taken, then decide if it's worth
+        keeping.
       </p>
 
       <div className="mt-8 grid w-full max-w-sm grid-cols-2 gap-3">
         <div className="rounded-2xl border border-border bg-card p-4">
           <p className="font-display text-2xl font-bold tabular-nums">{accuracy}%</p>
-          <p className="mt-1 text-[11px] uppercase tracking-wider text-muted-foreground">Accuracy</p>
+          <p className="mt-1 text-[11px] uppercase tracking-wider text-muted-foreground">
+            Accuracy
+          </p>
         </div>
         <div className="rounded-2xl border border-border bg-card p-4">
           <p className="font-display text-2xl font-bold tabular-nums">🔥 {bestStreak}</p>
-          <p className="mt-1 text-[11px] uppercase tracking-wider text-muted-foreground">Best streak</p>
+          <p className="mt-1 text-[11px] uppercase tracking-wider text-muted-foreground">
+            Best streak
+          </p>
         </div>
       </div>
 

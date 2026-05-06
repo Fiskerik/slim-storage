@@ -6,12 +6,12 @@ import Purchases, {
   type CustomerInfo,
   type PurchasesOfferings,
   type PurchasesPackage,
-} from 'react-native-purchases';
+} from "react-native-purchases";
 
-const REVENUECAT_API_KEY = process.env.EXPO_PUBLIC_RC_KEY ?? '';
-const LIFETIME_PRODUCT_ID = process.env.EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID ?? '';
-const ENTITLEMENT_ID = process.env.EXPO_PUBLIC_RC_ENTITLEMENT_ID ?? 'TrimSwipe Pro';
-const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const REVENUECAT_API_KEY = process.env.EXPO_PUBLIC_RC_KEY ?? "";
+const LIFETIME_PRODUCT_ID = process.env.EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID ?? "";
+const ENTITLEMENT_ID = process.env.EXPO_PUBLIC_RC_ENTITLEMENT_ID ?? "TrimSwipe Pro";
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 type PurchaseRequest = {
   productId?: string;
@@ -34,7 +34,10 @@ type PurchaseResult = {
     originalAppUserId: string;
     activeSubscriptions: string[];
     allPurchasedProductIds: string[];
-    entitlements: Record<string, { isActive: boolean; expirationDate: string | null; productIdentifier: string }>;
+    entitlements: Record<
+      string,
+      { isActive: boolean; expirationDate: string | null; productIdentifier: string }
+    >;
   };
   error?: string;
 };
@@ -45,17 +48,17 @@ export async function initializePurchases(): Promise<boolean> {
   if (configured) return true;
 
   if (!REVENUECAT_API_KEY) {
-    console.error('[RevenueCat] Missing EXPO_PUBLIC_RC_KEY');
+    console.error("[RevenueCat] Missing EXPO_PUBLIC_RC_KEY");
     return false;
   }
 
   if (!ENTITLEMENT_ID) {
-    console.error('[RevenueCat] Missing EXPO_PUBLIC_RC_ENTITLEMENT_ID');
+    console.error("[RevenueCat] Missing EXPO_PUBLIC_RC_ENTITLEMENT_ID");
     return false;
   }
 
   if (!LIFETIME_PRODUCT_ID) {
-    console.error('[RevenueCat] Missing EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID');
+    console.error("[RevenueCat] Missing EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID");
     return false;
   }
 
@@ -63,10 +66,10 @@ export async function initializePurchases(): Promise<boolean> {
     Purchases.setLogLevel(IS_PRODUCTION ? LOG_LEVEL.ERROR : LOG_LEVEL.DEBUG);
     Purchases.configure({ apiKey: REVENUECAT_API_KEY });
     configured = true;
-    console.log('[RevenueCat] Configured successfully');
+    console.log("[RevenueCat] Configured successfully");
     return true;
   } catch (err: any) {
-    console.error('[RevenueCat] Configuration failed:', err?.message);
+    console.error("[RevenueCat] Configuration failed:", err?.message);
     return false;
   }
 }
@@ -94,28 +97,28 @@ function serializeCustomerInfo(info: CustomerInfo) {
 
 export async function handlePurchaseMessage(
   method: string,
-  data: PurchaseRequest
+  data: PurchaseRequest,
 ): Promise<PurchaseResult> {
   const ok = await initializePurchases();
-  if (!ok) return { error: 'RevenueCat not configured', isPro: false };
+  if (!ok) return { error: "RevenueCat not configured", isPro: false };
 
   switch (method) {
-    case 'purchases_checkPro':
+    case "purchases_checkPro":
       return checkPro();
-    case 'purchases_getProducts':
+    case "purchases_getProducts":
       return getProducts();
-    case 'purchases_purchase':
-      return purchase(data.productId || '');
-    case 'purchases_restore':
+    case "purchases_purchase":
+      return purchase(data.productId || "");
+    case "purchases_restore":
       return restore();
-    case 'purchases_getCustomerInfo':
+    case "purchases_getCustomerInfo":
       return getCustomerInfo();
-    case 'purchases_presentPaywall':
+    case "purchases_presentPaywall":
       return presentPaywall();
-    case 'purchases_presentCustomerCenter':
+    case "purchases_presentCustomerCenter":
       return presentCustomerCenter();
-    case 'purchases_setEmail':
-      return setEmail(data.email || '');
+    case "purchases_setEmail":
+      return setEmail(data.email || "");
     default:
       throw new Error(`Unknown purchase method: ${method}`);
   }
@@ -128,7 +131,7 @@ async function checkPro(): Promise<PurchaseResult> {
     const info = await Purchases.getCustomerInfo();
     return { isPro: isProFromInfo(info) };
   } catch (err: any) {
-    console.error('[RevenueCat] checkPro error:', err?.message);
+    console.error("[RevenueCat] checkPro error:", err?.message);
     return { isPro: false, error: err?.message };
   }
 }
@@ -152,7 +155,7 @@ async function getProducts(): Promise<PurchaseResult> {
       })),
     };
   } catch (err: any) {
-    console.error('[RevenueCat] getProducts error:', err?.message);
+    console.error("[RevenueCat] getProducts error:", err?.message);
     return { products: [], error: err?.message };
   }
 }
@@ -160,12 +163,12 @@ async function getProducts(): Promise<PurchaseResult> {
 // ─── Purchase a Product ───────────────────────────
 
 async function purchase(productId: string): Promise<PurchaseResult> {
-  if (!productId) return { success: false, error: 'No product ID provided' };
+  if (!productId) return { success: false, error: "No product ID provided" };
 
   try {
     const offerings = await Purchases.getOfferings();
     const pkg = offerings.current?.availablePackages.find(
-      (p: PurchasesPackage) => p.product.identifier === productId
+      (p: PurchasesPackage) => p.product.identifier === productId,
     );
 
     if (!pkg) {
@@ -183,9 +186,9 @@ async function purchase(productId: string): Promise<PurchaseResult> {
   } catch (err: any) {
     // User cancelled — not a real error
     if (err?.userCancelled) {
-      return { success: false, error: 'cancelled' };
+      return { success: false, error: "cancelled" };
     }
-    console.error('[RevenueCat] purchase error:', err?.message);
+    console.error("[RevenueCat] purchase error:", err?.message);
     return { success: false, error: err?.message };
   }
 }
@@ -200,7 +203,7 @@ async function restore(): Promise<PurchaseResult> {
       customerInfo: serializeCustomerInfo(info),
     };
   } catch (err: any) {
-    console.error('[RevenueCat] restore error:', err?.message);
+    console.error("[RevenueCat] restore error:", err?.message);
     return { isPro: false, error: err?.message };
   }
 }
@@ -215,7 +218,7 @@ async function getCustomerInfo(): Promise<PurchaseResult> {
       customerInfo: serializeCustomerInfo(info),
     };
   } catch (err: any) {
-    console.error('[RevenueCat] getCustomerInfo error:', err?.message);
+    console.error("[RevenueCat] getCustomerInfo error:", err?.message);
     return { isPro: false, error: err?.message };
   }
 }
@@ -225,21 +228,23 @@ async function getCustomerInfo(): Promise<PurchaseResult> {
 async function presentPaywall(): Promise<PurchaseResult> {
   try {
     // Use RevenueCat's built-in paywall UI
-    const RevenueCatUI = require('react-native-purchases-ui');
-    console.log('[RevenueCat] presentPaywall start', {
+    const RevenueCatUI = require("react-native-purchases-ui");
+    console.log("[RevenueCat] presentPaywall start", {
       expectedLifetimeProductId: LIFETIME_PRODUCT_ID,
     });
     const result = await RevenueCatUI.presentPaywall();
-    console.log('[RevenueCat] presentPaywall result:', result);
+    console.log("[RevenueCat] presentPaywall result:", result);
 
-    if (result === RevenueCatUI.PAYWALL_RESULT.PURCHASED ||
-        result === RevenueCatUI.PAYWALL_RESULT.RESTORED) {
+    if (
+      result === RevenueCatUI.PAYWALL_RESULT.PURCHASED ||
+      result === RevenueCatUI.PAYWALL_RESULT.RESTORED
+    ) {
       const info = await Purchases.getCustomerInfo();
       const purchasedIds = [...info.allPurchasedProductIdentifiers];
-      console.log('[RevenueCat] post-paywall purchased ids:', purchasedIds);
+      console.log("[RevenueCat] post-paywall purchased ids:", purchasedIds);
 
       if (!purchasedIds.includes(LIFETIME_PRODUCT_ID)) {
-        console.warn('[RevenueCat] expected lifetime product not found after paywall flow', {
+        console.warn("[RevenueCat] expected lifetime product not found after paywall flow", {
           expectedLifetimeProductId: LIFETIME_PRODUCT_ID,
           purchasedIds,
         });
@@ -254,7 +259,7 @@ async function presentPaywall(): Promise<PurchaseResult> {
 
     return { success: false, isPro: false };
   } catch (err: any) {
-    console.error('[RevenueCat] presentPaywall error:', err?.message);
+    console.error("[RevenueCat] presentPaywall error:", err?.message);
     return { success: false, error: err?.message };
   }
 }
@@ -263,16 +268,18 @@ async function presentPaywall(): Promise<PurchaseResult> {
 
 async function presentCustomerCenter(): Promise<PurchaseResult> {
   try {
-    const RevenueCatUI = require('react-native-purchases-ui');
+    const RevenueCatUI = require("react-native-purchases-ui");
+    console.log("[RevenueCat] presentCustomerCenter start");
     await RevenueCatUI.presentCustomerCenter();
     // After dismissal, re-check status
     const info = await Purchases.getCustomerInfo();
     return {
+      success: true,
       isPro: isProFromInfo(info),
       customerInfo: serializeCustomerInfo(info),
     };
   } catch (err: any) {
-    console.error('[RevenueCat] presentCustomerCenter error:', err?.message);
+    console.error("[RevenueCat] presentCustomerCenter error:", err?.message);
     return { error: err?.message };
   }
 }
@@ -284,7 +291,7 @@ async function setEmail(email: string): Promise<PurchaseResult> {
     await Purchases.setEmail(email);
     return { success: true };
   } catch (err: any) {
-    console.error('[RevenueCat] setEmail error:', err?.message);
+    console.error("[RevenueCat] setEmail error:", err?.message);
     return { success: false, error: err?.message };
   }
 }
