@@ -2,7 +2,20 @@ import { useMemo, useState } from "react";
 import { useStats } from "@/hooks/use-stats";
 import { resetStats } from "@/lib/storage";
 import type { DayLog } from "@/lib/storage";
-import { Trash2, Sparkles, Brain, Flame, HardDrive, Image as ImageIcon, Target, RotateCcw, X, Scale, Timer, Trophy } from "lucide-react";
+import {
+  Trash2,
+  Sparkles,
+  Brain,
+  Flame,
+  HardDrive,
+  Image as ImageIcon,
+  Target,
+  RotateCcw,
+  X,
+  Scale,
+  Timer,
+  Trophy,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function StatsPage() {
@@ -27,7 +40,8 @@ export function StatsPage() {
         <p className="text-xs uppercase tracking-wider opacity-80">Total storage freed</p>
         <p className="mt-1 font-display text-5xl font-bold tabular-nums">{freedDisplay}</p>
         <p className="mt-2 text-xs opacity-85">
-          From {totalReviewed} photo{totalReviewed === 1 ? "" : "s"} reviewed · 🔥 {s.streak}-day streak
+          From {totalReviewed} photo{totalReviewed === 1 ? "" : "s"} reviewed · 🔥 {s.streak}-day
+          streak
         </p>
       </section>
 
@@ -44,7 +58,9 @@ export function StatsPage() {
           const heightPct = Math.max(8, Math.round((d.mbFreed / max) * 100));
           const hasActivity = d.kept + d.trimmed + d.deleted + d.memoryPlayed > 0;
           const memoryCleared = d.memoryPlayed > 0;
-          const label = new Date(d.date + "T00:00:00").toLocaleDateString(undefined, { weekday: "short" })[0];
+          const label = new Date(d.date + "T00:00:00").toLocaleDateString("en-US", {
+            weekday: "short",
+          })[0];
           return (
             <button
               key={d.date}
@@ -59,8 +75,8 @@ export function StatsPage() {
                     memoryCleared
                       ? "border-success/60 bg-success/80"
                       : hasActivity
-                      ? "border-border bg-muted"
-                      : "border-dashed border-border bg-transparent",
+                        ? "border-border bg-muted"
+                        : "border-dashed border-border bg-transparent",
                   )}
                   style={{ height: hasActivity ? `${heightPct}%` : "30%" }}
                 />
@@ -78,9 +94,18 @@ export function StatsPage() {
       </h2>
       <div className="mt-3 grid grid-cols-2 gap-3">
         <StatCard icon={<ImageIcon className="h-4 w-4" />} label="Kept" value={s.cleaned} />
-        <StatCard icon={<Sparkles className="h-4 w-4" />} label="Trimmed" value={s.slimmed} accent />
+        <StatCard
+          icon={<Sparkles className="h-4 w-4" />}
+          label="Trimmed"
+          value={s.slimmed}
+          accent
+        />
         <StatCard icon={<Trash2 className="h-4 w-4" />} label="Deleted" value={s.deleted} />
-        <StatCard icon={<HardDrive className="h-4 w-4" />} label="MB Freed" value={freed.toFixed(0)} />
+        <StatCard
+          icon={<HardDrive className="h-4 w-4" />}
+          label="MB Freed"
+          value={freed.toFixed(0)}
+        />
       </div>
 
       <div className="mt-5 rounded-3xl border border-primary/20 bg-primary/[0.04] p-4">
@@ -88,10 +113,31 @@ export function StatsPage() {
           Memory Lane
         </h2>
         <div className="mt-3 grid grid-cols-2 gap-3">
-          <StatCard icon={<Brain className="h-4 w-4" />} label="Played" value={s.memoryPlayed} tint="text-primary" />
-          <StatCard icon={<Target className="h-4 w-4" />} label="Accuracy" value={`${accuracy}%`} accent tint="text-primary" />
-          <StatCard icon={<Flame className="h-4 w-4" />} label="Best streak" value={s.memoryBestStreak} tint="text-primary" />
-          <StatCard icon={<Sparkles className="h-4 w-4" />} label="Avg yrs off" value={avgDelta} tint="text-primary" />
+          <StatCard
+            icon={<Brain className="h-4 w-4" />}
+            label="Played"
+            value={s.memoryPlayed}
+            tint="text-primary"
+          />
+          <StatCard
+            icon={<Target className="h-4 w-4" />}
+            label="Accuracy"
+            value={`${accuracy}%`}
+            accent
+            tint="text-primary"
+          />
+          <StatCard
+            icon={<Flame className="h-4 w-4" />}
+            label="Best streak"
+            value={s.memoryBestStreak}
+            tint="text-primary"
+          />
+          <StatCard
+            icon={<Sparkles className="h-4 w-4" />}
+            label="Avg yrs off"
+            value={avgDelta}
+            tint="text-primary"
+          />
         </div>
       </div>
 
@@ -100,9 +146,25 @@ export function StatsPage() {
           This or That
         </h2>
         <div className="mt-3 grid grid-cols-2 gap-3">
-          <StatCard icon={<Scale className="h-4 w-4" />} label="Rounds" value={s.thisOrThatRounds} tint="text-accent-foreground" />
-          <StatCard icon={<Trash2 className="h-4 w-4" />} label="Deleted" value={s.thisOrThatDeleted} tint="text-accent-foreground" />
-          <StatCard icon={<HardDrive className="h-4 w-4" />} label="MB Freed" value={s.thisOrThatMbFreed.toFixed(0)} accent tint="text-accent-foreground" />
+          <StatCard
+            icon={<Scale className="h-4 w-4" />}
+            label="Rounds"
+            value={s.thisOrThatRounds}
+            tint="text-accent-foreground"
+          />
+          <StatCard
+            icon={<Trash2 className="h-4 w-4" />}
+            label="Deleted"
+            value={s.thisOrThatDeleted}
+            tint="text-accent-foreground"
+          />
+          <StatCard
+            icon={<HardDrive className="h-4 w-4" />}
+            label="MB Freed"
+            value={s.thisOrThatMbFreed.toFixed(0)}
+            accent
+            tint="text-accent-foreground"
+          />
         </div>
       </div>
 
@@ -111,10 +173,31 @@ export function StatsPage() {
           Speed Round
         </h2>
         <div className="mt-3 grid grid-cols-2 gap-3">
-          <StatCard icon={<Timer className="h-4 w-4" />} label="Played" value={s.speedRoundPlayed} tint="text-warm-foreground" />
-          <StatCard icon={<Trophy className="h-4 w-4" />} label="Best count" value={s.speedRoundBestCount} accent tint="text-warm-foreground" />
-          <StatCard icon={<ImageIcon className="h-4 w-4" />} label="Total reviewed" value={s.speedRoundTotalReviewed} tint="text-warm-foreground" />
-          <StatCard icon={<HardDrive className="h-4 w-4" />} label="MB Freed" value={s.speedRoundTotalMbFreed.toFixed(0)} tint="text-warm-foreground" />
+          <StatCard
+            icon={<Timer className="h-4 w-4" />}
+            label="Played"
+            value={s.speedRoundPlayed}
+            tint="text-warm-foreground"
+          />
+          <StatCard
+            icon={<Trophy className="h-4 w-4" />}
+            label="Best count"
+            value={s.speedRoundBestCount}
+            accent
+            tint="text-warm-foreground"
+          />
+          <StatCard
+            icon={<ImageIcon className="h-4 w-4" />}
+            label="Total reviewed"
+            value={s.speedRoundTotalReviewed}
+            tint="text-warm-foreground"
+          />
+          <StatCard
+            icon={<HardDrive className="h-4 w-4" />}
+            label="MB Freed"
+            value={s.speedRoundTotalMbFreed.toFixed(0)}
+            tint="text-warm-foreground"
+          />
         </div>
       </div>
 
@@ -123,10 +206,31 @@ export function StatsPage() {
           Storage Budget
         </h2>
         <div className="mt-3 grid grid-cols-2 gap-3">
-          <StatCard icon={<HardDrive className="h-4 w-4" />} label="Played" value={s.storageBudgetPlayed} tint="text-success-foreground" />
-          <StatCard icon={<ImageIcon className="h-4 w-4" />} label="Total kept" value={s.storageBudgetTotalKept} tint="text-success-foreground" />
-          <StatCard icon={<Trash2 className="h-4 w-4" />} label="Total cleared" value={s.storageBudgetTotalCleared} tint="text-success-foreground" />
-          <StatCard icon={<Sparkles className="h-4 w-4" />} label="MB Freed" value={s.storageBudgetTotalMbFreed.toFixed(0)} accent tint="text-success-foreground" />
+          <StatCard
+            icon={<HardDrive className="h-4 w-4" />}
+            label="Played"
+            value={s.storageBudgetPlayed}
+            tint="text-success-foreground"
+          />
+          <StatCard
+            icon={<ImageIcon className="h-4 w-4" />}
+            label="Total kept"
+            value={s.storageBudgetTotalKept}
+            tint="text-success-foreground"
+          />
+          <StatCard
+            icon={<Trash2 className="h-4 w-4" />}
+            label="Total cleared"
+            value={s.storageBudgetTotalCleared}
+            tint="text-success-foreground"
+          />
+          <StatCard
+            icon={<Sparkles className="h-4 w-4" />}
+            label="MB Freed"
+            value={s.storageBudgetTotalMbFreed.toFixed(0)}
+            accent
+            tint="text-success-foreground"
+          />
         </div>
       </div>
 
@@ -164,7 +268,7 @@ function buildLast7Days(daily: DayLog[]): DayLog[] {
 }
 
 function DayDetailModal({ day, onClose }: { day: DayLog; onClose: () => void }) {
-  const dateLabel = new Date(day.date + "T00:00:00").toLocaleDateString(undefined, {
+  const dateLabel = new Date(day.date + "T00:00:00").toLocaleDateString("en-US", {
     weekday: "long",
     month: "short",
     day: "numeric",
@@ -198,7 +302,9 @@ function DayDetailModal({ day, onClose }: { day: DayLog; onClose: () => void }) 
         ) : (
           <>
             <div className="mt-5 rounded-2xl border border-border bg-background/50 p-4">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">Storage freed</p>
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                Storage freed
+              </p>
               <p className="mt-1 font-display text-3xl font-bold tabular-nums">
                 {day.mbFreed.toFixed(1)} <span className="text-base text-muted-foreground">MB</span>
               </p>
@@ -233,7 +339,9 @@ function DayDetailModal({ day, onClose }: { day: DayLog; onClose: () => void }) 
 function MiniStat({ label, value, accent }: { label: string; value: number; accent?: boolean }) {
   return (
     <div className="rounded-xl border border-border bg-background/50 p-3 text-center">
-      <p className={cn("font-display text-xl font-bold tabular-nums", accent && "text-primary")}>{value}</p>
+      <p className={cn("font-display text-xl font-bold tabular-nums", accent && "text-primary")}>
+        {value}
+      </p>
       <p className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
     </div>
   );
@@ -259,7 +367,9 @@ function StatCard({
         <span className={iconColor}>{icon}</span>
         <span className="text-[11px] font-medium uppercase tracking-wider">{label}</span>
       </div>
-      <p className={`mt-2 font-display text-2xl font-bold tabular-nums ${accent ? (tint || "text-primary") : ""}`}>
+      <p
+        className={`mt-2 font-display text-2xl font-bold tabular-nums ${accent ? tint || "text-primary" : ""}`}
+      >
         {value}
       </p>
     </div>

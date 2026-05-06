@@ -28,6 +28,8 @@ export type PhotoSource = {
   deletePhotos: (ids: string[]) => Promise<{ deleted: number }>;
 };
 
+type BridgeDeleteResult = { deleted?: number };
+
 // ─── Bridge detection ───────────────────────────
 
 declare global {
@@ -84,7 +86,7 @@ const nativeBridgeSource: PhotoSource = {
   isNative: true,
 
   async requestPermission() {
-    const result = await bridgeCall("requestPermission");
+    const result = (await bridgeCall("requestPermission")) as Partial<PhotoPermission> | null;
     return {
       granted: result?.granted === true,
       limited: result?.limited === true,
@@ -93,12 +95,14 @@ const nativeBridgeSource: PhotoSource = {
   },
 
   async getRandom(count) {
-    const photos = await bridgeCall("getPhotos", { count });
+    const photos = (await bridgeCall("getPhotos", { count })) as Record<string, unknown>[] | null;
     return (photos || []).map(dtoToLibraryPhoto);
   },
 
   async getOlder(beforeYear, count) {
-    const photos = await bridgeCall("getOlderPhotos", { beforeYear, count });
+    const photos = (await bridgeCall("getOlderPhotos", { beforeYear, count })) as
+      | Record<string, unknown>[]
+      | null;
     return (photos || []).map(dtoToLibraryPhoto);
   },
 
@@ -110,8 +114,8 @@ const nativeBridgeSource: PhotoSource = {
   },
 
   async deletePhotos(ids) {
-    const result = await bridgeCall("deletePhotos", { ids });
-    return result || { deleted: 0 };
+    const result = (await bridgeCall("deletePhotos", { ids })) as BridgeDeleteResult | null;
+    return { deleted: result?.deleted ?? 0 };
   },
 };
 
