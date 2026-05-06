@@ -104,7 +104,7 @@ export function StorageBudget() {
         </span>
       </div>
 
-      <div className="sticky top-[calc(4.75rem+env(safe-area-inset-top))] z-20 mt-3 rounded-2xl border border-border bg-card/95 p-4 shadow-card backdrop-blur-xl">
+      <div className="sticky top-0 z-20 mt-3 rounded-2xl border border-border bg-card p-4 shadow-card backdrop-blur-xl">
         <div className="flex items-baseline justify-between">
           <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Budget</p>
           <p
