@@ -94,7 +94,7 @@ export function StorageBudget() {
   const pct = Math.min(100, (usedMB / BUDGET_MB) * 100);
 
   return (
-    <div className="px-5 pt-4 pb-8">
+    <div className="relative px-5 pt-4 pb-8">
       <div className="flex w-full items-center justify-between text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5 uppercase tracking-[0.18em]">
           <HardDrive className="h-3.5 w-3.5" /> Storage Budget
