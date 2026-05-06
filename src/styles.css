@@ -84,6 +84,8 @@
   --border: oklch(0.9 0.02 75);
   --input: oklch(0.92 0.018 75);
   --ring: oklch(0.66 0.14 40);
+  --safe-area-top: env(safe-area-inset-top);
+  --safe-area-bottom: env(safe-area-inset-bottom);
 }
 
 @layer base {

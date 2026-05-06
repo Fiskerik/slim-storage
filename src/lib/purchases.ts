@@ -36,6 +36,7 @@ export type PurchaseState = {
 type PurchaseBridgeResult = Partial<PurchaseState> & {
   success?: boolean;
   customerInfo?: CustomerInfoDTO;
+  error?: string;
 };
 
 function hasBridge(): boolean {
@@ -47,6 +48,55 @@ function hasBridge(): boolean {
   );
 }
 
+function hasCallableBridge(): boolean {
+  return typeof window !== "undefined" && typeof window.__slimBridgeCall === "function";
+}
+
+function waitForBridgeCall(timeoutMs = 5000): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (typeof window === "undefined") {
+      resolve(false);
+      return;
+    }
+
+    if (hasCallableBridge()) {
+      resolve(true);
+      return;
+    }
+
+    const onReady = () => resolve(true);
+    window.addEventListener("slimBridgeReady", onReady, { once: true });
+
+    setTimeout(() => {
+      window.removeEventListener("slimBridgeReady", onReady);
+      resolve(hasCallableBridge());
+    }, timeoutMs);
+  });
+}
+
+async function purchaseBridgeCall(method: string, data?: Record<string, unknown>) {
+  if (!hasBridge()) {
+    console.log("[purchases] no native bridge", { method });
+    return null;
+  }
+
+  if (!hasCallableBridge()) {
+    console.log("[purchases] waiting for native bridge", { method });
+    await waitForBridgeCall(7000);
+  }
+
+  if (!window.__slimBridgeCall) {
+    console.log("[purchases] native bridge not callable", {
+      method,
+      nativeFlag: window.__SLIM_NATIVE__,
+      hasRNWebView: !!window.ReactNativeWebView,
+    });
+    return null;
+  }
+
+  return (await window.__slimBridgeCall(method, data)) as PurchaseBridgeResult;
+}
+
 /**
  * Check if user has active "TrimSwipe Pro" entitlement.
  */
@@ -56,7 +106,8 @@ export async function checkProStatus(): Promise<boolean> {
     return false;
   }
   try {
-    const result = (await window.__slimBridgeCall!("purchases_checkPro")) as PurchaseBridgeResult;
+    const result = await purchaseBridgeCall("purchases_checkPro");
+    if (result?.error) console.log("[purchases] checkProStatus error", result.error);
     return result?.isPro === true;
   } catch {
     return false;
@@ -72,9 +123,8 @@ export async function getProducts(): Promise<PurchaseProduct[]> {
     return [];
   }
   try {
-    const result = (await window.__slimBridgeCall!(
-      "purchases_getProducts",
-    )) as PurchaseBridgeResult;
+    const result = await purchaseBridgeCall("purchases_getProducts");
+    if (result?.error) console.log("[purchases] getProducts error", result.error);
     return result?.products || [];
   } catch {
     return [];
@@ -90,10 +140,9 @@ export async function purchaseProduct(productId: string): Promise<boolean> {
     return false;
   }
   try {
-    const result = (await window.__slimBridgeCall!("purchases_purchase", {
-      productId,
-    })) as PurchaseBridgeResult;
-    return result?.success === true;
+    const result = await purchaseBridgeCall("purchases_purchase", { productId });
+    if (result?.error) console.log("[purchases] purchaseProduct error", result.error);
+    return result?.success === true || result?.isPro === true;
   } catch {
     return false;
   }
@@ -105,7 +154,8 @@ export async function purchaseProduct(productId: string): Promise<boolean> {
 export async function restorePurchases(): Promise<boolean> {
   if (!hasBridge()) return false;
   try {
-    const result = (await window.__slimBridgeCall!("purchases_restore")) as PurchaseBridgeResult;
+    const result = await purchaseBridgeCall("purchases_restore");
+    if (result?.error) console.log("[purchases] restorePurchases error", result.error);
     return result?.isPro === true;
   } catch {
     return false;
@@ -118,9 +168,8 @@ export async function restorePurchases(): Promise<boolean> {
 export async function getCustomerInfo(): Promise<CustomerInfoDTO | null> {
   if (!hasBridge()) return null;
   try {
-    const result = (await window.__slimBridgeCall!(
-      "purchases_getCustomerInfo",
-    )) as PurchaseBridgeResult;
+    const result = await purchaseBridgeCall("purchases_getCustomerInfo");
+    if (result?.error) console.log("[purchases] getCustomerInfo error", result.error);
     return result?.customerInfo || null;
   } catch {
     return null;
@@ -134,10 +183,9 @@ export async function getCustomerInfo(): Promise<CustomerInfoDTO | null> {
 export async function presentPaywall(): Promise<boolean> {
   if (!hasBridge()) return false;
   try {
-    const result = (await window.__slimBridgeCall!(
-      "purchases_presentPaywall",
-    )) as PurchaseBridgeResult;
-    return result?.success === true;
+    const result = await purchaseBridgeCall("purchases_presentPaywall");
+    if (result?.error) console.log("[purchases] presentPaywall error", result.error);
+    return result?.success === true || result?.isPro === true;
   } catch {
     return false;
   }
@@ -149,7 +197,7 @@ export async function presentPaywall(): Promise<boolean> {
 export async function presentCustomerCenter(): Promise<void> {
   if (!hasBridge()) return;
   try {
-    await window.__slimBridgeCall!("purchases_presentCustomerCenter");
+    await purchaseBridgeCall("purchases_presentCustomerCenter");
   } catch {
     // silent fail on web
   }
@@ -161,9 +209,8 @@ export async function presentCustomerCenter(): Promise<void> {
 export async function setCustomerEmail(email: string): Promise<boolean> {
   if (!hasBridge()) return false;
   try {
-    const result = (await window.__slimBridgeCall!("purchases_setEmail", {
-      email,
-    })) as PurchaseBridgeResult;
+    const result = await purchaseBridgeCall("purchases_setEmail", { email });
+    if (result?.error) console.log("[purchases] setCustomerEmail error", result.error);
     return result?.success === true;
   } catch {
     return false;
