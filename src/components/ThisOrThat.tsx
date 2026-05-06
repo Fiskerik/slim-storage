@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
 import { Scale, Sparkles, RefreshCw, Scissors } from "lucide-react";
 import { getPhotoSourceAsync, type LibraryPhoto } from "@/lib/photo-source";
 import { setStats, logDay } from "@/lib/storage";
@@ -210,22 +209,23 @@ export function ThisOrThat() {
         {[0, 1].map((i) => {
           const isUnselected = selectedIdx !== null && selectedIdx !== i;
           return (
-            <motion.button
+            <button
               key={cards[i].id}
-              initial={false}
-              animate={{ opacity: isUnselected ? 0 : 1 }}
-              transition={{ duration: 0.28, ease: "easeOut" }}
               disabled={selectedIdx !== null}
               onClick={() => pick(i as 0 | 1)}
+              style={{
+                opacity: isUnselected ? 0 : 1,
+                transition: "opacity 0.3s ease-out",
+              }}
               className={cn(
-                "group relative aspect-[3/4] overflow-hidden rounded-2xl border border-border bg-card shadow-card transition hover:border-primary/60 active:scale-[0.97]",
+                "group relative aspect-[3/4] overflow-hidden rounded-2xl border border-border bg-card shadow-card active:scale-[0.97]",
                 selectedIdx === i && "border-primary ring-2 ring-primary/30",
               )}
             >
               <img
                 src={cards[i].url}
                 alt={cards[i].title}
-                className="h-full w-full object-cover transition group-hover:scale-[1.03]"
+                className="h-full w-full object-cover"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/65 to-transparent" />
               <div className="absolute bottom-2 left-2 right-2 text-left text-white">
@@ -237,7 +237,7 @@ export function ThisOrThat() {
               <div className="absolute right-2 top-2 rounded-full bg-black/50 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur">
                 {i === 0 ? "A" : "B"}
               </div>
-            </motion.button>
+            </button>
           );
         })}
       </div>

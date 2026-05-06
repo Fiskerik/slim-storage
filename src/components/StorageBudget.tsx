@@ -94,7 +94,7 @@ export function StorageBudget() {
   const pct = Math.min(100, (usedMB / BUDGET_MB) * 100);
 
   return (
-    <div className="px-5 pt-4 pb-8">
+    <div className="relative px-5 pt-4 pb-8">
       <div className="flex w-full items-center justify-between text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5 uppercase tracking-[0.18em]">
           <HardDrive className="h-3.5 w-3.5" /> Storage Budget
@@ -104,7 +104,7 @@ export function StorageBudget() {
         </span>
       </div>
 
-      <div className="sticky top-[calc(4.75rem+env(safe-area-inset-top))] z-20 mt-3 rounded-2xl border border-border bg-card/95 p-4 shadow-card backdrop-blur-xl">
+      <div className="sticky top-0 z-20 mt-3 rounded-2xl border border-border bg-card p-4 shadow-card backdrop-blur-xl">
         <div className="flex items-baseline justify-between">
           <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Budget</p>
           <p
