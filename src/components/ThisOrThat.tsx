@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
 import { Scale, Sparkles, RefreshCw, Scissors } from "lucide-react";
 import { getPhotoSourceAsync, type LibraryPhoto } from "@/lib/photo-source";
 import { setStats, logDay } from "@/lib/storage";
