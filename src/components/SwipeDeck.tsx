@@ -1,9 +1,38 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useTransform, type PanInfo, AnimatePresence } from "framer-motion";
-import { ArrowLeft, ArrowUp, ArrowRight, MapPin, Sparkles, RefreshCw, Lock, Cloud, PartyPopper, Trash2, Check } from "lucide-react";
-import { getPhotoSource, getPhotoSourceAsync, isNativeApp, type LibraryPhoto } from "@/lib/photo-source";
+import {
+  ArrowLeft,
+  ArrowUp,
+  ArrowRight,
+  MapPin,
+  Sparkles,
+  RefreshCw,
+  Lock,
+  Cloud,
+  PartyPopper,
+  Trash2,
+  Check,
+} from "lucide-react";
+import {
+  getPhotoSource,
+  getPhotoSourceAsync,
+  isNativeApp,
+  type LibraryPhoto,
+} from "@/lib/photo-source";
 import { hapticTap, hapticSuccess, hapticError } from "@/lib/native-shell";
-import { setStats, bumpStreak, canTrim, recordTrim, logDay, trimsRemainingToday, setPro, FREE_TRIM_LIMIT, softDelete, undoDelete, updateSettings } from "@/lib/storage";
+import {
+  setStats,
+  bumpStreak,
+  canTrim,
+  recordTrim,
+  logDay,
+  trimsRemainingToday,
+  setPro,
+  FREE_TRIM_LIMIT,
+  softDelete,
+  undoDelete,
+  updateSettings,
+} from "@/lib/storage";
 import { useStats } from "@/hooks/use-stats";
 import { Onboarding } from "@/components/Onboarding";
 import { toast } from "sonner";
@@ -48,6 +77,7 @@ export function SwipeDeck() {
     let cancelled = false;
     (async () => {
       const src = await getPhotoSourceAsync();
+      console.log("[SwipeDeck] photo source resolved", { isNative: src.isNative });
       if (src.isNative) {
         const permission = await src.requestPermission();
         if (!permission.granted) {
@@ -68,7 +98,9 @@ export function SwipeDeck() {
       setLoading(false);
     })();
     if (!stats.settings.onboarded) setShowOnboarding(true);
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
@@ -77,7 +109,13 @@ export function SwipeDeck() {
 
   const top = queue[0];
   const next = queue[1];
-  const trimsLeft = stats.isPro ? Infinity : Math.max(0, FREE_TRIM_LIMIT - (stats.trimsTodayDate === new Date().toISOString().slice(0, 10) ? stats.trimsToday : 0));
+  const trimsLeft = stats.isPro
+    ? Infinity
+    : Math.max(
+        0,
+        FREE_TRIM_LIMIT -
+          (stats.trimsTodayDate === new Date().toISOString().slice(0, 10) ? stats.trimsToday : 0),
+      );
 
   function commitDelete(photo: SamplePhoto) {
     const sess = sessionRef.current;
@@ -137,7 +175,10 @@ export function SwipeDeck() {
     } else if (action === "delete") {
       // iCloud backup awareness — show warning if photo is cloud-only or first time per session
       const isCloud = photo.isCloudAsset === true;
-      if ((isCloud || (stats.settings.iCloudBackupWarn && !seenICloudWarnRef.current)) && isNativeApp()) {
+      if (
+        (isCloud || (stats.settings.iCloudBackupWarn && !seenICloudWarnRef.current)) &&
+        isNativeApp()
+      ) {
         seenICloudWarnRef.current = true;
         setICloudWarn({ photo });
         return;
@@ -204,7 +245,8 @@ export function SwipeDeck() {
         </div>
         <h2 className="mt-4 font-display text-2xl font-bold">Photo access needed</h2>
         <p className="mt-2 max-w-xs text-sm text-muted-foreground">
-          Slim works on the photos already in your library. Open Settings → Slim → Photos and enable access.
+          Slim works on the photos already in your library. Open Settings → Slim → Photos and enable
+          access.
         </p>
         <button
           onClick={() => window.location.reload()}
@@ -228,12 +270,7 @@ export function SwipeDeck() {
   }
 
   if (confirmList) {
-    return (
-      <DeleteConfirmStep
-        photos={confirmList}
-        onConfirm={handleConfirmDeletion}
-      />
-    );
+    return <DeleteConfirmStep photos={confirmList} onConfirm={handleConfirmDeletion} />;
   }
 
   if (recap) {
@@ -253,23 +290,17 @@ export function SwipeDeck() {
         )}
       </div>
 
-
       {permissionLimited && (
         <div className="mt-3 w-full max-w-sm rounded-xl border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          You're using limited Photos access. Some photos may be hidden. Manage selection in iOS Settings → Slim → Photos.
+          You're using limited Photos access. Some photos may be hidden. Manage selection in iOS
+          Settings → Slim → Photos.
         </div>
       )}
 
       <div className="relative mt-4 h-[460px] w-full max-w-sm">
         <AnimatePresence>
           {next && <PhotoCard key={next.id} photo={next} stacked />}
-          {top && (
-            <SwipeableCard
-              key={top.id}
-              photo={top}
-              onAction={(a) => handleAction(top, a)}
-            />
-          )}
+          {top && <SwipeableCard key={top.id} photo={top} onAction={(a) => handleAction(top, a)} />}
           {!top && !recap && <EmptyDeckCard onReset={reset} />}
         </AnimatePresence>
       </div>
@@ -298,7 +329,6 @@ export function SwipeDeck() {
           disabled={!top}
         />
       </div>
-
 
       {paywallOpen && (
         <PaywallModal
@@ -380,17 +410,20 @@ function ICloudWarnModal({
           {photo.isCloudAsset ? "Only in iCloud" : "Backed up to iCloud?"}
         </h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          {photo.isCloudAsset
-            ? <>
-                <span className="font-medium text-foreground">{photo.title}</span> is stored in iCloud but not downloaded locally.
-                Deleting it will remove it everywhere after 30 days in Recently Deleted.
-              </>
-            : <>
-                We can't confirm whether <span className="font-medium text-foreground">{photo.title}</span> is backed up.
-                Once you delete it from your library, it's gone for good after 30 days in Recently Deleted.
-                Make sure iCloud Photos has finished syncing before you continue.
-              </>
-          }
+          {photo.isCloudAsset ? (
+            <>
+              <span className="font-medium text-foreground">{photo.title}</span> is stored in iCloud
+              but not downloaded locally. Deleting it will remove it everywhere after 30 days in
+              Recently Deleted.
+            </>
+          ) : (
+            <>
+              We can't confirm whether{" "}
+              <span className="font-medium text-foreground">{photo.title}</span> is backed up. Once
+              you delete it from your library, it's gone for good after 30 days in Recently Deleted.
+              Make sure iCloud Photos has finished syncing before you continue.
+            </>
+          )}
         </p>
 
         <label className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
@@ -422,13 +455,7 @@ function ICloudWarnModal({
   );
 }
 
-function SwipeableCard({
-  photo,
-  onAction,
-}: {
-  photo: SamplePhoto;
-  onAction: (a: Action) => void;
-}) {
+function SwipeableCard({ photo, onAction }: { photo: SamplePhoto; onAction: (a: Action) => void }) {
   const x = useMotionValue(0);
   const y = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-14, 14]);
@@ -560,7 +587,8 @@ function ActionButton({
   const styles = {
     keep: "bg-card text-foreground border-border hover:border-accent hover:text-accent-foreground hover:bg-accent/15",
     trim: "bg-primary text-primary-foreground border-primary shadow-card",
-    delete: "bg-card text-destructive border-border hover:border-destructive hover:bg-destructive/10",
+    delete:
+      "bg-card text-destructive border-border hover:border-destructive hover:bg-destructive/10",
   }[variant];
   return (
     <button
@@ -587,13 +615,7 @@ function ActionButton({
   );
 }
 
-function SessionSummary({
-  recap,
-  onContinue,
-}: {
-  recap: SessionRecap;
-  onContinue: () => void;
-}) {
+function SessionSummary({ recap, onContinue }: { recap: SessionRecap; onContinue: () => void }) {
   const total = recap.kept + recap.trimmed + recap.deleted;
   return (
     <div className="flex flex-col items-center px-6 pt-10 text-center">
@@ -652,7 +674,8 @@ function PaywallModal({ onClose, onUpgrade }: { onClose: () => void; onUpgrade: 
         </div>
         <h3 className="mt-4 font-display text-2xl font-bold">Daily free limit reached</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          You've used your {FREE_TRIM_LIMIT} free trims for today. Upgrade to Slim Pro for unlimited trims, or come back tomorrow.
+          You've used your {FREE_TRIM_LIMIT} free trims for today. Upgrade to Slim Pro for unlimited
+          trims, or come back tomorrow.
         </p>
 
         <div className="mt-5 space-y-2">
@@ -692,13 +715,9 @@ function DeleteConfirmStep({
   onConfirm: (keepIds: Set<string>) => void;
 }) {
   // Default: every photo stays "checked" (will be deleted).
-  const [checkedIds, setCheckedIds] = useState<Set<string>>(
-    () => new Set(photos.map((p) => p.id)),
-  );
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(() => new Set(photos.map((p) => p.id)));
 
-  const totalMB = photos
-    .filter((p) => checkedIds.has(p.id))
-    .reduce((sum, p) => sum + p.sizeMB, 0);
+  const totalMB = photos.filter((p) => checkedIds.has(p.id)).reduce((sum, p) => sum + p.sizeMB, 0);
   const count = checkedIds.size;
 
   function toggle(id: string) {
@@ -722,12 +741,9 @@ function DeleteConfirmStep({
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-destructive/15 text-destructive shadow-soft">
             <Trash2 className="h-5 w-5" />
           </div>
-          <h2 className="mt-3 font-display text-2xl font-bold tracking-tight">
-            Confirm deletion
-          </h2>
+          <h2 className="mt-3 font-display text-2xl font-bold tracking-tight">Confirm deletion</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Untick anything you'd like to keep. Confirmed photos move to
-            Recently Deleted.
+            Untick anything you'd like to keep. Confirmed photos move to Recently Deleted.
           </p>
         </div>
       </div>
@@ -740,14 +756,9 @@ function DeleteConfirmStep({
               · {totalMB.toFixed(1)} MB
             </span>
           </p>
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            To delete
-          </p>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">To delete</p>
         </div>
-        <button
-          onClick={toggleAll}
-          className="text-xs font-semibold text-primary hover:opacity-80"
-        >
+        <button onClick={toggleAll} className="text-xs font-semibold text-primary hover:opacity-80">
           {checkedIds.size === photos.length ? "Untick all" : "Tick all"}
         </button>
       </div>
@@ -771,10 +782,7 @@ function DeleteConfirmStep({
                     src={p.thumb}
                     alt={p.title}
                     loading="lazy"
-                    className={cn(
-                      "h-full w-full object-cover transition",
-                      !checked && "grayscale",
-                    )}
+                    className={cn("h-full w-full object-cover transition", !checked && "grayscale")}
                   />
                 </div>
                 <div className="min-w-0 flex-1">

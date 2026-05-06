@@ -274,7 +274,7 @@ export function ProfilePage() {
           </div>
           <ChevronRight className="h-4 w-4 text-muted-foreground" />
         </button>
-        {stats.isPro && (
+        {stats.isPro && import.meta.env.DEV && (
           <button
             onClick={() => {
               setPro(false);
