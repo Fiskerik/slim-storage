@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   User,
   Cloud,
@@ -19,15 +19,7 @@ import { Link } from "@tanstack/react-router";
 import { useStats } from "@/hooks/use-stats";
 import { updateSettings, deleteAllData, setPro } from "@/lib/storage";
 import { isNativeApp } from "@/lib/photo-source";
-import {
-  purchaseProduct,
-  restorePurchases,
-  checkProStatus,
-  getProducts,
-  presentPaywall,
-  presentCustomerCenter,
-  type PurchaseProduct,
-} from "@/lib/purchases";
+import { restorePurchases, presentPaywall, presentCustomerCenter } from "@/lib/purchases";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { ShareStatsCard } from "@/components/ShareStatsCard";
@@ -40,6 +32,7 @@ export function ProfilePage() {
   const [editingName, setEditingName] = useState(false);
   const [name, setName] = useState(s.displayName);
   const [shareOpen, setShareOpen] = useState(false);
+  const [upgradeBusy, setUpgradeBusy] = useState(false);
 
   const freed = stats.mbFreed;
   const freedLabel = freed >= 1024 ? `${(freed / 1024).toFixed(2)} GB` : `${freed.toFixed(1)} MB`;
@@ -124,24 +117,35 @@ export function ProfilePage() {
       {!stats.isPro && (
         <button
           onClick={async () => {
-            if (isNativeApp()) {
+            if (!isNativeApp()) {
+              toast.error("Upgrades are only available in the iOS app.");
+              return;
+            }
+
+            try {
+              setUpgradeBusy(true);
               const success = await presentPaywall();
               if (success) {
                 setPro(true);
                 toast.success("TrimSwipe Pro unlocked!");
+              } else {
+                toast("Purchase not completed");
               }
-            } else {
-              toast.error("Upgrades are only available in the iOS app.");
+            } finally {
+              setUpgradeBusy(false);
             }
           }}
-          className="mt-3 flex w-full items-center justify-between rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 to-warm/15 p-4 text-left transition hover:from-primary/15"
+          disabled={upgradeBusy}
+          className="mt-3 flex w-full items-center justify-between rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 to-warm/15 p-4 text-left transition hover:from-primary/15 disabled:opacity-60"
         >
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
               <Crown className="h-5 w-5" />
             </div>
             <div>
-              <p className="font-semibold">Upgrade to TrimSwipe Pro</p>
+              <p className="font-semibold">
+                {upgradeBusy ? "Opening upgrade…" : "Upgrade to TrimSwipe Pro"}
+              </p>
               <p className="text-xs text-muted-foreground">
                 Unlimited trims · lifetime access · purchase shown in native paywall
               </p>

@@ -46,11 +46,11 @@ export function ShareStatsCard({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 backdrop-blur-sm sm:items-center"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/55 px-5 pb-5 pt-[calc(var(--safe-area-top,env(safe-area-inset-top))+1rem)] backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-sm rounded-t-3xl border border-border bg-card p-5 shadow-card sm:rounded-3xl"
+        className="w-full max-w-sm rounded-3xl border border-border bg-card p-5 shadow-card"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between">
@@ -79,9 +79,7 @@ export function ShareStatsCard({ onClose }: { onClose: () => void }) {
           <p className="mt-1 text-sm opacity-90">
             saved{startedLabel ? ` since ${startedLabel}` : ""}
           </p>
-          {bestLabel && (
-            <p className="mt-1 text-xs opacity-80">Best day · {bestLabel}</p>
-          )}
+          {bestLabel && <p className="mt-1 text-xs opacity-80">Best day · {bestLabel}</p>}
           <div className="mt-6 grid grid-cols-3 gap-3 text-center">
             <Mini label="Reviewed" value={reviewed} />
             <Mini label="Streak" value={`🔥${stats.streak}`} />

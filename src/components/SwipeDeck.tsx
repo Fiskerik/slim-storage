@@ -36,6 +36,7 @@ import {
 import { useStats } from "@/hooks/use-stats";
 import { Onboarding } from "@/components/Onboarding";
 import { toast } from "sonner";
+import { presentPaywall } from "@/lib/purchases";
 import { cn } from "@/lib/utils";
 
 type SamplePhoto = LibraryPhoto;
@@ -333,10 +334,20 @@ export function SwipeDeck() {
       {paywallOpen && (
         <PaywallModal
           onClose={() => setPaywallOpen(false)}
-          onUpgrade={() => {
-            setPro(true);
-            setPaywallOpen(false);
-            toast.success("Pro unlocked · unlimited trims");
+          onUpgrade={async () => {
+            if (!isNativeApp()) {
+              toast.error("Upgrades are only available in the iOS app.");
+              return;
+            }
+
+            const success = await presentPaywall();
+            if (success) {
+              setPro(true);
+              setPaywallOpen(false);
+              toast.success("Pro unlocked · unlimited trims");
+            } else {
+              toast("Purchase not completed");
+            }
           }}
         />
       )}
@@ -396,11 +407,11 @@ function ICloudWarnModal({
   const [disable, setDisable] = useState(false);
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 px-5 pb-5 pt-[calc(var(--safe-area-top,env(safe-area-inset-top))+1rem)] backdrop-blur-sm"
       onClick={onCancel}
     >
       <div
-        className="w-full max-w-sm rounded-t-3xl border border-border bg-card p-6 shadow-card sm:rounded-3xl"
+        className="w-full max-w-sm rounded-3xl border border-border bg-card p-6 shadow-card"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-warm/30 text-warm-foreground">
@@ -662,11 +673,11 @@ function Stat({ label, value, tone }: { label: string; value: number; tone: stri
 function PaywallModal({ onClose, onUpgrade }: { onClose: () => void; onUpgrade: () => void }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 px-5 pb-5 pt-[calc(var(--safe-area-top,env(safe-area-inset-top))+1rem)] backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-sm rounded-t-3xl border border-border bg-card p-6 shadow-card sm:rounded-3xl"
+        className="w-full max-w-sm rounded-3xl border border-border bg-card p-6 shadow-card"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
