@@ -152,8 +152,8 @@ const webSource: PhotoSource = {
     return { granted: true, limited: false, canAskAgain: true };
   },
   async getRandom(count) {
-    const shuffled = [...SAMPLE_PHOTOS].sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, count).map(toLib);
+    const prioritized = [...SAMPLE_PHOTOS].sort((a, b) => a.year - b.year || b.sizeMB - a.sizeMB);
+    return prioritized.slice(0, count).map(toLib);
   },
   async getOlder(beforeYear, count) {
     const pool = MEMORY_POOL.filter((p) => p.year < beforeYear);
@@ -161,7 +161,14 @@ const webSource: PhotoSource = {
     return shuffled.slice(0, count).map(toLib);
   },
   async getBurstGroups(maxGroups) {
-    return BURST_GROUPS.slice(0, maxGroups).map((g) => g.map(toLib));
+    return [...BURST_GROUPS]
+      .sort(
+        (a, b) =>
+          Math.min(...a.map((p) => p.year)) - Math.min(...b.map((p) => p.year)) ||
+          b.reduce((sum, p) => sum + p.sizeMB, 0) - a.reduce((sum, p) => sum + p.sizeMB, 0),
+      )
+      .slice(0, maxGroups)
+      .map((g) => g.map(toLib));
   },
   async deletePhotos(ids) {
     return { deleted: ids.length };

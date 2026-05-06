@@ -11,12 +11,37 @@ type Phase = "intro" | "play" | "review" | "done";
 
 type Decision = { photo: LibraryPhoto; keep: boolean };
 
+function preloadPhotoImages(photos: LibraryPhoto[]) {
+  if (typeof window === "undefined") return;
+  photos.forEach((photo) => {
+    const image = new Image();
+    image.src = photo.url;
+  });
+}
+
 export function SpeedRound() {
   const [phase, setPhase] = useState<Phase>("intro");
   const [queue, setQueue] = useState<LibraryPhoto[]>([]);
   const [time, setTime] = useState(DURATION);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const tickRef = useRef<number | null>(null);
+  const preloadedQueueRef = useRef<Promise<LibraryPhoto[]> | null>(null);
+
+  function preloadNextQueue() {
+    if (!preloadedQueueRef.current) {
+      preloadedQueueRef.current = getPhotoSourceAsync()
+        .then((src) => src.getRandom(40))
+        .then((photos) => {
+          console.log("[SpeedRound] preloaded next round", { count: photos.length });
+          preloadPhotoImages(photos.slice(0, 6));
+          return photos;
+        });
+    }
+  }
+
+  useEffect(() => {
+    preloadNextQueue();
+  }, []);
 
   useEffect(() => {
     if (phase !== "play") return;
@@ -36,9 +61,12 @@ export function SpeedRound() {
   }, [phase]);
 
   async function start() {
-    const src = await getPhotoSourceAsync();
-    const photos = await src.getRandom(40);
+    const pending = preloadedQueueRef.current;
+    preloadedQueueRef.current = null;
+    const photos = pending ? await pending : await (await getPhotoSourceAsync()).getRandom(40);
     setQueue(photos);
+    preloadPhotoImages(photos.slice(0, 6));
+    preloadNextQueue();
     setTime(DURATION);
     setDecisions([]);
     setPhase("play");
@@ -65,13 +93,17 @@ export function SpeedRound() {
   const [reviewSelection, setReviewSelection] = useState<Record<string, boolean>>({});
 
   const trashed = decisions.filter((d) => !d.keep);
-  const selectedForDelete = trashed.filter((d) => reviewSelection[d.photo.id] !== false);
+  const selectedForDelete = trashed.filter(
+    (d, index) => reviewSelection[`${d.photo.id}:${d.photo.nativeId ?? "web"}:${index}`] !== false,
+  );
   const freedMB = selectedForDelete.reduce((s, d) => s + d.photo.sizeMB, 0);
 
   useEffect(() => {
     if (phase !== "review") return;
     const initial: Record<string, boolean> = {};
-    for (const d of trashed) initial[d.photo.id] = true;
+    trashed.forEach((d, index) => {
+      initial[`${d.photo.id}:${d.photo.nativeId ?? "web"}:${index}`] = true;
+    });
     setReviewSelection(initial);
   }, [phase]);
 
@@ -126,19 +158,29 @@ export function SpeedRound() {
 
         {trashed.length > 0 && (
           <div className="mt-4 w-full max-w-sm rounded-2xl border border-border bg-card p-3 text-left">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Review before deleting</p>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Review before deleting
+            </p>
             <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
-              {trashed.map(({ photo }) => {
-                const checked = reviewSelection[photo.id] !== false;
+              {trashed.map(({ photo }, index) => {
+                const key = `${photo.id}:${photo.nativeId ?? "web"}:${index}`;
+                const checked = reviewSelection[key] !== false;
                 return (
-                  <label key={photo.id} className="flex items-center gap-3 rounded-xl border border-border/60 p-2">
+                  <label
+                    key={key}
+                    className="flex items-center gap-3 rounded-xl border border-border/60 p-2"
+                  >
                     <input
                       type="checkbox"
                       checked={checked}
-                      onChange={() => setReviewSelection((prev) => ({ ...prev, [photo.id]: !checked }))}
+                      onChange={() => setReviewSelection((prev) => ({ ...prev, [key]: !checked }))}
                       className="h-4 w-4"
                     />
-                    <img src={photo.thumb || photo.url} alt={photo.title} className="h-12 w-12 rounded-lg object-cover" />
+                    <img
+                      src={photo.thumb || photo.url}
+                      alt={photo.title}
+                      className="h-12 w-12 rounded-lg object-cover"
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{photo.title}</p>
                       <p className="text-xs text-muted-foreground">{photo.sizeMB.toFixed(1)} MB</p>
@@ -147,7 +189,9 @@ export function SpeedRound() {
                 );
               })}
             </div>
-            <p className="mt-2 text-xs text-muted-foreground">Selected to delete: {selectedForDelete.length} · {freedMB.toFixed(1)} MB</p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Selected to delete: {selectedForDelete.length} · {freedMB.toFixed(1)} MB
+            </p>
           </div>
         )}
 
@@ -210,7 +254,12 @@ export function SpeedRound() {
           <span className="inline-flex items-center gap-1.5 uppercase tracking-[0.18em] text-muted-foreground">
             <Timer className="h-3.5 w-3.5" /> Speed Round
           </span>
-          <span className={cn("font-display text-lg font-bold tabular-nums", time <= 5 && "text-destructive")}>
+          <span
+            className={cn(
+              "font-display text-lg font-bold tabular-nums",
+              time <= 5 && "text-destructive",
+            )}
+          >
             {time}s
           </span>
         </div>

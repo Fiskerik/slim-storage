@@ -33,6 +33,8 @@ export function ProfilePage() {
   const [name, setName] = useState(s.displayName);
   const [shareOpen, setShareOpen] = useState(false);
   const [upgradeBusy, setUpgradeBusy] = useState(false);
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const [manageBusy, setManageBusy] = useState(false);
 
   const freed = stats.mbFreed;
   const freedLabel = freed >= 1024 ? `${(freed / 1024).toFixed(2)} GB` : `${freed.toFixed(1)} MB`;
@@ -258,7 +260,14 @@ export function ProfilePage() {
       <div className="mt-3 space-y-2">
         <button
           onClick={async () => {
+            if (!isNativeApp()) {
+              toast.error("Restore is only available in the iOS app.");
+              return;
+            }
+
             try {
+              setRestoreBusy(true);
+              console.log("[Profile] restore purchases tapped");
               const restored = await restorePurchases();
               if (restored) {
                 setPro(true);
@@ -266,15 +275,21 @@ export function ProfilePage() {
               } else {
                 toast("No previous purchases found");
               }
-            } catch {
+            } catch (error) {
+              console.log("[Profile] restore purchases failed", error);
               toast.error("Could not restore purchases");
+            } finally {
+              setRestoreBusy(false);
             }
           }}
-          className="flex w-full items-center justify-between rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/40"
+          disabled={restoreBusy}
+          className="flex w-full items-center justify-between rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/40 disabled:opacity-60"
         >
           <div className="flex items-center gap-3">
             <RotateCcw className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Restore purchases</span>
+            <span className="text-sm font-medium">
+              {restoreBusy ? "Restoring purchases…" : "Restore purchases"}
+            </span>
           </div>
           <ChevronRight className="h-4 w-4 text-muted-foreground" />
         </button>
@@ -296,17 +311,35 @@ export function ProfilePage() {
         {stats.isPro && (
           <button
             onClick={async () => {
-              if (isNativeApp()) {
-                await presentCustomerCenter();
-              } else {
+              if (!isNativeApp()) {
                 toast("Customer Center is only available in the app");
+                return;
+              }
+
+              try {
+                setManageBusy(true);
+                console.log("[Profile] manage subscription tapped");
+                const opened = await presentCustomerCenter();
+                if (!opened) {
+                  window.open("https://apps.apple.com/account/subscriptions", "_blank");
+                  toast("Opening Apple subscription settings");
+                }
+              } catch (error) {
+                console.log("[Profile] manage subscription failed", error);
+                window.open("https://apps.apple.com/account/subscriptions", "_blank");
+                toast.error("Could not open Customer Center. Opening Apple settings instead.");
+              } finally {
+                setManageBusy(false);
               }
             }}
-            className="flex w-full items-center justify-between rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/40"
+            disabled={manageBusy}
+            className="flex w-full items-center justify-between rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/40 disabled:opacity-60"
           >
             <div className="flex items-center gap-3">
               <Crown className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Manage subscription</span>
+              <span className="text-sm font-medium">
+                {manageBusy ? "Opening subscription…" : "Manage subscription"}
+              </span>
             </div>
             <ChevronRight className="h-4 w-4 text-muted-foreground" />
           </button>

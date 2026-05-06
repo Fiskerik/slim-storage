@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { HardDrive, Sparkles, Check, X, RotateCcw } from "lucide-react";
 import { getPhotoSourceAsync, type LibraryPhoto } from "@/lib/photo-source";
@@ -7,15 +7,39 @@ import { cn } from "@/lib/utils";
 
 const BUDGET_MB = 50;
 
+function preloadPhotoImages(photos: LibraryPhoto[]) {
+  if (typeof window === "undefined") return;
+  photos.forEach((photo) => {
+    const image = new Image();
+    image.src = photo.thumb || photo.url;
+  });
+}
+
 export function StorageBudget() {
   const [pool, setPool] = useState<LibraryPhoto[]>([]);
   const [kept, setKept] = useState<Set<string>>(new Set());
   const [done, setDone] = useState(false);
+  const preloadedBoardRef = useRef<Promise<LibraryPhoto[]> | null>(null);
+
+  function preloadNextBoard() {
+    if (!preloadedBoardRef.current) {
+      preloadedBoardRef.current = getPhotoSourceAsync()
+        .then((src) => src.getRandom(12))
+        .then((photos) => {
+          console.log("[StorageBudget] preloaded next board", { count: photos.length });
+          preloadPhotoImages(photos);
+          return photos;
+        });
+    }
+  }
 
   async function loadPhotos() {
-    const src = await getPhotoSourceAsync();
-    const photos = await src.getRandom(12);
+    const pending = preloadedBoardRef.current;
+    preloadedBoardRef.current = null;
+    const photos = pending ? await pending : await (await getPhotoSourceAsync()).getRandom(12);
     setPool(photos);
+    preloadPhotoImages(photos);
+    preloadNextBoard();
     setKept(new Set());
     setDone(false);
   }
