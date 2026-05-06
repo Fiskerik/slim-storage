@@ -66,50 +66,45 @@ function withIosStaticAssets(config) {
   config = withDangerousMod(config, ["ios", (config) => {
     const projectRoot = config.modRequest.projectRoot;
     const source = resolveWebAssetsPath(projectRoot);
-    const projectName = IOSConfig.XcodeUtils.getProjectName(projectRoot);
     const destination = path.join(IOSConfig.Paths.getSourceRoot(projectRoot), IOS_WEB_FOLDER_NAME);
 
     copyDirectorySync(source, destination);
     console.log(`[withStaticServerAssets] Copied ${source} to ${destination}`);
 
-    config.modResults = config.modResults || {};
-    config.modResults.trimSwipeStaticAssets = {
-      projectName,
-      destination,
-    };
-
     return config;
   }]);
 
-  return withXcodeProject(config, (config) => {
-    const project = config.modResults;
-    const projectRoot = config.modRequest.projectRoot;
-    const projectName = IOSConfig.XcodeUtils.getProjectName(projectRoot);
-    
-    // Hitta huvudmålet för appen
-    const target = project.getTarget("com.apple.product-type.application");
-    if (!target) {
-      throw new Error("Unable to find the iOS application target for static web assets.");
-    }
+  // mobile/mobile/plugins/withStaticServerAssets.js
 
-    // Försök hitta projektgruppen, annars använd huvudgruppen
-    const group = project.pbxGroupByName(projectName) || project.getPBXGroupByKey(project.getFirstProject().firstProject.mainGroup);
-    const filePath = `${projectName}/${IOS_WEB_FOLDER_NAME}`;
+return withXcodeProject(config, (config) => {
+  const project = config.modResults;
+  const projectRoot = config.modRequest.projectRoot;
+  const projectName = IOSConfig.XcodeUtils.getProjectName(projectRoot);
 
-    if (!project.hasFile(filePath)) {
-      // Vi lägger till mappen som en "Folder Reference" (blå mapp i Xcode)
-      project.addResourceFile(
-        filePath,
-        {
-          lastKnownFileType: "folder",
-          target: target.uuid,
-        },
-        group.uuid // Tog bort ? för att säkerställa att vi har ett värde här nu
-      );
-    }
+  const target = project.getTarget("com.apple.product-type.application");
+  if (!target) {
+    throw new Error("Unable to find the iOS application target for static web assets.");
+  }
 
-    return config;
-  });
+  const filePath = `${projectName}/${IOS_WEB_FOLDER_NAME}`;
+
+  if (!project.hasFile(filePath)) {
+    // Use the main group key directly — pbxGroupByName returns the value object,
+    // not a {uuid, ...} wrapper, so group.uuid is always null.
+    const mainGroupKey = project.getFirstProject().firstProject.mainGroup;
+
+    project.addResourceFile(
+      filePath,
+      {
+        lastKnownFileType: "folder",
+        target: target.uuid,
+      },
+      mainGroupKey,
+    );
+  }
+
+  return config;
+});
 }
 
 module.exports = function withStaticServerAssets(config) {
