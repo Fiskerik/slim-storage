@@ -7,15 +7,6 @@ import { cn } from "@/lib/utils";
 
 const BUDGET_MB = 50;
 
-function shuffle<T>(arr: T[]): T[] {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
 export function StorageBudget() {
   const [pool, setPool] = useState<LibraryPhoto[]>([]);
   const [kept, setKept] = useState<Set<string>>(new Set());
@@ -34,7 +25,11 @@ export function StorageBudget() {
   }, []);
 
   const usedMB = useMemo(
-    () => +pool.filter((p) => kept.has(p.id)).reduce((sum, p) => sum + p.sizeMB, 0).toFixed(2),
+    () =>
+      +pool
+        .filter((p) => kept.has(p.id))
+        .reduce((sum, p) => sum + p.sizeMB, 0)
+        .toFixed(2),
     [pool, kept],
   );
   const remainingMB = +(BUDGET_MB - usedMB).toFixed(2);
@@ -70,7 +65,10 @@ export function StorageBudget() {
 
   if (done) {
     const cleared = pool.length - kept.size;
-    const freed = +pool.filter((p) => !kept.has(p.id)).reduce((s, p) => s + p.sizeMB, 0).toFixed(2);
+    const freed = +pool
+      .filter((p) => !kept.has(p.id))
+      .reduce((s, p) => s + p.sizeMB, 0)
+      .toFixed(2);
     return (
       <div className="flex flex-col items-center px-6 pt-10 text-center">
         <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/15 text-primary">
@@ -106,11 +104,17 @@ export function StorageBudget() {
         </span>
       </div>
 
-      <div className="mt-3 rounded-2xl border border-border bg-card p-4">
+      <div className="sticky top-[calc(4.75rem+env(safe-area-inset-top))] z-20 mt-3 rounded-2xl border border-border bg-card/95 p-4 shadow-card backdrop-blur-xl">
         <div className="flex items-baseline justify-between">
           <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Budget</p>
-          <p className={cn("font-display text-2xl font-bold tabular-nums", overBudget && "text-destructive")}>
-            {usedMB.toFixed(1)}<span className="text-sm text-muted-foreground"> / {BUDGET_MB} MB</span>
+          <p
+            className={cn(
+              "font-display text-2xl font-bold tabular-nums",
+              overBudget && "text-destructive",
+            )}
+          >
+            {usedMB.toFixed(1)}
+            <span className="text-sm text-muted-foreground"> / {BUDGET_MB} MB</span>
           </p>
         </div>
         <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted">
@@ -122,7 +126,7 @@ export function StorageBudget() {
         <p className="mt-2 text-[11px] text-muted-foreground">
           {overBudget
             ? `${Math.abs(remainingMB).toFixed(1)} MB over — drop something to fit`
-            : `${remainingMB.toFixed(1)} MB room left`}
+            : `${remainingMB.toFixed(1)} MB remaining`}
         </p>
       </div>
 

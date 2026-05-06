@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect, useState } from "react";
+import { useRef, useCallback, useEffect, useMemo, useState } from "react";
 import { View, StyleSheet, Text, Pressable, ActivityIndicator } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -33,46 +33,68 @@ export function WebViewScreen() {
     }
   }, []);
 
-  const injectedJS = `window.__SLIM_NATIVE__ = true;
-    window.__SLIM_BRIDGE_VERSION__ = 1;
-    (function() {
-      window.__SLIM_SAFE_AREA__ = {
-        top: ${insets.top},
-        bottom: ${insets.bottom},
-        left: ${insets.left},
-        right: ${insets.right}
-      };
-      var pendingCallbacks = {};
-      window.__slimBridgeCall = function(method, data) {
-        return new Promise(function(resolve, reject) {
-          var id = Math.random().toString(36).slice(2) + Date.now();
-          pendingCallbacks[id] = { resolve: resolve, reject: reject };
-          window.ReactNativeWebView.postMessage(JSON.stringify({ id: id, method: method, data: data || {} }));
-          setTimeout(function() {
-            if (pendingCallbacks[id]) {
-              pendingCallbacks[id].reject(new Error('Bridge timeout'));
-              delete pendingCallbacks[id];
+  const injectedJS = useMemo(
+    () => `
+      (function() {
+        if (window.__SLIM_BRIDGE_INSTALLED__) {
+          window.dispatchEvent(new Event('slimBridgeReady'));
+          return true;
+        }
+
+        window.__SLIM_NATIVE__ = true;
+        window.__SLIM_BRIDGE_VERSION__ = 2;
+        window.__SLIM_BRIDGE_INSTALLED__ = true;
+        window.__SLIM_SAFE_AREA__ = {
+          top: ${insets.top},
+          bottom: ${insets.bottom},
+          left: ${insets.left},
+          right: ${insets.right}
+        };
+
+        var pendingCallbacks = {};
+        window.__slimBridgeCall = function(method, data) {
+          return new Promise(function(resolve, reject) {
+            if (!window.ReactNativeWebView || !window.ReactNativeWebView.postMessage) {
+              reject(new Error('Native WebView bridge unavailable'));
+              return;
             }
-          }, 30000);
-        });
-      };
-      window.addEventListener('message', function(e) {
-        try {
-          var msg = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-          if (msg && msg.__bridge_response && pendingCallbacks[msg.id]) {
-            if (msg.error) {
-              pendingCallbacks[msg.id].reject(new Error(msg.error));
-            } else {
-              pendingCallbacks[msg.id].resolve(msg.result);
+
+            var id = Math.random().toString(36).slice(2) + Date.now();
+            pendingCallbacks[id] = { resolve: resolve, reject: reject };
+            console.log('[SlimBridge] web -> native', method, data || {});
+            window.ReactNativeWebView.postMessage(JSON.stringify({ id: id, method: method, data: data || {} }));
+            setTimeout(function() {
+              if (pendingCallbacks[id]) {
+                pendingCallbacks[id].reject(new Error('Bridge timeout'));
+                delete pendingCallbacks[id];
+              }
+            }, 30000);
+          });
+        };
+
+        function receiveBridgeMessage(e) {
+          try {
+            var msg = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+            if (msg && msg.__bridge_response && pendingCallbacks[msg.id]) {
+              console.log('[SlimBridge] native -> web', msg.error ? 'error' : 'ok', msg.id);
+              if (msg.error) {
+                pendingCallbacks[msg.id].reject(new Error(msg.error));
+              } else {
+                pendingCallbacks[msg.id].resolve(msg.result);
+              }
+              delete pendingCallbacks[msg.id];
             }
-            delete pendingCallbacks[msg.id];
-          }
-        } catch(err) {}
-      });
-      window.dispatchEvent(new Event('slimBridgeReady'));
-      true;
-    })();
-  `;
+          } catch(err) {}
+        }
+
+        window.addEventListener('message', receiveBridgeMessage);
+        document.addEventListener('message', receiveBridgeMessage);
+        window.dispatchEvent(new Event('slimBridgeReady'));
+        true;
+      })();
+    `,
+    [insets.bottom, insets.left, insets.right, insets.top],
+  );
 
   return (
     <View style={[styles.container, { backgroundColor: "#0a0a0a" }]}>
@@ -108,6 +130,10 @@ export function WebViewScreen() {
             setLoadError(description);
           }}
           injectedJavaScriptBeforeContentLoaded={injectedJS}
+          injectedJavaScript={injectedJS}
+          onLoadEnd={() => {
+            webViewRef.current?.injectJavaScript(injectedJS);
+          }}
           allowsBackForwardNavigationGestures
           allowsInlineMediaPlayback
           mediaPlaybackRequiresUserAction={false}
