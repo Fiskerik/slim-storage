@@ -203,7 +203,7 @@ export function ProfilePage() {
               type="time"
               value={s.reminderTime}
               onChange={(e) => updateSettings({ reminderTime: e.target.value })}
-              className="mt-2 block min-w-0 w-full appearance-none rounded-lg border border-border bg-background px-3 py-2 font-display text-lg font-bold tabular-nums focus:outline-none focus:ring-2 focus:ring-primary"
+              className="mt-2 block w-full max-w-full box-border appearance-none rounded-lg border border-border bg-background px-3 py-2 font-display text-lg font-bold tabular-nums focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
         )}
