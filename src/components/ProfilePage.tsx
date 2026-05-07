@@ -180,6 +180,17 @@ export function ProfilePage() {
           onChange={(v) => updateSettings({ cardsPerRound: v })}
           suffix="cards"
         />
+        <SliderRow
+          icon={<Sparkles className="h-4 w-4" />}
+          label="Daily savings goal"
+          hint="Shown on Home and resets every day"
+          value={s.dailyGoalMB}
+          min={25}
+          max={1000}
+          step={25}
+          onChange={(v) => updateSettings({ dailyGoalMB: v })}
+          suffix="MB"
+        />
       </div>
 
       <h2 className="mt-7 px-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">

@@ -13,12 +13,7 @@ import {
   Trash2,
   Check,
 } from "lucide-react";
-import {
-  getPhotoSource,
-  getPhotoSourceAsync,
-  isNativeApp,
-  type LibraryPhoto,
-} from "@/lib/photo-source";
+import { getPhotoSourceAsync, isNativeApp, type LibraryPhoto } from "@/lib/photo-source";
 import { hapticTap, hapticSuccess, hapticError } from "@/lib/native-shell";
 import {
   setStats,
@@ -26,7 +21,6 @@ import {
   canTrim,
   recordTrim,
   logDay,
-  trimsRemainingToday,
   setPro,
   FREE_TRIM_LIMIT,
   softDelete,
@@ -56,8 +50,20 @@ function preloadPhotoImages(photos: SamplePhoto[]) {
   if (typeof window === "undefined") return;
   photos.forEach((photo) => {
     const image = new Image();
+    image.decoding = "async";
+    image.loading = "eager";
     image.src = photo.url;
+    image.decode?.().catch(() => undefined);
   });
+}
+
+function estimateTrimSavings(photo: SamplePhoto): number {
+  const metadataSavings = photo.hasGPS ? 0.18 : 0.08;
+  const compressionSavings = photo.sizeMB * 0.28;
+  return +Math.max(
+    metadataSavings,
+    Math.min(photo.sizeMB * 0.45, metadataSavings + compressionSavings),
+  ).toFixed(2);
 }
 
 function shuffle<T>(arr: T[]): T[] {
@@ -91,7 +97,7 @@ export function SwipeDeck() {
     if (!preloadedRoundRef.current) {
       preloadedRoundRef.current = createRoundLoad().then((photos) => {
         console.log("[SwipeDeck] preloaded next set", { count: photos.length });
-        preloadPhotoImages(photos.slice(0, 8));
+        preloadPhotoImages(photos.slice(0, 12));
         return photos;
       });
     }
@@ -125,7 +131,7 @@ export function SwipeDeck() {
       const photos = await src.getRandom(cardsPerRound);
       if (cancelled) return;
       setQueue(photos);
-      preloadPhotoImages(photos.slice(0, 8));
+      preloadPhotoImages(photos.slice(0, 12));
       preloadNextRound();
       setLoading(false);
     })();
@@ -138,7 +144,7 @@ export function SwipeDeck() {
 
   useEffect(() => {
     if (queue.length > 0) {
-      preloadPhotoImages(queue.slice(1, 6));
+      preloadPhotoImages(queue.slice(0, 8));
     }
   }, [queue]);
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
@@ -200,13 +206,12 @@ export function SwipeDeck() {
       hapticTap();
       advance();
     } else if (action === "trim") {
-      const saved = +(photo.sizeMB * 0.32).toFixed(2);
+      const saved = estimateTrimSavings(photo);
       sess.trimmed += 1;
       sess.freed += saved;
       setStats((s) => ({ ...s, slimmed: s.slimmed + 1, mbFreed: s.mbFreed + saved }));
       logDay({ trimmed: 1, mbFreed: saved });
       recordTrim();
-      const remaining = trimsRemainingToday();
       hapticSuccess();
       // No per-swipe toast — summary is shown at the end
       advance();
@@ -362,7 +367,7 @@ export function SwipeDeck() {
           disabled={!top}
         />
         <ActionButton
-          label="Trim"
+          label={`Trim · ${top ? estimateTrimSavings(top).toFixed(1) : "0.0"} MB`}
           variant="trim"
           icon={<ArrowUp className="h-6 w-6" />}
           big
@@ -370,7 +375,7 @@ export function SwipeDeck() {
           disabled={!top}
         />
         <ActionButton
-          label="Delete"
+          label={`Delete · ${top?.sizeMB.toFixed(1) ?? "0.0"} MB`}
           variant="delete"
           icon={<ArrowRight className="h-5 w-5" />}
           onClick={() => top && handleAction(top, "delete")}
@@ -536,13 +541,15 @@ function SwipeableCard({ photo, onAction }: { photo: SamplePhoto; onAction: (a: 
     <motion.div
       style={{ x, y, rotate }}
       drag
-      dragElastic={0.6}
+      dragElastic={0.35}
+      dragMomentum={false}
       dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
       onDragEnd={onDragEnd}
       initial={{ opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.18 } }}
-      className="absolute inset-0 cursor-grab active:cursor-grabbing"
+      exit={{ opacity: 0, scale: 0.92, transition: { duration: 0.12 } }}
+      transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.7 }}
+      className="absolute inset-0 cursor-grab will-change-transform active:cursor-grabbing"
     >
       <PhotoCard photo={photo}>
         {/* Left edge — KEEP (green) */}
@@ -600,14 +607,18 @@ function PhotoCard({
       <img
         src={photo.url}
         alt={photo.title}
-        loading="lazy"
+        loading={stacked ? "eager" : "eager"}
+        decoding="async"
         className="h-full w-full object-cover"
       />
       <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/10 to-transparent" />
 
-      <div className="absolute left-4 right-4 top-4 flex items-center justify-between gap-2">
+      <div className="absolute left-4 right-4 top-4 flex flex-wrap items-center justify-between gap-2">
         <span className="rounded-full bg-black/40 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur">
-          {photo.sizeMB.toFixed(1)} MB
+          Delete saves {photo.sizeMB.toFixed(1)} MB
+        </span>
+        <span className="rounded-full bg-primary/80 px-2.5 py-1 text-[11px] font-semibold text-primary-foreground backdrop-blur">
+          Trim saves ~{estimateTrimSavings(photo).toFixed(1)} MB
         </span>
         {photo.hasGPS && (
           <span className="flex items-center gap-1 rounded-full bg-black/40 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur">
@@ -621,6 +632,18 @@ function PhotoCard({
         <p className="mt-1 text-xs opacity-80">
           {photo.month} {photo.year} · {photo.device}
         </p>
+        {photo.cleanupReasons?.length ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {photo.cleanupReasons.slice(0, 3).map((reason) => (
+              <span
+                key={reason}
+                className="rounded-full bg-white/18 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide backdrop-blur"
+              >
+                {reason}
+              </span>
+            ))}
+          </div>
+        ) : null}
       </div>
       {children}
     </div>

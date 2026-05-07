@@ -100,6 +100,9 @@ function dtoToLibraryPhoto(dto: Record<string, unknown>): LibraryPhoto {
     isNative: true,
     nativeId: String(dto.nativeId ?? dto.id ?? ""),
     isCloudAsset: Boolean(dto.isCloudAsset),
+    cleanupReasons: Array.isArray(dto.cleanupReasons)
+      ? dto.cleanupReasons.filter((item): item is string => typeof item === "string")
+      : [],
   };
 }
 
@@ -140,6 +143,53 @@ const nativeBridgeSource: PhotoSource = {
   },
 };
 
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function reasonForSample(photo: SamplePhoto): string {
+  if (photo.cleanupReasons?.length) return photo.cleanupReasons[0];
+  if (photo.burstId) return "Duplicate/Similar";
+  if (photo.sizeMB >= 4) return "Large";
+  if (photo.year <= new Date().getFullYear() - 5) return "Old";
+  return "Review";
+}
+
+function diversifiedSamplePhotos(count: number): SamplePhoto[] {
+  const buckets = new Map<string, SamplePhoto[]>();
+  shuffle(SAMPLE_PHOTOS).forEach((photo) => {
+    const reason = reasonForSample(photo);
+    buckets.set(reason, [...(buckets.get(reason) ?? []), photo]);
+  });
+
+  const selected: SamplePhoto[] = [];
+  const used = new Set<string>();
+  const bucketEntries = shuffle([...buckets.entries()]);
+
+  while (selected.length < count && bucketEntries.some(([, photos]) => photos.length > 0)) {
+    for (const [, photos] of bucketEntries) {
+      const photo = photos.shift();
+      if (!photo || used.has(photo.id)) continue;
+      selected.push(photo);
+      used.add(photo.id);
+      if (selected.length >= count) break;
+    }
+  }
+
+  if (selected.length < count) {
+    shuffle(SAMPLE_PHOTOS).forEach((photo) => {
+      if (selected.length < count && !used.has(photo.id)) selected.push(photo);
+    });
+  }
+
+  return selected;
+}
+
 // ─── Web / dev fallback source ──────────────────
 
 function toLib(p: SamplePhoto): LibraryPhoto {
@@ -152,8 +202,7 @@ const webSource: PhotoSource = {
     return { granted: true, limited: false, canAskAgain: true };
   },
   async getRandom(count) {
-    const prioritized = [...SAMPLE_PHOTOS].sort((a, b) => a.year - b.year || b.sizeMB - a.sizeMB);
-    return prioritized.slice(0, count).map(toLib);
+    return diversifiedSamplePhotos(count).map(toLib);
   },
   async getOlder(beforeYear, count) {
     const pool = MEMORY_POOL.filter((p) => p.year < beforeYear);
@@ -161,14 +210,9 @@ const webSource: PhotoSource = {
     return shuffled.slice(0, count).map(toLib);
   },
   async getBurstGroups(maxGroups) {
-    return [...BURST_GROUPS]
-      .sort(
-        (a, b) =>
-          Math.min(...a.map((p) => p.year)) - Math.min(...b.map((p) => p.year)) ||
-          b.reduce((sum, p) => sum + p.sizeMB, 0) - a.reduce((sum, p) => sum + p.sizeMB, 0),
-      )
+    return shuffle(BURST_GROUPS)
       .slice(0, maxGroups)
-      .map((g) => g.map(toLib));
+      .map((g) => shuffle(g).map(toLib));
   },
   async deletePhotos(ids) {
     return { deleted: ids.length };
