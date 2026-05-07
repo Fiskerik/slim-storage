@@ -60,6 +60,11 @@ export function SpeedRound() {
     };
   }, [phase]);
 
+  useEffect(() => {
+    if (queue.length === 0) return;
+    preloadPhotoImages(queue.slice(1, 6));
+  }, [queue]);
+
   async function start() {
     const pending = preloadedQueueRef.current;
     preloadedQueueRef.current = null;

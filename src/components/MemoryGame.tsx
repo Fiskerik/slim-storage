@@ -195,6 +195,12 @@ export function MemoryGame() {
     };
   }, [phase, idx, decide]);
 
+  useEffect(() => {
+    if (round.length === 0) return;
+    const upcoming = round.slice(idx + 1, idx + 4);
+    preloadPhotoImages(upcoming);
+  }, [idx, round]);
+
   if (phase === "intro") {
     return (
       <Intro
