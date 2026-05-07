@@ -91,7 +91,7 @@ export function SwipeDeck() {
     if (!preloadedRoundRef.current) {
       preloadedRoundRef.current = createRoundLoad().then((photos) => {
         console.log("[SwipeDeck] preloaded next set", { count: photos.length });
-        preloadPhotoImages(photos.slice(0, 4));
+        preloadPhotoImages(photos.slice(0, 8));
         return photos;
       });
     }
@@ -125,7 +125,7 @@ export function SwipeDeck() {
       const photos = await src.getRandom(cardsPerRound);
       if (cancelled) return;
       setQueue(photos);
-      preloadPhotoImages(photos.slice(0, 4));
+      preloadPhotoImages(photos.slice(0, 8));
       preloadNextRound();
       setLoading(false);
     })();
@@ -135,6 +135,12 @@ export function SwipeDeck() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (queue.length > 0) {
+      preloadPhotoImages(queue.slice(1, 6));
+    }
+  }, [queue]);
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
   const deletedPhotosRef = useRef<SamplePhoto[]>([]);
   const seenICloudWarnRef = useRef(false);
@@ -225,7 +231,7 @@ export function SwipeDeck() {
     setLoading(true);
     const photos = await consumeRoundLoad();
     setQueue(photos);
-    preloadPhotoImages(photos.slice(0, 4));
+    preloadPhotoImages(photos.slice(0, 8));
     preloadNextRound();
     setRecap(null);
     sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };

@@ -86,12 +86,12 @@ async function purchaseBridgeCall(method: string, data?: Record<string, unknown>
   }
 
   if (!window.__slimBridgeCall) {
-    console.log("[purchases] native bridge not callable", {
+    console.error("[purchases] bridge never became callable", {
       method,
-      nativeFlag: window.__SLIM_NATIVE__,
+      SLIM_NATIVE: window.__SLIM_NATIVE__,
       hasRNWebView: !!window.ReactNativeWebView,
     });
-    return null;
+    throw new Error("Native bridge unavailable — try restarting the app");
   }
 
   return (await window.__slimBridgeCall(method, data)) as PurchaseBridgeResult;
@@ -182,13 +182,9 @@ export async function getCustomerInfo(): Promise<CustomerInfoDTO | null> {
  */
 export async function presentPaywall(): Promise<boolean> {
   if (!hasBridge()) return false;
-  try {
-    const result = await purchaseBridgeCall("purchases_presentPaywall");
-    if (result?.error) console.log("[purchases] presentPaywall error", result.error);
-    return result?.success === true || result?.isPro === true;
-  } catch {
-    return false;
-  }
+  const result = await purchaseBridgeCall("purchases_presentPaywall");
+  if (result?.error) console.log("[purchases] presentPaywall error", result.error);
+  return result?.success === true || result?.isPro === true;
 }
 
 /**

@@ -78,7 +78,7 @@ export function ThisOrThat() {
     if (!preloadedRoundRef.current) {
       preloadedRoundRef.current = buildPairs(ROUND).then((pairs) => {
         console.log("[ThisOrThat] preloaded next round", { pairCount: pairs.length });
-        preloadPhotoImages(pairs.flatMap((pair) => [pair.a, pair.b]).slice(0, 6));
+        preloadPhotoImages(pairs.flatMap((pair) => [pair.a, pair.b]));
         return pairs;
       });
     }
@@ -93,10 +93,16 @@ export function ThisOrThat() {
   useEffect(() => {
     buildPairs(ROUND).then((pairs) => {
       setRound(pairs);
-      preloadPhotoImages(pairs.flatMap((pair) => [pair.a, pair.b]).slice(0, 6));
+      preloadPhotoImages(pairs.flatMap((pair) => [pair.a, pair.b]));
       preloadNextRound();
     });
   }, []);
+  useEffect(() => {
+    if (round.length === 0) return;
+    // Preload the next 2 pairs as soon as the current one is shown
+    const upcoming = round.slice(idx + 1, idx + 3);
+    preloadPhotoImages(upcoming.flatMap((p) => [p.a, p.b]));
+  }, [idx, round]);
 
   const pair = round[idx];
   const cards = useMemo<[SamplePhoto, SamplePhoto] | null>(
@@ -145,7 +151,7 @@ export function ThisOrThat() {
   async function reset() {
     const pairs = await consumeRoundLoad();
     setRound(pairs);
-    preloadPhotoImages(pairs.flatMap((pair) => [pair.a, pair.b]).slice(0, 6));
+    preloadPhotoImages(pairs.flatMap((pair) => [pair.a, pair.b]));
     preloadNextRound();
     setIdx(0);
     setDeleteFreed(0);

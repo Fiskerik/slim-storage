@@ -135,9 +135,11 @@ export function ProfilePage() {
               if (success) {
                 setPro(true);
                 toast.success("TrimSwipe Pro unlocked!");
-              } else {
-                toast("Purchase not completed");
               }
+              // If false and no error thrown, user simply dismissed the paywall — show nothing
+            } catch (error) {
+              console.error("[Profile] paywall error", error);
+              toast.error("Something went wrong. Please try again.");
             } finally {
               setUpgradeBusy(false);
             }
