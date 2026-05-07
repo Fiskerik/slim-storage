@@ -1,37 +1,38 @@
 // Persistent stats stored in localStorage. Reactive via simple subscription.
 
 export type DayLog = {
-  date: string;          // YYYY-MM-DD
+  date: string; // YYYY-MM-DD
   kept: number;
   trimmed: number;
   deleted: number;
   mbFreed: number;
-  memoryPlayed: number;  // memory rounds completed that day
+  memoryPlayed: number; // memory rounds completed that day
 };
 
 export type Settings = {
-  cardsPerRound: number;       // 5–30
+  cardsPerRound: number; // 5–30
   iCloudSync: boolean;
   reminderEnabled: boolean;
-  reminderTime: string;        // "HH:MM" 24h
+  reminderTime: string; // "HH:MM" 24h
   iCloudBackupWarn: boolean;
   onboarded: boolean;
   displayName: string;
+  dailyGoalMB: number;
 };
 
 export type Stats = {
-  cleaned: number;       // photos kept (reviewed without delete)
-  deleted: number;       // photos deleted
-  slimmed: number;       // photos trimmed
-  mbFreed: number;       // total MB freed (delete + slim ~30%)
+  cleaned: number; // photos kept (reviewed without delete)
+  deleted: number; // photos deleted
+  slimmed: number; // photos trimmed
+  mbFreed: number; // total MB freed (delete + slim ~30%)
   streak: number;
   lastSessionDate: string | null;
   // Memory game
   memoryPlayed: number;
-  memoryCorrect: number;     // within ±1 year
+  memoryCorrect: number; // within ±1 year
   memoryBestStreak: number;
   memoryCurrentStreak: number;
-  memoryTotalDelta: number;  // sum of |guess - actual|
+  memoryTotalDelta: number; // sum of |guess - actual|
   // This or That
   thisOrThatRounds: number;
   thisOrThatDeleted: number;
@@ -58,7 +59,7 @@ export type Stats = {
   // Soft-deleted items pending permanent removal (for Undo)
   pendingDelete: { id: string; title: string; sizeMB: number; deletedAt: number }[];
   // First time the user opened Slim — used for "Saved X MB since [date]"
-  startedAt: string;     // ISO date YYYY-MM-DD
+  startedAt: string; // ISO date YYYY-MM-DD
 };
 
 const KEY = "slim.stats.v1";
@@ -72,6 +73,7 @@ const DEFAULT_SETTINGS: Settings = {
   iCloudBackupWarn: true,
   onboarded: false,
   displayName: "You",
+  dailyGoalMB: 100,
 };
 
 const DEFAULT: Stats = {
@@ -239,6 +241,29 @@ function upsertToday(s: Stats, patch: Partial<Omit<DayLog, "date">>): DayLog[] {
 
 export function logDay(patch: Partial<Omit<DayLog, "date">>) {
   setStats((s) => ({ ...s, daily: upsertToday(s, patch) }));
+}
+
+export function getTodayLog(s: Stats = getStats()): DayLog {
+  const date = todayStr();
+  return (
+    s.daily.find((d) => d.date === date) ?? {
+      date,
+      kept: 0,
+      trimmed: 0,
+      deleted: 0,
+      mbFreed: 0,
+      memoryPlayed: 0,
+    }
+  );
+}
+
+export function calculateGoalCheckpoints(goalMB: number): number[] {
+  const safeGoal = Math.max(1, goalMB);
+  return [0.25, 0.5, 0.75].map((ratio) => {
+    const raw = safeGoal * ratio;
+    const roundingUnit = safeGoal >= 100 ? 5 : 1;
+    return Math.max(1, Math.round(raw / roundingUnit) * roundingUnit);
+  });
 }
 
 /**

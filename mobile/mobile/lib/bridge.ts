@@ -112,9 +112,150 @@ type PhotoDTO = {
   nativeId: string;
   isCloudAsset: boolean;
   creationTime: number;
+  cleanupReasons: string[];
 };
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function hasExifFlag(info: MediaLibrary.AssetInfo, keys: string[]): boolean {
+  const exif = (info.exif ?? {}) as Record<string, unknown>;
+  return keys.some((key) => {
+    const value = exif[key];
+    if (typeof value === "boolean") return value;
+    if (typeof value === "number") return value > 0;
+    if (typeof value === "string") return value.length > 0 && value !== "0";
+    return false;
+  });
+}
+
+function classifyAsset(
+  asset: MediaLibrary.Asset,
+  info: MediaLibrary.AssetInfo,
+  sizeMB: number,
+  duplicateLookup: Set<string>,
+): string[] {
+  const reasons = new Set<string>();
+  const ageMs = Date.now() - asset.creationTime;
+  const ageYears = ageMs / (365.25 * 24 * 60 * 60 * 1000);
+  const filename = asset.filename?.toLowerCase() ?? "";
+  const width = asset.width || 0;
+  const height = asset.height || 0;
+  const aspectRatio =
+    width > 0 && height > 0 ? Math.max(width, height) / Math.max(1, Math.min(width, height)) : 1;
+
+  if (ageYears >= 5) reasons.add("Old");
+  if (sizeMB >= 4) reasons.add("Large");
+  if (duplicateLookup.has(duplicateKey(asset))) reasons.add("Duplicate/Similar");
+  if (
+    hasExifFlag(info, ["Blur", "Blurred", "MotionBlur", "SubjectArea"]) ||
+    filename.includes("blur")
+  ) {
+    reasons.add("Blurry");
+  }
+  if (hasExifFlag(info, ["BrightnessValue", "ISOSpeedRatings"]) || filename.includes("dark")) {
+    const exif = (info.exif ?? {}) as Record<string, unknown>;
+    const brightness = Number(exif.BrightnessValue);
+    const iso = Number(exif.ISOSpeedRatings);
+    if (brightness < -1 || iso >= 1600 || filename.includes("dark")) reasons.add("Dark");
+  }
+  if (!info.location && !asset.filename && !hasExifFlag(info, ["Model", "LensModel"])) {
+    reasons.add("No context");
+  }
+  if (
+    aspectRatio > 2.2 ||
+    sizeMB < 0.35 ||
+    filename.includes("img_e") ||
+    filename.includes("pocket")
+  ) {
+    reasons.add("Mistake?");
+  }
+
+  if (reasons.size === 0) reasons.add("Review");
+  return [...reasons].slice(0, 3);
+}
+
+function duplicateKey(asset: MediaLibrary.Asset): string {
+  const roundedTime = Math.round(asset.creationTime / 3000);
+  return `${roundedTime}:${asset.width}x${asset.height}`;
+}
+
+function buildDuplicateLookup(assets: MediaLibrary.Asset[]): Set<string> {
+  const counts = new Map<string, number>();
+  assets.forEach((asset) => {
+    const key = duplicateKey(asset);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  });
+  return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key));
+}
+
+function diversifyAssets(assets: MediaLibrary.Asset[], count: number): MediaLibrary.Asset[] {
+  const targetCount = Math.max(1, count);
+  const duplicateLookup = buildDuplicateLookup(assets);
+  const now = Date.now();
+  const buckets: Record<string, MediaLibrary.Asset[]> = {
+    Old: [],
+    Large: [],
+    "Duplicate/Similar": [],
+    Blurry: [],
+    Dark: [],
+    "No context": [],
+    "Mistake?": [],
+    Recent: [],
+  };
+
+  assets.forEach((asset) => {
+    const sizeMB = assetSortSizeMB(asset);
+    const ageYears = (now - asset.creationTime) / (365.25 * 24 * 60 * 60 * 1000);
+    const filename = asset.filename?.toLowerCase() ?? "";
+    const aspectRatio =
+      asset.width && asset.height
+        ? Math.max(asset.width, asset.height) / Math.max(1, Math.min(asset.width, asset.height))
+        : 1;
+    if (ageYears >= 5) buckets.Old.push(asset);
+    if (sizeMB >= 4) buckets.Large.push(asset);
+    if (duplicateLookup.has(duplicateKey(asset))) buckets["Duplicate/Similar"].push(asset);
+    if (filename.includes("blur")) buckets.Blurry.push(asset);
+    if (filename.includes("dark") || filename.includes("night")) buckets.Dark.push(asset);
+    if (!asset.filename) buckets["No context"].push(asset);
+    if (aspectRatio > 2.2 || sizeMB < 0.35 || filename.includes("pocket"))
+      buckets["Mistake?"].push(asset);
+    if (ageYears < 5 && sizeMB < 4) buckets.Recent.push(asset);
+  });
+
+  Object.keys(buckets).forEach((key) => {
+    buckets[key] = shuffle(buckets[key]);
+  });
+
+  const selected: MediaLibrary.Asset[] = [];
+  const used = new Set<string>();
+  const bucketOrder = shuffle(Object.keys(buckets));
+  while (selected.length < targetCount && bucketOrder.some((key) => buckets[key].length > 0)) {
+    for (const key of bucketOrder) {
+      const asset = buckets[key].shift();
+      if (!asset || used.has(asset.id)) continue;
+      selected.push(asset);
+      used.add(asset.id);
+      if (selected.length >= targetCount) break;
+    }
+  }
+
+  if (selected.length < targetCount) {
+    shuffle(assets).forEach((asset) => {
+      if (selected.length < targetCount && !used.has(asset.id)) selected.push(asset);
+    });
+  }
+
+  return selected;
+}
 
 function mimeTypeForAsset(asset: MediaLibrary.Asset): string {
   const name = asset.filename?.toLowerCase() || asset.uri.toLowerCase();
@@ -175,7 +316,10 @@ async function resolveAssetSizeMB(
   return 0;
 }
 
-async function assetToDTO(asset: MediaLibrary.Asset): Promise<PhotoDTO> {
+async function assetToDTO(
+  asset: MediaLibrary.Asset,
+  duplicateLookup = new Set<string>(),
+): Promise<PhotoDTO> {
   // Get asset info for GPS, local file URI, and more metadata.
   const info = await MediaLibrary.getAssetInfoAsync(asset);
 
@@ -212,6 +356,7 @@ async function assetToDTO(asset: MediaLibrary.Asset): Promise<PhotoDTO> {
     nativeId: asset.id,
     isCloudAsset,
     creationTime: asset.creationTime,
+    cleanupReasons: classifyAsset(asset, info, sizeMB, duplicateLookup),
   };
 }
 
@@ -238,15 +383,16 @@ async function getPhotos(count: number): Promise<PhotoDTO[]> {
 
   if (result.assets.length === 0) return [];
 
-  const selected = prioritySortAssets(result.assets).slice(0, targetCount);
-  console.log("[Bridge] getPhotos selected prioritized assets", {
+  const selected = diversifyAssets(result.assets, targetCount);
+  const duplicateLookup = buildDuplicateLookup(result.assets);
+  console.log("[Bridge] getPhotos selected diversified assets", {
     requested: targetCount,
     fetched: result.assets.length,
     returned: selected.length,
     firstAssetId: selected[0]?.id,
   });
 
-  return Promise.all(selected.map(assetToDTO));
+  return Promise.all(selected.map((asset) => assetToDTO(asset, duplicateLookup)));
 }
 
 async function getOlderPhotos(beforeYear: number, count: number): Promise<PhotoDTO[]> {
@@ -259,8 +405,9 @@ async function getOlderPhotos(beforeYear: number, count: number): Promise<PhotoD
     sortBy: [[MediaLibrary.SortBy.creationTime, true]], // oldest first
   });
 
-  const selected = prioritySortAssets(result.assets).slice(0, count);
-  return Promise.all(selected.map(assetToDTO));
+  const selected = shuffle(prioritySortAssets(result.assets)).slice(0, count);
+  const duplicateLookup = buildDuplicateLookup(result.assets);
+  return Promise.all(selected.map((asset) => assetToDTO(asset, duplicateLookup)));
 }
 
 async function getBurstGroups(maxGroups: number): Promise<PhotoDTO[][]> {
@@ -311,7 +458,10 @@ async function getBurstGroups(maxGroups: number): Promise<PhotoDTO[][]> {
     })
     .slice(0, maxGroups);
 
-  return Promise.all(topGroups.map((group) => Promise.all(group.map(assetToDTO))));
+  const duplicateLookup = buildDuplicateLookup(assets);
+  return Promise.all(
+    topGroups.map((group) => Promise.all(group.map((asset) => assetToDTO(asset, duplicateLookup)))),
+  );
 }
 
 async function deletePhotos(ids: string[]): Promise<{ deleted: number }> {
