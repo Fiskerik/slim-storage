@@ -1,6 +1,7 @@
 import * as MediaLibrary from "expo-media-library";
 import * as Haptics from "expo-haptics";
 import * as FileSystem from "expo-file-system/legacy";
+import { Linking } from "react-native";
 import { handlePurchaseMessage } from "./purchases";
 
 type BridgeRequest = {
@@ -50,6 +51,10 @@ export async function handleBridgeMessage(request: BridgeRequest): Promise<Bridg
         break;
       case "deletePhotos":
         result = await deletePhotos(stringArrayFromData(data.ids));
+        break;
+      case "openSubscriptionSettings":
+        await Linking.openURL("https://apps.apple.com/account/subscriptions");
+        result = { ok: true };
         break;
       case "hapticTap":
         await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -141,19 +146,54 @@ async function readableAssetUri(
   }
 }
 
+async function resolveAssetSizeMB(
+  asset: MediaLibrary.Asset,
+  localUri?: string | null,
+): Promise<number> {
+  const assetFileSize = (asset as MediaLibrary.Asset & { fileSize?: number }).fileSize;
+  if (typeof assetFileSize === "number" && assetFileSize > 0) {
+    return +(assetFileSize / (1024 * 1024)).toFixed(2);
+  }
+
+  const candidateUri = localUri || asset.uri;
+  if (!candidateUri || candidateUri.startsWith("ph://")) return 0;
+
+  try {
+    const info = await FileSystem.getInfoAsync(candidateUri);
+    const size = (info as FileSystem.FileInfo & { size?: number }).size;
+    if (info.exists && typeof size === "number" && size > 0) {
+      return +(size / (1024 * 1024)).toFixed(2);
+    }
+  } catch (err: unknown) {
+    console.log("[Bridge] Could not resolve photo file size", {
+      assetId: asset.id,
+      uri: candidateUri,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  return 0;
+}
+
 async function assetToDTO(asset: MediaLibrary.Asset): Promise<PhotoDTO> {
-  // Get asset info for GPS and more metadata
+  // Get asset info for GPS, local file URI, and more metadata.
   const info = await MediaLibrary.getAssetInfoAsync(asset);
 
   const creationDate = new Date(asset.creationTime);
-  const fileSize = (asset as MediaLibrary.Asset & { fileSize?: number }).fileSize;
-  const sizeMB = fileSize ? +(fileSize / (1024 * 1024)).toFixed(2) : 0;
-
-  // Detect if asset might be iCloud-only (not locally available)
-  // If the local URI is missing or the file size is 0, it's likely cloud-only
   const localUri = info.localUri || asset.uri;
-  const isCloudAsset = !localUri || sizeMB === 0;
+  const sizeMB = await resolveAssetSizeMB(asset, localUri);
+
+  // Detect if asset might be iCloud-only (not locally available).
+  const isCloudAsset = !localUri || localUri.startsWith("ph://") || sizeMB === 0;
   const previewUri = await readableAssetUri(asset, localUri);
+
+  console.log("[Bridge] assetToDTO", {
+    assetId: asset.id,
+    title: asset.filename,
+    year: creationDate.getFullYear(),
+    sizeMB,
+    isCloudAsset,
+  });
 
   return {
     id: asset.id,
@@ -175,16 +215,16 @@ async function assetToDTO(asset: MediaLibrary.Asset): Promise<PhotoDTO> {
   };
 }
 
-function assetSizeMB(asset: MediaLibrary.Asset): number {
+function assetSortSizeMB(asset: MediaLibrary.Asset): number {
   const fileSize = (asset as MediaLibrary.Asset & { fileSize?: number }).fileSize;
-  return fileSize ? fileSize / (1024 * 1024) : 0;
+  return typeof fileSize === "number" && fileSize > 0 ? fileSize / (1024 * 1024) : 0;
 }
 
 function prioritySortAssets(assets: MediaLibrary.Asset[]): MediaLibrary.Asset[] {
   return [...assets].sort((a, b) => {
     const ageDiff = a.creationTime - b.creationTime;
     if (Math.abs(ageDiff) > 1000 * 60 * 60 * 24 * 30) return ageDiff;
-    return assetSizeMB(b) - assetSizeMB(a);
+    return assetSortSizeMB(b) - assetSortSizeMB(a);
   });
 }
 
@@ -193,7 +233,7 @@ async function getPhotos(count: number): Promise<PhotoDTO[]> {
   const result = await MediaLibrary.getAssetsAsync({
     mediaType: "photo",
     first: Math.min(250, Math.max(targetCount * 4, targetCount)),
-    sortBy: [[MediaLibrary.SortBy.creationTime, false]],
+    sortBy: [[MediaLibrary.SortBy.creationTime, true]],
   });
 
   if (result.assets.length === 0) return [];
@@ -216,7 +256,7 @@ async function getOlderPhotos(beforeYear: number, count: number): Promise<PhotoD
     mediaType: "photo",
     first: count * 2, // fetch extra to have variety
     createdBefore: cutoffDate,
-    sortBy: [[MediaLibrary.SortBy.creationTime, false]], // oldest first
+    sortBy: [[MediaLibrary.SortBy.creationTime, true]], // oldest first
   });
 
   const selected = prioritySortAssets(result.assets).slice(0, count);
@@ -264,8 +304,8 @@ async function getBurstGroups(maxGroups: number): Promise<PhotoDTO[][]> {
       const ageDiff = aOldest - bOldest;
       if (Math.abs(ageDiff) > 1000 * 60 * 60 * 24 * 30) return ageDiff;
       const sizeDiff =
-        b.reduce((sum, asset) => sum + assetSizeMB(asset), 0) -
-        a.reduce((sum, asset) => sum + assetSizeMB(asset), 0);
+        b.reduce((sum, asset) => sum + assetSortSizeMB(asset), 0) -
+        a.reduce((sum, asset) => sum + assetSortSizeMB(asset), 0);
       if (Math.abs(sizeDiff) > 0.1) return sizeDiff;
       return b.length - a.length;
     })

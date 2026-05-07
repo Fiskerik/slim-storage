@@ -19,7 +19,12 @@ import { Link } from "@tanstack/react-router";
 import { useStats } from "@/hooks/use-stats";
 import { updateSettings, deleteAllData, setPro } from "@/lib/storage";
 import { isNativeApp } from "@/lib/photo-source";
-import { restorePurchases, presentPaywall, presentCustomerCenter } from "@/lib/purchases";
+import {
+  restorePurchases,
+  presentPaywall,
+  presentCustomerCenter,
+  openSubscriptionSettings,
+} from "@/lib/purchases";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { ShareStatsCard } from "@/components/ShareStatsCard";
@@ -321,12 +326,12 @@ export function ProfilePage() {
                 console.log("[Profile] manage subscription tapped");
                 const opened = await presentCustomerCenter();
                 if (!opened) {
-                  window.open("https://apps.apple.com/account/subscriptions", "_blank");
+                  await openSubscriptionSettings();
                   toast("Opening Apple subscription settings");
                 }
               } catch (error) {
                 console.log("[Profile] manage subscription failed", error);
-                window.open("https://apps.apple.com/account/subscriptions", "_blank");
+                await openSubscriptionSettings();
                 toast.error("Could not open Customer Center. Opening Apple settings instead.");
               } finally {
                 setManageBusy(false);

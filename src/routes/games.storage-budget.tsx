@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { HardDrive, Sparkles, Check, X, RotateCcw, ArrowLeft } from "lucide-react";
 import { Link } from "@tanstack/react-router";
-import { SAMPLE_PHOTOS, type SamplePhoto } from "@/lib/photos";
+import { getPhotoSourceAsync, type LibraryPhoto } from "@/lib/photo-source";
 import { setStats, logDay } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
@@ -14,34 +14,67 @@ export const Route = createFileRoute("/games/storage-budget")({
 const BUDGET_MB = 50;
 
 // Unique pool entry so duplicate-seed photos never share an id in the kept-Set.
-type PoolEntry = SamplePhoto & { poolKey: string };
+type PoolEntry = LibraryPhoto & { poolKey: string };
 
-function shuffle<T>(arr: T[]): T[] {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
+function preloadPhotoImages(photos: PoolEntry[]) {
+  if (typeof window === "undefined") return;
+  photos.forEach((photo) => {
+    const image = new Image();
+    image.src = photo.thumb || photo.url;
+  });
 }
 
-function buildPool(): PoolEntry[] {
-  // SAMPLE_PHOTOS already has 12 unique entries — no duplication needed.
-  return shuffle([...SAMPLE_PHOTOS]).map((p, i) => ({
-    ...p,
-    poolKey: `${p.id}-${i}`,
+function withPoolKeys(photos: LibraryPhoto[]): PoolEntry[] {
+  return photos.map((photo, index) => ({
+    ...photo,
+    poolKey: `${photo.id}-${photo.nativeId ?? "web"}-${index}`,
   }));
 }
 
-function newPool(): PoolEntry[] {
-  return buildPool();
-}
-
 function StorageBudget() {
-  const [pool, setPool] = useState<PoolEntry[]>(() => newPool());
+  const [pool, setPool] = useState<PoolEntry[]>([]);
   // kept tracks poolKey (unique per slot), not photo id
   const [kept, setKept] = useState<Set<string>>(new Set());
   const [done, setDone] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const preloadedBoardRef = useRef<Promise<PoolEntry[]> | null>(null);
+
+  function createBoardLoad() {
+    return getPhotoSourceAsync()
+      .then((src) => src.getRandom(24))
+      .then((photos) => {
+        const board = withPoolKeys(photos);
+        console.log("[StorageBudgetRoute] loaded prioritized board", { count: board.length });
+        return board;
+      });
+  }
+
+  function preloadNextBoard() {
+    if (!preloadedBoardRef.current) {
+      preloadedBoardRef.current = createBoardLoad().then((photos) => {
+        preloadPhotoImages(photos);
+        return photos;
+      });
+    }
+  }
+
+  async function loadPhotos() {
+    setLoading(true);
+    const pending = preloadedBoardRef.current;
+    preloadedBoardRef.current = null;
+    const photos = pending ? await pending : await createBoardLoad();
+    setPool(photos);
+    preloadPhotoImages(photos);
+    preloadNextBoard();
+    setKept(new Set());
+    setDone(false);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadPhotos();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const usedMB = useMemo(
     () =>
@@ -86,15 +119,25 @@ function StorageBudget() {
   }
 
   function restart() {
-    setPool(newPool());
-    setKept(new Set());
-    setDone(false);
+    loadPhotos();
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center px-6 pt-20 text-center">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-muted border-t-primary" />
+        <p className="mt-4 text-sm text-muted-foreground">Loading old, large photos…</p>
+      </div>
+    );
   }
 
   if (done) {
     const cleared = pool.length - kept.size;
     const freed = parseFloat(
-      pool.filter((p) => !kept.has(p.poolKey)).reduce((s, p) => s + p.sizeMB, 0).toFixed(2),
+      pool
+        .filter((p) => !kept.has(p.poolKey))
+        .reduce((s, p) => s + p.sizeMB, 0)
+        .toFixed(2),
     );
     return (
       <div className="flex flex-col items-center px-6 pt-10 text-center">
@@ -132,7 +175,10 @@ function StorageBudget() {
     <div className="px-5 pt-4 pb-8">
       {/* Header */}
       <div className="flex w-full items-center justify-between text-xs text-muted-foreground">
-        <Link to="/games" className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition">
+        <Link
+          to="/games"
+          className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition"
+        >
           <ArrowLeft className="h-3.5 w-3.5" />
           <span className="inline-flex items-center gap-1 uppercase tracking-[0.18em]">
             <HardDrive className="h-3.5 w-3.5" /> Storage Budget
@@ -144,7 +190,7 @@ function StorageBudget() {
       </div>
 
       {/* Budget bar */}
-      <div className="mt-3 rounded-2xl border border-border bg-card p-4">
+      <div className="sticky top-0 z-30 mt-3 rounded-2xl border border-border bg-card/95 p-4 shadow-card backdrop-blur-xl">
         <div className="flex items-baseline justify-between">
           <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Budget</p>
           <p
@@ -186,9 +232,7 @@ function StorageBudget() {
               onClick={() => toggle(p)}
               className={cn(
                 "group relative aspect-square overflow-hidden rounded-xl border-2 transition-all active:scale-95",
-                on
-                  ? "border-primary opacity-100"
-                  : "border-transparent opacity-50 grayscale",
+                on ? "border-primary opacity-100" : "border-transparent opacity-50 grayscale",
               )}
             >
               <img
@@ -224,7 +268,12 @@ function StorageBudget() {
             : "bg-primary text-primary-foreground hover:opacity-90",
         )}
       >
-        {overBudget ? "Over budget — deselect a photo" : `Lock in — free ${(pool.filter(p => !kept.has(p.poolKey)).reduce((s, p) => s + p.sizeMB, 0)).toFixed(1)} MB`}
+        {overBudget
+          ? "Over budget — deselect a photo"
+          : `Lock in — free ${pool
+              .filter((p) => !kept.has(p.poolKey))
+              .reduce((s, p) => s + p.sizeMB, 0)
+              .toFixed(1)} MB`}
       </button>
     </div>
   );

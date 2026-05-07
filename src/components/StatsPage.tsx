@@ -276,11 +276,11 @@ function DayDetailModal({ day, onClose }: { day: DayLog; onClose: () => void }) 
   const total = day.kept + day.trimmed + day.deleted;
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 px-5 pb-5 pt-[calc(var(--safe-area-top,env(safe-area-inset-top))+1rem)] backdrop-blur-sm sm:items-center"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-sm rounded-t-3xl border border-border bg-card p-6 shadow-card sm:rounded-3xl"
+        className="w-full max-w-sm rounded-3xl border border-border bg-card p-6 shadow-card"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between">

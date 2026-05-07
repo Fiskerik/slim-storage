@@ -208,7 +208,8 @@ export function SwipeDeck() {
       // iCloud backup awareness — show warning if photo is cloud-only or first time per session
       const isCloud = photo.isCloudAsset === true;
       if (
-        (isCloud || (stats.settings.iCloudBackupWarn && !seenICloudWarnRef.current)) &&
+        stats.settings.iCloudBackupWarn &&
+        (isCloud || !seenICloudWarnRef.current) &&
         isNativeApp()
       ) {
         seenICloudWarnRef.current = true;
