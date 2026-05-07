@@ -135,7 +135,7 @@ async function startStaticServer(): Promise<{ server: StaticServerInstance; url:
   const activeServer = getActiveServer?.();
   if (activeServer?.origin) {
     console.log("[LocalWebView] Reusing active static server", { origin: activeServer.origin });
-    return { server: activeServer, url: `${activeServer.origin}/index.html` };
+    return { server: activeServer, url: `${activeServer.origin}/` };
   }
 
   const fileDir = await getWebRootPath();
@@ -153,14 +153,14 @@ async function startStaticServer(): Promise<{ server: StaticServerInstance; url:
       `,
     });
 
-    server.addStateListener?.((state: string, details: string, error?: Error) => {
+    server.addStateListener?.((state, details, error?: Error) => {
       console.log("[LocalWebView] Static server state", { state, details, error: error?.message });
     });
 
     try {
       const origin = await server.start(`TrimSwipe web root on port ${port}`);
       console.log("[LocalWebView] Static server started", { origin, fileDir, port });
-      return { server, url: `${origin}/index.html` };
+      return { server, url: `${origin}/` };
     } catch (error) {
       lastError = error;
       console.log("[LocalWebView] Static server failed", { port, error });

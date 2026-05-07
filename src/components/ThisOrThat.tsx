@@ -71,6 +71,8 @@ export function ThisOrThat() {
   const [deleteFreed, setDeleteFreed] = useState(0);
   const [selectedIdx, setSelectedIdx] = useState<0 | 1 | null>(null);
   const preloadedRoundRef = useRef<Promise<BurstPair[]> | null>(null);
+  const deletedLosersRef = useRef<SamplePhoto[]>([]);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   function preloadNextRound() {
     if (!preloadedRoundRef.current) {
@@ -125,14 +127,7 @@ export function ThisOrThat() {
     }));
     logDay({ kept: 1, deleted: 1, mbFreed: loser.sizeMB });
 
-    if (loser.isNative && loser.nativeId) {
-      getPhotoSourceAsync()
-        .then((src) => src.deletePhotos([loser.nativeId!]))
-        .then((result) =>
-          console.log("[ThisOrThat] native deleted loser", { id: loser.nativeId, result }),
-        )
-        .catch((error) => console.warn("[ThisOrThat] native delete failed", error));
-    }
+    deletedLosersRef.current = [...deletedLosersRef.current, loser];
 
     if (idx + 2 >= round.length) preloadNextRound();
 
@@ -154,8 +149,37 @@ export function ThisOrThat() {
     preloadNextRound();
     setIdx(0);
     setDeleteFreed(0);
+    deletedLosersRef.current = [];
+    setDeleteBusy(false);
     setSelectedIdx(null);
     setStep("playing");
+  }
+
+  async function deleteRoundLosers() {
+    if (deleteBusy) return;
+    const nativeIds = deletedLosersRef.current
+      .filter((photo) => photo.isNative && photo.nativeId)
+      .map((photo) => photo.nativeId!);
+
+    console.log("[ThisOrThat] confirming round deletion", {
+      losers: deletedLosersRef.current.length,
+      nativeIds: nativeIds.length,
+      totalFreed,
+    });
+
+    if (nativeIds.length > 0) {
+      try {
+        setDeleteBusy(true);
+        const result = await (await getPhotoSourceAsync()).deletePhotos(nativeIds);
+        console.log("[ThisOrThat] native delete result", result);
+      } catch (error) {
+        console.warn("[ThisOrThat] native delete failed", error);
+      } finally {
+        setDeleteBusy(false);
+      }
+    }
+
+    await reset();
   }
 
   if (step === "summary") {
@@ -174,12 +198,24 @@ export function ThisOrThat() {
             {deleteFreed.toFixed(1)} MB
           </p>
         </div>
-        <button
-          onClick={reset}
-          className="mt-8 inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-card hover:opacity-90"
-        >
-          <RefreshCw className="h-4 w-4" /> New round
-        </button>
+        <div className="mt-8 flex w-full max-w-xs flex-col gap-2">
+          <button
+            onClick={deleteRoundLosers}
+            disabled={deleteBusy}
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-destructive px-6 py-3 text-sm font-semibold text-destructive-foreground shadow-card hover:opacity-90 disabled:opacity-60"
+          >
+            {deleteBusy
+              ? "Deleting…"
+              : `Delete ${round.length} photo${round.length === 1 ? "" : "s"} · ${totalFreed.toFixed(1)} MB`}
+          </button>
+          <button
+            onClick={reset}
+            disabled={deleteBusy}
+            className="inline-flex items-center justify-center gap-2 rounded-full border border-border bg-card px-6 py-3 text-sm font-semibold text-foreground hover:border-primary/40 disabled:opacity-60"
+          >
+            <RefreshCw className="h-4 w-4" /> Keep all losers
+          </button>
+        </div>
       </div>
     );
   }

@@ -200,11 +200,29 @@ export async function presentCustomerCenter(): Promise<boolean> {
     return false;
   }
   try {
-    const result = await purchaseBridgeCall("purchases_presentCustomerCenter");
+    const result = await Promise.race([
+      purchaseBridgeCall("purchases_presentCustomerCenter"),
+      new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 6000)),
+    ]);
+    if (result === null) {
+      console.log("[purchases] presentCustomerCenter timed out; falling back");
+      return false;
+    }
     if (result?.error) console.log("[purchases] presentCustomerCenter error", result.error);
     return result?.success === true || result?.isPro === true;
   } catch (error) {
     console.log("[purchases] presentCustomerCenter exception", error);
+    return false;
+  }
+}
+
+export async function openSubscriptionSettings(): Promise<boolean> {
+  if (!hasBridge()) return false;
+  try {
+    const result = await purchaseBridgeCall("openSubscriptionSettings");
+    return result !== null;
+  } catch (error) {
+    console.log("[purchases] openSubscriptionSettings exception", error);
     return false;
   }
 }
