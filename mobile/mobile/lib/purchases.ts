@@ -9,8 +9,8 @@ import Purchases, {
 } from "react-native-purchases";
 
 const REVENUECAT_API_KEY = process.env.EXPO_PUBLIC_RC_KEY ?? "";
-const LIFETIME_PRODUCT_ID = process.env.EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID ?? "";
-const ENTITLEMENT_ID = process.env.EXPO_PUBLIC_RC_ENTITLEMENT_ID ?? "TrimSwipe Pro";
+const LIFETIME_PRODUCT_ID = process.env.EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID ?? "lifetime_premium_1";
+const ENTITLEMENT_ID = process.env.EXPO_PUBLIC_RC_ENTITLEMENT_ID ?? "TrimswipePro";
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 type PurchaseRequest = {
