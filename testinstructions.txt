@@ -13,13 +13,13 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 class NoCache(SimpleHTTPRequestHandler):
     def end_headers(self):
-            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-                    self.send_header("Pragma", "no-cache")
-                            self.send_header("Expires", "0")
-                                    super().end_headers()
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+        super().end_headers()
 
-                                    HTTPServer(("0.0.0.0", 4174), NoCache).serve_forever()
-                                    PY
+HTTPServer(("0.0.0.0", 4174), NoCache).serve_forever()
+PY
 
 Then open:
 
@@ -55,4 +55,4 @@ npx expo run:ios --configuration Release --device
 4. Test the EAS production pipeline locally without cloud credits
 If you specifically want to test the same EAS build process before using cloud credits, use EAS local build:
 
-eas build --platform ios --profile production --local --output ./build/Trimswipe.ipa
+eas build --platform ios --profile production 
