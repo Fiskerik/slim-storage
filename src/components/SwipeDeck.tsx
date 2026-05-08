@@ -30,6 +30,7 @@ import {
 } from "@/lib/storage";
 import { useStats } from "@/hooks/use-stats";
 import { Onboarding } from "@/components/Onboarding";
+import { FullPhotoDialog } from "@/components/FullPhotoDialog";
 import { toast } from "sonner";
 import { presentPaywall } from "@/lib/purchases";
 import { cn } from "@/lib/utils";
@@ -77,6 +78,7 @@ export function SwipeDeck() {
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [iCloudWarn, setICloudWarn] = useState<{ photo: SamplePhoto } | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [fullPhoto, setFullPhoto] = useState<SamplePhoto | null>(null);
   const preloadedRoundRef = useRef<Promise<SamplePhoto[]> | null>(null);
 
   function createRoundLoad() {
@@ -104,19 +106,17 @@ export function SwipeDeck() {
     (async () => {
       const src = await getPhotoSourceAsync();
       console.log("[SwipeDeck] photo source resolved", { isNative: src.isNative });
-      if (src.isNative) {
-        const permission = await src.requestPermission();
-        if (!permission.granted) {
-          if (!cancelled) {
-            setPermissionDenied(true);
-            setPermissionLimited(false);
-            setLoading(false);
-          }
-          return;
-        }
+      const permission = await src.requestPermission();
+      if (!permission.granted) {
         if (!cancelled) {
-          setPermissionLimited(permission.limited);
+          setPermissionDenied(true);
+          setPermissionLimited(false);
+          setLoading(false);
         }
+        return;
+      }
+      if (!cancelled) {
+        setPermissionLimited(permission.limited);
       }
       const photos = await src.getRandom(cardsPerRound);
       if (cancelled) return;
@@ -156,7 +156,7 @@ export function SwipeDeck() {
     sess.deleted += 1;
     sess.freed += photo.sizeMB;
     setStats((s) => ({ ...s, deleted: s.deleted + 1, mbFreed: s.mbFreed + photo.sizeMB }));
-    logDay({ deleted: 1, mbFreed: photo.sizeMB });
+    logDay({ deleted: 1, mbFreed: photo.sizeMB, deletedMbFreed: photo.sizeMB });
     softDelete({ id: photo.id, title: photo.title, sizeMB: photo.sizeMB });
     deletedPhotosRef.current = [...deletedPhotosRef.current, photo];
 
@@ -200,7 +200,7 @@ export function SwipeDeck() {
       sess.trimmed += 1;
       sess.freed += saved;
       setStats((s) => ({ ...s, slimmed: s.slimmed + 1, mbFreed: s.mbFreed + saved }));
-      logDay({ trimmed: 1, mbFreed: saved });
+      logDay({ trimmed: 1, mbFreed: saved, trimmedMbFreed: saved });
       recordTrim();
       hapticSuccess();
       // No per-swipe toast — summary is shown at the end
@@ -288,14 +288,15 @@ export function SwipeDeck() {
         </div>
         <h2 className="mt-4 font-display text-2xl font-bold">Photo access needed</h2>
         <p className="mt-2 max-w-xs text-sm text-muted-foreground">
-          Slim works on the photos already in your library. Open Settings → Slim → Photos and enable
-          access.
+          {isNativeApp()
+            ? "Slim works on the photos already in your library. Open Settings → Slim → Photos and enable access."
+            : "Choose a folder of photos from your drive so Slim can build a cleanup queue in the browser."}
         </p>
         <button
           onClick={() => window.location.reload()}
           className="mt-6 inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-card"
         >
-          <RefreshCw className="h-4 w-4" /> I've enabled it
+          <RefreshCw className="h-4 w-4" /> {isNativeApp() ? "I've enabled it" : "Select folder"}
         </button>
       </div>
     );
@@ -306,7 +307,7 @@ export function SwipeDeck() {
       <div className="flex flex-col items-center px-6 pt-20 text-center">
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-muted border-t-primary" />
         <p className="mt-4 text-sm text-muted-foreground">
-          {isNativeApp() ? "Loading your photos…" : "Loading sample photos…"}
+          {isNativeApp() ? "Loading your photos…" : "Choose a folder to clean…"}
         </p>
       </div>
     );
@@ -343,7 +344,14 @@ export function SwipeDeck() {
       <div className="relative mt-4 h-[460px] w-full max-w-sm">
         <AnimatePresence>
           {next && <PhotoCard key={next.id} photo={next} stacked />}
-          {top && <SwipeableCard key={top.id} photo={top} onAction={(a) => handleAction(top, a)} />}
+          {top && (
+            <SwipeableCard
+              key={top.id}
+              photo={top}
+              onAction={(a) => handleAction(top, a)}
+              onOpenFull={() => setFullPhoto(top)}
+            />
+          )}
           {!top && !recap && <EmptyDeckCard onReset={reset} />}
         </AnimatePresence>
       </div>
@@ -409,6 +417,8 @@ export function SwipeDeck() {
           }}
         />
       )}
+
+      <FullPhotoDialog photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </div>
   );
 }
@@ -508,7 +518,15 @@ function ICloudWarnModal({
   );
 }
 
-function SwipeableCard({ photo, onAction }: { photo: SamplePhoto; onAction: (a: Action) => void }) {
+function SwipeableCard({
+  photo,
+  onAction,
+  onOpenFull,
+}: {
+  photo: SamplePhoto;
+  onAction: (a: Action) => void;
+  onOpenFull: () => void;
+}) {
   const x = useMotionValue(0);
   const y = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-14, 14]);
@@ -541,7 +559,7 @@ function SwipeableCard({ photo, onAction }: { photo: SamplePhoto; onAction: (a: 
       transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.7 }}
       className="absolute inset-0 cursor-grab will-change-transform active:cursor-grabbing"
     >
-      <PhotoCard photo={photo}>
+      <PhotoCard photo={photo} onOpenFull={onOpenFull}>
         {/* Left edge — KEEP (green) */}
         <motion.div
           style={{ opacity: keepOpacity }}
@@ -582,10 +600,12 @@ function PhotoCard({
   photo,
   stacked,
   children,
+  onOpenFull,
 }: {
   photo: SamplePhoto;
   stacked?: boolean;
   children?: React.ReactNode;
+  onOpenFull?: () => void;
 }) {
   return (
     <div
@@ -595,11 +615,12 @@ function PhotoCard({
       )}
     >
       <img
+        onClick={onOpenFull}
         src={displayPhotoUrl(photo)}
         alt={photo.title}
         loading={stacked ? "eager" : "eager"}
         decoding="async"
-        className="h-full w-full object-cover"
+        className={cn("h-full w-full object-cover", onOpenFull && "cursor-zoom-in")}
       />
       <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/10 to-transparent" />
 

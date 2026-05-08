@@ -5,6 +5,7 @@ import { HardDrive, Sparkles, Check, X, RotateCcw, ArrowLeft } from "lucide-reac
 import { Link } from "@tanstack/react-router";
 import { getPhotoSourceAsync, type LibraryPhoto } from "@/lib/photo-source";
 import { displayPhotoUrl, preloadPhotoImages } from "@/lib/image-preload";
+import { FullPhotoDialog } from "@/components/FullPhotoDialog";
 import { setStats, logDay } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +31,7 @@ function StorageBudget() {
   const [kept, setKept] = useState<Set<string>>(new Set());
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [fullPhoto, setFullPhoto] = useState<LibraryPhoto | null>(null);
   const preloadedBoardRef = useRef<Promise<PoolEntry[]> | null>(null);
 
   function createBoardLoad() {
@@ -107,7 +109,13 @@ function StorageBudget() {
       storageBudgetTotalCleared: s.storageBudgetTotalCleared + cleared.length,
       storageBudgetTotalMbFreed: s.storageBudgetTotalMbFreed + freed,
     }));
-    logDay({ kept: kept.size, deleted: cleared.length, mbFreed: freed });
+    logDay({
+      kept: kept.size,
+      deleted: cleared.length,
+      mbFreed: freed,
+      deletedMbFreed: freed,
+      storageBudgetPlayed: 1,
+    });
     setDone(true);
   }
 
@@ -234,6 +242,16 @@ function StorageBudget() {
                 className="h-full w-full object-cover"
                 loading="lazy"
               />
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setFullPhoto(p);
+                }}
+                className="absolute right-1 top-1 z-10 rounded-full bg-black/50 px-1.5 py-0.5 text-[9px] font-semibold text-white backdrop-blur"
+              >
+                Full
+              </button>
               <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
               <div className="absolute bottom-1 left-1.5 right-1.5 flex items-center justify-between text-[9px] font-semibold text-white">
                 <span className="tabular-nums">{p.sizeMB.toFixed(1)}MB</span>
@@ -268,6 +286,7 @@ function StorageBudget() {
               .reduce((s, p) => s + p.sizeMB, 0)
               .toFixed(1)} MB`}
       </button>
+      <FullPhotoDialog photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </div>
   );
 }

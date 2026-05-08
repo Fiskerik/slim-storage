@@ -26,7 +26,8 @@ export function StatsPage() {
   const freed = s.mbFreed;
   const freedDisplay = freed >= 1024 ? `${(freed / 1024).toFixed(2)} GB` : `${freed.toFixed(1)} MB`;
 
-  const last7 = useMemo(() => buildLast7Days(s.daily), [s.daily]);
+  const [period, setPeriod] = useState<"week" | "month" | "year">("week");
+  const history = useMemo(() => buildPeriodDays(s.daily, period), [s.daily, period]);
   const [selected, setSelected] = useState<DayLog | null>(null);
 
   return (
@@ -45,18 +46,45 @@ export function StatsPage() {
         </p>
       </section>
 
-      {/* Last 7 days */}
-      <h2 className="mt-7 px-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-        Last 7 days
-      </h2>
-      <p className="mt-1 px-1 text-[11px] text-muted-foreground">
-        Tap a day to see what you cleaned. Green = memory played.
-      </p>
-      <div className="mt-3 flex items-end justify-between gap-2">
-        {last7.map((d) => {
-          const max = Math.max(1, ...last7.map((x) => x.mbFreed));
+      <div className="mt-7 flex items-center justify-between gap-3 px-1">
+        <div>
+          <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            Activity
+          </h2>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Tap a day to see cleanup and game stats.
+          </p>
+        </div>
+        <div className="grid grid-cols-3 rounded-full border border-border bg-card p-1 text-[10px] font-semibold uppercase tracking-wider">
+          {(["week", "month", "year"] as const).map((item) => (
+            <button
+              key={item}
+              onClick={() => setPeriod(item)}
+              className={cn(
+                "rounded-full px-2.5 py-1 transition",
+                period === item
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-3 flex items-end justify-between gap-1.5">
+        {history.map((d) => {
+          const max = Math.max(1, ...history.map((x) => x.mbFreed));
           const heightPct = Math.max(8, Math.round((d.mbFreed / max) * 100));
-          const hasActivity = d.kept + d.trimmed + d.deleted + d.memoryPlayed > 0;
+          const hasActivity =
+            d.kept +
+              d.trimmed +
+              d.deleted +
+              d.memoryPlayed +
+              d.thisOrThatRounds +
+              d.speedRoundPlayed +
+              d.storageBudgetPlayed >
+            0;
           const memoryCleared = d.memoryPlayed > 0;
           const label = new Date(d.date + "T00:00:00").toLocaleDateString("en-US", {
             weekday: "short",
@@ -65,7 +93,7 @@ export function StatsPage() {
             <button
               key={d.date}
               onClick={() => setSelected(d)}
-              className="group flex flex-1 flex-col items-center gap-1.5"
+              className="group flex min-w-0 flex-1 flex-col items-center gap-1.5"
               aria-label={`${d.date} details`}
             >
               <div className="relative flex h-[88px] w-full items-end justify-center">
@@ -248,23 +276,62 @@ export function StatsPage() {
   );
 }
 
-function buildLast7Days(daily: DayLog[]): DayLog[] {
-  const map = new Map(daily.map((d) => [d.date, d]));
+function emptyDay(date: string): DayLog {
+  return {
+    date,
+    kept: 0,
+    trimmed: 0,
+    deleted: 0,
+    mbFreed: 0,
+    trimmedMbFreed: 0,
+    deletedMbFreed: 0,
+    memoryPlayed: 0,
+    thisOrThatRounds: 0,
+    speedRoundPlayed: 0,
+    speedRoundReviewed: 0,
+    storageBudgetPlayed: 0,
+  };
+}
+
+function buildPeriodDays(daily: DayLog[], period: "week" | "month" | "year"): DayLog[] {
+  const map = new Map(daily.map((d) => [d.date, { ...emptyDay(d.date), ...d }]));
   const out: DayLog[] = [];
-  for (let i = 6; i >= 0; i--) {
+  const days = period === "week" ? 7 : period === "month" ? 30 : 365;
+  const step = period === "year" ? 14 : 1;
+  for (let i = days - 1; i >= 0; i -= step) {
     const date = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
-    out.push(
-      map.get(date) ?? {
-        date,
-        kept: 0,
-        trimmed: 0,
-        deleted: 0,
-        mbFreed: 0,
-        memoryPlayed: 0,
-      },
-    );
+    const bucket = map.get(date) ?? emptyDay(date);
+    if (period === "year") {
+      const start = Math.max(0, i - step + 1);
+      const daysInBucket = Array.from({ length: i - start + 1 }, (_, idx) => {
+        const bucketDate = new Date(Date.now() - (start + idx) * 86_400_000)
+          .toISOString()
+          .slice(0, 10);
+        return map.get(bucketDate) ?? emptyDay(bucketDate);
+      });
+      out.push(daysInBucket.reduce(sumDays, { ...emptyDay(date), date }));
+    } else {
+      out.push(bucket);
+    }
   }
   return out;
+}
+
+function sumDays(total: DayLog, day: DayLog): DayLog {
+  return {
+    ...total,
+    kept: total.kept + day.kept,
+    trimmed: total.trimmed + day.trimmed,
+    deleted: total.deleted + day.deleted,
+    mbFreed: +(total.mbFreed + day.mbFreed).toFixed(2),
+    trimmedMbFreed: +(total.trimmedMbFreed + day.trimmedMbFreed).toFixed(2),
+    deletedMbFreed: +(total.deletedMbFreed + day.deletedMbFreed).toFixed(2),
+    memoryPlayed: total.memoryPlayed + day.memoryPlayed,
+    thisOrThatRounds: total.thisOrThatRounds + day.thisOrThatRounds,
+    speedRoundPlayed: total.speedRoundPlayed + day.speedRoundPlayed,
+    speedRoundReviewed: total.speedRoundReviewed + day.speedRoundReviewed,
+    storageBudgetPlayed: total.storageBudgetPlayed + day.storageBudgetPlayed,
+  };
 }
 
 function DayDetailModal({ day, onClose }: { day: DayLog; onClose: () => void }) {
@@ -274,6 +341,8 @@ function DayDetailModal({ day, onClose }: { day: DayLog; onClose: () => void }) 
     day: "numeric",
   });
   const total = day.kept + day.trimmed + day.deleted;
+  const playedGames =
+    day.memoryPlayed + day.thisOrThatRounds + day.speedRoundPlayed + day.storageBudgetPlayed;
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 px-5 pb-5 pt-[calc(var(--safe-area-top,env(safe-area-inset-top))+1rem)] backdrop-blur-sm sm:items-center"
@@ -297,7 +366,7 @@ function DayDetailModal({ day, onClose }: { day: DayLog; onClose: () => void }) 
           </button>
         </div>
 
-        {total === 0 && day.memoryPlayed === 0 ? (
+        {total === 0 && playedGames === 0 ? (
           <p className="mt-4 text-sm text-muted-foreground">No activity on this day.</p>
         ) : (
           <>
@@ -312,22 +381,60 @@ function DayDetailModal({ day, onClose }: { day: DayLog; onClose: () => void }) 
 
             <div className="mt-3 grid grid-cols-3 gap-2">
               <MiniStat label="Kept" value={day.kept} />
-              <MiniStat label="Trimmed" value={day.trimmed} accent />
-              <MiniStat label="Deleted" value={day.deleted} />
+              <MiniStat
+                label="Trimmed"
+                value={day.trimmed}
+                detail={`${day.trimmedMbFreed.toFixed(1)} MB`}
+                accent
+              />
+              <MiniStat
+                label="Deleted"
+                value={day.deleted}
+                detail={`${day.deletedMbFreed.toFixed(1)} MB`}
+              />
             </div>
 
-            <div
-              className={cn(
-                "mt-3 flex items-center gap-2 rounded-2xl border p-3 text-sm",
-                day.memoryPlayed > 0
-                  ? "border-success/40 bg-success/10 text-success-foreground"
-                  : "border-border bg-muted/40 text-muted-foreground",
-              )}
-            >
-              <Brain className="h-4 w-4" />
-              {day.memoryPlayed > 0
-                ? `Memory played · ${day.memoryPlayed} photo${day.memoryPlayed === 1 ? "" : "s"}`
-                : "No memory game this day"}
+            <div className="mt-3 space-y-2">
+              <GameLine
+                icon={<Brain className="h-4 w-4" />}
+                label="Memory Lane"
+                value={
+                  day.memoryPlayed > 0
+                    ? `${day.memoryPlayed} photo${day.memoryPlayed === 1 ? "" : "s"}`
+                    : "Not played"
+                }
+                active={day.memoryPlayed > 0}
+              />
+              <GameLine
+                icon={<Scale className="h-4 w-4" />}
+                label="This or That"
+                value={
+                  day.thisOrThatRounds > 0
+                    ? `${day.thisOrThatRounds} pick${day.thisOrThatRounds === 1 ? "" : "s"} · ${day.deletedMbFreed.toFixed(1)} MB saved`
+                    : "Not played"
+                }
+                active={day.thisOrThatRounds > 0}
+              />
+              <GameLine
+                icon={<Timer className="h-4 w-4" />}
+                label="Speed Round"
+                value={
+                  day.speedRoundReviewed > 0
+                    ? `${day.speedRoundReviewed} reviewed · ${day.deletedMbFreed.toFixed(1)} MB saved`
+                    : "Not played"
+                }
+                active={day.speedRoundReviewed > 0}
+              />
+              <GameLine
+                icon={<HardDrive className="h-4 w-4" />}
+                label="Storage Budget"
+                value={
+                  day.storageBudgetPlayed > 0
+                    ? `${day.storageBudgetPlayed} board · ${day.deletedMbFreed.toFixed(1)} MB saved`
+                    : "Not played"
+                }
+                active={day.storageBudgetPlayed > 0}
+              />
             </div>
           </>
         )}
@@ -336,13 +443,55 @@ function DayDetailModal({ day, onClose }: { day: DayLog; onClose: () => void }) 
   );
 }
 
-function MiniStat({ label, value, accent }: { label: string; value: number; accent?: boolean }) {
+function MiniStat({
+  label,
+  value,
+  detail,
+  accent,
+}: {
+  label: string;
+  value: number;
+  detail?: string;
+  accent?: boolean;
+}) {
   return (
     <div className="rounded-xl border border-border bg-background/50 p-3 text-center">
       <p className={cn("font-display text-xl font-bold tabular-nums", accent && "text-primary")}>
         {value}
       </p>
       <p className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      {detail && (
+        <p className="mt-1 text-[10px] font-semibold text-muted-foreground">{detail} saved</p>
+      )}
+    </div>
+  );
+}
+
+function GameLine({
+  icon,
+  label,
+  value,
+  active,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  active: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-between gap-3 rounded-2xl border p-3 text-sm",
+        active
+          ? "border-success/40 bg-success/10 text-success-foreground"
+          : "border-border bg-muted/40 text-muted-foreground",
+      )}
+    >
+      <div className="flex items-center gap-2">
+        {icon}
+        <span className="font-medium">{label}</span>
+      </div>
+      <span className="text-right text-xs">{value}</span>
     </div>
   );
 }
