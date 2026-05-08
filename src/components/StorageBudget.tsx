@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { HardDrive, Sparkles, Check, X, RotateCcw } from "lucide-react";
 import { getPhotoSourceAsync, type LibraryPhoto } from "@/lib/photo-source";
 import { displayPhotoUrl, preloadPhotoImages } from "@/lib/image-preload";
+import { FullPhotoDialog } from "@/components/FullPhotoDialog";
 import { setStats, logDay } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +13,7 @@ export function StorageBudget() {
   const [pool, setPool] = useState<LibraryPhoto[]>([]);
   const [kept, setKept] = useState<Set<string>>(new Set());
   const [done, setDone] = useState(false);
+  const [fullPhoto, setFullPhoto] = useState<LibraryPhoto | null>(null);
   const preloadedBoardRef = useRef<Promise<LibraryPhoto[]> | null>(null);
 
   function preloadNextBoard() {
@@ -72,7 +74,13 @@ export function StorageBudget() {
       deleted: s.deleted + cleared.length,
       mbFreed: s.mbFreed + freed,
     }));
-    logDay({ kept: kept.size, deleted: cleared.length, mbFreed: freed });
+    logDay({
+      kept: kept.size,
+      deleted: cleared.length,
+      mbFreed: freed,
+      deletedMbFreed: freed,
+      storageBudgetPlayed: 1,
+    });
     setDone(true);
   }
 
@@ -162,6 +170,16 @@ export function StorageBudget() {
               )}
             >
               <img src={displayPhotoUrl(p)} alt={p.title} className="h-full w-full object-cover" />
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setFullPhoto(p);
+                }}
+                className="absolute right-1 top-1 z-10 rounded-full bg-black/50 px-1.5 py-0.5 text-[9px] font-semibold text-white backdrop-blur"
+              >
+                Full
+              </button>
               <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
               <div className="absolute bottom-1 left-1 right-1 flex items-center justify-between text-[9px] font-semibold text-white">
                 <span className="tabular-nums">{p.sizeMB.toFixed(1)}MB</span>
@@ -188,6 +206,7 @@ export function StorageBudget() {
       >
         {overBudget ? "Over budget" : "Lock in selection"}
       </button>
+      <FullPhotoDialog photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </div>
   );
 }

@@ -2,7 +2,7 @@
 // Bridges to native iOS photo library when running inside the Expo WebView,
 // falls back to sample photos for web preview.
 
-import { SAMPLE_PHOTOS, BURST_GROUPS, MEMORY_POOL, type SamplePhoto } from "@/lib/photos";
+import type { SamplePhoto } from "@/lib/photos";
 
 export type LibraryPhoto = SamplePhoto & {
   /** True if this photo lives in the device's photo library (iOS), not bundled samples. */
@@ -152,69 +152,140 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-function reasonForSample(photo: SamplePhoto): string {
-  if (photo.cleanupReasons?.length) return photo.cleanupReasons[0];
-  if (photo.burstId) return "Duplicate/Similar";
-  if (photo.sizeMB >= 4) return "Large";
-  if (photo.year <= new Date().getFullYear() - 5) return "Old";
-  return "Review";
-}
-
-function diversifiedSamplePhotos(count: number): SamplePhoto[] {
-  const buckets = new Map<string, SamplePhoto[]>();
-  shuffle(SAMPLE_PHOTOS).forEach((photo) => {
-    const reason = reasonForSample(photo);
-    buckets.set(reason, [...(buckets.get(reason) ?? []), photo]);
-  });
-
-  const selected: SamplePhoto[] = [];
-  const used = new Set<string>();
-  const bucketEntries = shuffle([...buckets.entries()]);
-
-  while (selected.length < count && bucketEntries.some(([, photos]) => photos.length > 0)) {
-    for (const [, photos] of bucketEntries) {
-      const photo = photos.shift();
-      if (!photo || used.has(photo.id)) continue;
-      selected.push(photo);
-      used.add(photo.id);
-      if (selected.length >= count) break;
-    }
-  }
-
-  if (selected.length < count) {
-    shuffle(SAMPLE_PHOTOS).forEach((photo) => {
-      if (selected.length < count && !used.has(photo.id)) selected.push(photo);
-    });
-  }
-
-  return selected;
-}
-
 // ─── Web / dev fallback source ──────────────────
 
-function toLib(p: SamplePhoto): LibraryPhoto {
-  return { ...p, isNative: false };
+type WebFolderFile = File & { webkitRelativePath?: string };
+
+type FileSystemFileHandleLike = {
+  kind?: string;
+  name: string;
+  getFile: () => Promise<File>;
+};
+
+type FileSystemDirectoryHandleLike = {
+  values: () => AsyncIterable<FileSystemDirectoryHandleLike | FileSystemFileHandleLike>;
+};
+
+let webFolderPhotos: LibraryPhoto[] = [];
+let webObjectUrls: string[] = [];
+
+const IMAGE_EXTENSIONS = new Set([
+  "jpg",
+  "jpeg",
+  "png",
+  "gif",
+  "webp",
+  "heic",
+  "heif",
+  "bmp",
+  "avif",
+]);
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function isImageFile(file: File): boolean {
+  if (file.type.startsWith("image/")) return true;
+  const ext = file.name.split(".").pop()?.toLowerCase();
+  return ext ? IMAGE_EXTENSIONS.has(ext) : false;
+}
+
+function replaceWebFolderPhotos(files: WebFolderFile[]) {
+  webObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+  webObjectUrls = [];
+  webFolderPhotos = files.filter(isImageFile).map((file, index) => {
+    const url = URL.createObjectURL(file);
+    webObjectUrls.push(url);
+    const date = new Date(file.lastModified || Date.now());
+    const title = (file.webkitRelativePath || file.name).split("/").pop() || `Photo ${index + 1}`;
+    return {
+      id: `web-folder-${index}-${file.name}-${file.lastModified}`,
+      url,
+      thumb: url,
+      title,
+      year: date.getFullYear(),
+      month: MONTHS[date.getMonth()] ?? "Jan",
+      device: "Selected folder",
+      sizeMB: +(file.size / 1_000_000).toFixed(2),
+      hasGPS: false,
+      cleanupReasons: file.size / 1_000_000 >= 4 ? ["Large"] : ["Review"],
+      isNative: false,
+    };
+  });
+  console.log("[photo-source] loaded web folder", { imageCount: webFolderPhotos.length });
+}
+
+async function collectDirectoryFiles(handle: FileSystemDirectoryHandleLike): Promise<File[]> {
+  const files: File[] = [];
+  for await (const entry of handle.values()) {
+    if (entry.kind === "directory" && "values" in entry) {
+      files.push(...(await collectDirectoryFiles(entry)));
+    } else if (entry.kind === "file" && "getFile" in entry) {
+      files.push(await entry.getFile());
+    }
+  }
+  return files;
+}
+
+function chooseFolderWithInput(): Promise<WebFolderFile[]> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.multiple = true;
+    input.accept = "image/*";
+    input.style.display = "none";
+    input.setAttribute("webkitdirectory", "");
+    input.addEventListener("change", () => {
+      resolve(Array.from(input.files ?? []) as WebFolderFile[]);
+      input.remove();
+    });
+    document.body.appendChild(input);
+    input.click();
+  });
+}
+
+async function requestWebFolder(): Promise<PhotoPermission> {
+  if (typeof window === "undefined") return { granted: false, limited: false, canAskAgain: true };
+  try {
+    const showDirectoryPicker = (
+      window as unknown as { showDirectoryPicker?: () => Promise<FileSystemDirectoryHandleLike> }
+    ).showDirectoryPicker;
+    const files = showDirectoryPicker
+      ? await collectDirectoryFiles(await showDirectoryPicker())
+      : await chooseFolderWithInput();
+    replaceWebFolderPhotos(files as WebFolderFile[]);
+    return { granted: webFolderPhotos.length > 0, limited: false, canAskAgain: true };
+  } catch (error) {
+    console.log("[photo-source] web folder selection cancelled or failed", { error });
+    return { granted: webFolderPhotos.length > 0, limited: false, canAskAgain: true };
+  }
+}
+
+function webPhotoPool(): LibraryPhoto[] {
+  return webFolderPhotos;
 }
 
 const webSource: PhotoSource = {
   isNative: false,
   async requestPermission() {
-    return { granted: true, limited: false, canAskAgain: true };
+    return requestWebFolder();
   },
   async getRandom(count) {
-    return diversifiedSamplePhotos(count).map(toLib);
+    return shuffle(webPhotoPool()).slice(0, count);
   },
   async getOlder(beforeYear, count) {
-    const pool = MEMORY_POOL.filter((p) => p.year < beforeYear);
-    const shuffled = [...pool].sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, count).map(toLib);
+    const pool = webPhotoPool().filter((p) => p.year < beforeYear);
+    return shuffle(pool).slice(0, count);
   },
   async getBurstGroups(maxGroups) {
-    return shuffle(BURST_GROUPS)
-      .slice(0, maxGroups)
-      .map((g) => shuffle(g).map(toLib));
+    const photos = shuffle(webPhotoPool());
+    const groups: LibraryPhoto[][] = [];
+    for (let i = 0; i + 1 < photos.length && groups.length < maxGroups; i += 2) {
+      groups.push([photos[i], photos[i + 1]]);
+    }
+    return groups;
   },
   async deletePhotos(ids) {
+    const idSet = new Set(ids);
+    webFolderPhotos = webFolderPhotos.filter((photo) => !idSet.has(photo.nativeId ?? photo.id));
     return { deleted: ids.length };
   },
 };

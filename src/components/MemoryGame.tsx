@@ -6,6 +6,7 @@ import { displayPhotoUrl, preloadPhotoImages } from "@/lib/image-preload";
 import { setStats, logDay } from "@/lib/storage";
 import { useStats } from "@/hooks/use-stats";
 import { cn } from "@/lib/utils";
+import { FullPhotoDialog } from "@/components/FullPhotoDialog";
 
 type SamplePhoto = LibraryPhoto;
 
@@ -56,6 +57,7 @@ export function MemoryGame() {
   const [yearOptions, setYearOptions] = useState<number[]>([]);
   const [results, setResults] = useState<{ delta: number; correct: boolean; kept: boolean }[]>([]);
   const [autoKeepTimer, setAutoKeepTimer] = useState<number>(AUTO_KEEP_SECONDS);
+  const [fullPhoto, setFullPhoto] = useState<SamplePhoto | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const preloadedRoundRef = useRef<Promise<SamplePhoto[]> | null>(null);
   const stats = useStats();
@@ -128,6 +130,7 @@ export function MemoryGame() {
         kept: keep ? 1 : 0,
         deleted: keep ? 0 : 1,
         mbFreed: keep ? 0 : photo.sizeMB,
+        deletedMbFreed: keep ? 0 : photo.sizeMB,
       });
 
       setResults(newResults);
@@ -233,8 +236,9 @@ export function MemoryGame() {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="h-full w-full object-cover"
+            className="h-full w-full cursor-zoom-in object-cover"
             style={{ filter: phase === "reveal" ? "none" : "saturate(0.85)" }}
+            onClick={() => setFullPhoto(photo)}
           />
         </AnimatePresence>
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
@@ -324,22 +328,15 @@ export function MemoryGame() {
           </p>
         </div>
       )}
+      <FullPhotoDialog photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </div>
   );
 }
 
 function ResultBadge({ guess, actual }: { guess: number; actual: number }) {
   const delta = Math.abs(guess - actual);
-  const tone =
-    delta === 0 ? "Spot on!" : delta <= 1 ? "So close" : delta <= 3 ? "Not bad" : "Way off";
-  const color =
-    delta === 0
-      ? "text-warm"
-      : delta <= 1
-        ? "text-accent"
-        : delta <= 3
-          ? "text-warm-foreground/80"
-          : "text-destructive";
+  const tone = delta === 0 ? "Correct" : delta === 1 ? "1 year off" : "More than 1 year off";
+  const color = delta === 0 ? "text-success" : delta === 1 ? "text-yellow-300" : "text-destructive";
   const suffix = delta === 0 ? "" : ` (${delta} yr off)`;
   return (
     <p className={cn("mt-2 text-sm font-semibold", color)}>

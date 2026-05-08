@@ -4,6 +4,7 @@ import { getPhotoSourceAsync, type LibraryPhoto } from "@/lib/photo-source";
 import { displayPhotoUrl, preloadPhotoImages } from "@/lib/image-preload";
 import { setStats, logDay } from "@/lib/storage";
 import { cn } from "@/lib/utils";
+import { FullPhotoDialog } from "@/components/FullPhotoDialog";
 
 type SamplePhoto = LibraryPhoto;
 
@@ -66,6 +67,7 @@ export function ThisOrThat() {
   const preloadedRoundRef = useRef<Promise<BurstPair[]> | null>(null);
   const deletedLosersRef = useRef<SamplePhoto[]>([]);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [fullPhoto, setFullPhoto] = useState<SamplePhoto | null>(null);
 
   function preloadNextRound() {
     if (!preloadedRoundRef.current) {
@@ -124,7 +126,13 @@ export function ThisOrThat() {
       thisOrThatDeleted: s.thisOrThatDeleted + 1,
       thisOrThatMbFreed: s.thisOrThatMbFreed + loser.sizeMB,
     }));
-    logDay({ kept: 1, deleted: 1, mbFreed: loser.sizeMB });
+    logDay({
+      kept: 1,
+      deleted: 1,
+      mbFreed: loser.sizeMB,
+      deletedMbFreed: loser.sizeMB,
+      thisOrThatRounds: 1,
+    });
 
     deletedLosersRef.current = [...deletedLosersRef.current, loser];
 
@@ -257,6 +265,16 @@ export function ThisOrThat() {
                 alt={cards[i].title}
                 className="h-full w-full object-cover"
               />
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setFullPhoto(cards[i]);
+                }}
+                className="absolute left-2 top-2 rounded-full bg-black/50 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur"
+              >
+                View full
+              </button>
               <div className="absolute inset-0 bg-gradient-to-t from-black/65 to-transparent" />
               <div className="absolute bottom-2 left-2 right-2 text-left text-white">
                 <p className="text-[10px] uppercase tracking-wider opacity-80">
@@ -275,6 +293,7 @@ export function ThisOrThat() {
       <p className={cn("mt-5 text-center text-[11px] text-muted-foreground")}>
         The one you don't pick gets removed and the space gets freed.
       </p>
+      <FullPhotoDialog photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </div>
   );
 }

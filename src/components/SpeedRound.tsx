@@ -5,6 +5,7 @@ import { getPhotoSourceAsync, type LibraryPhoto } from "@/lib/photo-source";
 import { displayPhotoUrl, preloadPhotoImages } from "@/lib/image-preload";
 import { setStats, logDay } from "@/lib/storage";
 import { cn } from "@/lib/utils";
+import { FullPhotoDialog } from "@/components/FullPhotoDialog";
 
 const DURATION = 30;
 
@@ -18,6 +19,7 @@ export function SpeedRound() {
   const [time, setTime] = useState(DURATION);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const tickRef = useRef<number | null>(null);
+  const completedRoundLoggedRef = useRef(false);
   const preloadedQueueRef = useRef<Promise<LibraryPhoto[]> | null>(null);
 
   function preloadNextQueue() {
@@ -67,6 +69,7 @@ export function SpeedRound() {
     preloadNextQueue();
     setTime(DURATION);
     setDecisions([]);
+    completedRoundLoggedRef.current = false;
     setPhase("play");
   }
 
@@ -80,10 +83,15 @@ export function SpeedRound() {
         deleted: s.deleted + 1,
         mbFreed: s.mbFreed + top.sizeMB,
       }));
-      logDay({ deleted: 1, mbFreed: top.sizeMB });
+      logDay({
+        deleted: 1,
+        mbFreed: top.sizeMB,
+        deletedMbFreed: top.sizeMB,
+        speedRoundReviewed: 1,
+      });
     } else {
       setStats((s) => ({ ...s, cleaned: s.cleaned + 1 }));
-      logDay({ kept: 1 });
+      logDay({ kept: 1, speedRoundReviewed: 1 });
     }
     setQueue((q) => q.slice(1));
   }
@@ -98,6 +106,18 @@ export function SpeedRound() {
 
   useEffect(() => {
     if (phase !== "review") return;
+    if (!completedRoundLoggedRef.current) {
+      completedRoundLoggedRef.current = true;
+      setStats((s) => ({
+        ...s,
+        speedRoundPlayed: s.speedRoundPlayed + 1,
+        speedRoundBestCount: Math.max(s.speedRoundBestCount, decisions.length),
+        speedRoundBestMb: Math.max(s.speedRoundBestMb, freedMB),
+        speedRoundTotalReviewed: s.speedRoundTotalReviewed + decisions.length,
+        speedRoundTotalMbFreed: s.speedRoundTotalMbFreed + freedMB,
+      }));
+      logDay({ speedRoundPlayed: 1 });
+    }
     const initial: Record<string, boolean> = {};
     trashed.forEach((d, index) => {
       initial[`${d.photo.id}:${d.photo.nativeId ?? "web"}:${index}`] = true;
@@ -290,7 +310,8 @@ export function SpeedRound() {
               <img
                 src={displayPhotoUrl(top)}
                 alt={top.title}
-                className="h-full w-full object-cover"
+                className="h-full w-full cursor-zoom-in object-cover"
+                onClick={() => setFullPhoto(top)}
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/65 to-transparent" />
               <div className="absolute bottom-5 left-5 right-5 text-white">
@@ -316,6 +337,7 @@ export function SpeedRound() {
           <Trash2 className="h-5 w-5" /> Trash
         </button>
       </div>
+      <FullPhotoDialog photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </div>
   );
 }
