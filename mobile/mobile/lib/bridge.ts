@@ -27,6 +27,10 @@ function stringArrayFromData(value: unknown): string[] {
     : [];
 }
 
+function stringFromData(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
+}
+
 export async function handleBridgeMessage(request: BridgeRequest): Promise<BridgeResponse> {
   const { id, method, data } = request;
 
@@ -51,6 +55,13 @@ export async function handleBridgeMessage(request: BridgeRequest): Promise<Bridg
         break;
       case "deletePhotos":
         result = await deletePhotos(stringArrayFromData(data.ids));
+        break;
+      case "replaceAssetWithJpeg":
+        result = await replaceAssetWithJpeg(
+          stringFromData(data.assetId),
+          stringFromData(data.jpegDataUri),
+          stringFromData(data.filename, "TrimSwipe photo.jpg"),
+        );
         break;
       case "openSubscriptionSettings":
         await Linking.openURL("https://apps.apple.com/account/subscriptions");
@@ -528,6 +539,52 @@ async function getBurstGroups(maxGroups: number): Promise<PhotoDTO[][]> {
       mapWithConcurrency(group, 3, (asset) => assetToDTO(asset, duplicateLookup)),
     ),
   );
+}
+
+function safeJpegFilename(filename: string): string {
+  const trimmed = filename.trim() || "TrimSwipe photo.jpg";
+  const withExtension = /\.jpe?g$/i.test(trimmed) ? trimmed : `${trimmed}.jpg`;
+  return withExtension.replace(/[^a-zA-Z0-9._ -]/g, "_");
+}
+
+function base64FromDataUri(dataUri: string): string | null {
+  const match = dataUri.match(/^data:image\/jpe?g;base64,(.+)$/i);
+  return match?.[1] ?? null;
+}
+
+async function replaceAssetWithJpeg(
+  assetId: string,
+  jpegDataUri: string,
+  filename: string,
+): Promise<{ converted: boolean; newAssetId?: string }> {
+  const base64 = base64FromDataUri(jpegDataUri);
+  if (!assetId || !base64) return { converted: false };
+
+  const cacheDirectory = FileSystem.cacheDirectory;
+  if (!cacheDirectory) return { converted: false };
+
+  const targetUri = `${cacheDirectory}${Date.now()}-${safeJpegFilename(filename)}`;
+
+  try {
+    await FileSystem.writeAsStringAsync(targetUri, base64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    const created = await MediaLibrary.createAssetAsync(targetUri);
+    await MediaLibrary.deleteAssetsAsync([assetId]);
+    await FileSystem.deleteAsync(targetUri, { idempotent: true });
+
+    console.log("[Bridge] replaceAssetWithJpeg completed", {
+      originalAssetId: assetId,
+      newAssetId: created.id,
+      filename,
+    });
+
+    return { converted: true, newAssetId: created.id };
+  } catch (error) {
+    console.log("[Bridge] replaceAssetWithJpeg failed", { assetId, filename, error });
+    await FileSystem.deleteAsync(targetUri, { idempotent: true }).catch(() => undefined);
+    return { converted: false };
+  }
 }
 
 async function deletePhotos(ids: string[]): Promise<{ deleted: number }> {

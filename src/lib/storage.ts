@@ -21,6 +21,7 @@ export type Settings = {
   reminderEnabled: boolean;
   reminderTime: string; // "HH:MM" 24h
   iCloudBackupWarn: boolean;
+  convertHeicToJpegAfterRounds: boolean;
   onboarded: boolean;
   displayName: string;
   dailyGoalMB: number;
@@ -77,6 +78,7 @@ const DEFAULT_SETTINGS: Settings = {
   reminderEnabled: true,
   reminderTime: "19:00",
   iCloudBackupWarn: true,
+  convertHeicToJpegAfterRounds: false,
   onboarded: false,
   displayName: "You",
   dailyGoalMB: 100,
