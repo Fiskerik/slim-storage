@@ -214,10 +214,12 @@ export function ThisOrThat() {
       totalFreed,
     });
 
+    let deletedCount = 0;
     if (deleteIds.length > 0) {
       try {
         setDeleteBusy(true);
         const result = await (await getPhotoSourceAsync()).deletePhotos(deleteIds);
+        deletedCount = result.deleted;
         console.log("[ThisOrThat] delete result", result);
       } catch (error) {
         console.warn("[ThisOrThat] delete failed", error);
@@ -226,6 +228,15 @@ export function ThisOrThat() {
       }
     }
 
+    if (deleteIds.length > 0 && deletedCount < deleteIds.length) {
+      toast.warning("Some photos could not be moved to the recycle bin", {
+        description: `${deletedCount}/${deleteIds.length} photos were removed from this round.`,
+      });
+    } else {
+      toast.success("Round saved", {
+        description: `Deleted ${deletedLosersRef.current.length} photos and freed ${totalFreed.toFixed(1)} MB.`,
+      });
+    }
     await convertThisOrThatHeicPhotos(conversionCandidatesRef.current);
     await reset();
   }
@@ -275,6 +286,9 @@ export function ThisOrThat() {
                 deleted: -deletedLosersRef.current.length,
                 mbFreed: -restoredMB,
                 deletedMbFreed: -restoredMB,
+              });
+              toast.success("Round saved", {
+                description: "No photos were deleted from this round.",
               });
               await convertThisOrThatHeicPhotos([
                 ...conversionCandidatesRef.current,
