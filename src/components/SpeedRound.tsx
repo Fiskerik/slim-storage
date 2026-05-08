@@ -66,9 +66,18 @@ export function SpeedRound() {
   }, [queue]);
 
   async function start() {
+    const src = await getPhotoSourceAsync();
+    const permission = await src.requestPermission();
+    if (!permission.granted) {
+      console.log("[SpeedRound] photo access denied or no folder selected", {
+        isNative: src.isNative,
+      });
+      return;
+    }
     const pending = preloadedQueueRef.current;
     preloadedQueueRef.current = null;
-    const photos = pending ? await pending : await (await getPhotoSourceAsync()).getRandom(40);
+    const preloadedPhotos = pending ? await pending : [];
+    const photos = preloadedPhotos.length > 0 ? preloadedPhotos : await src.getRandom(40);
     setQueue(photos);
     preloadPhotoImages(photos.slice(0, 6));
     preloadNextQueue();
@@ -168,8 +177,9 @@ export function SpeedRound() {
   async function confirmDelete() {
     const src = await getPhotoSourceAsync();
     const ids = selectedForDelete.map((d) => d.photo.nativeId || d.photo.id);
-    if (src.isNative && ids.length > 0) {
-      await src.deletePhotos(ids);
+    if (ids.length > 0) {
+      const result = await src.deletePhotos(ids);
+      console.log("[SpeedRound] delete result", result);
     }
     const retainedPhotos = decisions
       .filter((decision, index) => {

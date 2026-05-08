@@ -43,6 +43,13 @@ function generateYearOptions(correctYear: number): number[] {
 async function pickRound(n: number): Promise<SamplePhoto[]> {
   const cutoff = new Date().getFullYear() - 4;
   const src = await getPhotoSourceAsync();
+  const permission = await src.requestPermission();
+  if (!permission.granted) {
+    console.log("[MemoryGame] photo access denied or no folder selected", {
+      isNative: src.isNative,
+    });
+    return [];
+  }
   const out = await src.getOlder(cutoff, n);
   if (out.length >= n) return out;
   const extra = await src.getRandom(n - out.length);
@@ -77,7 +84,7 @@ export function MemoryGame() {
   useEffect(() => {
     const size = Math.min(30, Math.max(5, stats.settings.cardsPerRound));
     preloadNextRound(size);
-  }, []);
+  }, [stats.settings.cardsPerRound]);
 
   function start() {
     const size = Math.min(30, Math.max(5, stats.settings.cardsPerRound));
@@ -90,9 +97,12 @@ export function MemoryGame() {
       setIdx(0);
       setGuess(null);
       setResults([]);
-      if (photos.length > 0) {
-        setYearOptions(generateYearOptions(photos[0].year));
+      if (photos.length === 0) {
+        console.log("[MemoryGame] no photos available for round");
+        setPhase("intro");
+        return;
       }
+      setYearOptions(generateYearOptions(photos[0].year));
       setPhase("guess");
     });
   }
@@ -132,6 +142,14 @@ export function MemoryGame() {
         mbFreed: keep ? 0 : photo.sizeMB,
         deletedMbFreed: keep ? 0 : photo.sizeMB,
       });
+
+      if (!keep) {
+        const deleteId = photo.nativeId ?? photo.id;
+        void getPhotoSourceAsync()
+          .then((src) => src.deletePhotos([deleteId]))
+          .then((result) => console.log("[MemoryGame] delete result", { deleteId, result }))
+          .catch((error) => console.log("[MemoryGame] delete failed", { deleteId, error }));
+      }
 
       setResults(newResults);
 

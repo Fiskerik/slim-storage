@@ -34,14 +34,19 @@ function StorageBudget() {
   const [fullPhoto, setFullPhoto] = useState<LibraryPhoto | null>(null);
   const preloadedBoardRef = useRef<Promise<PoolEntry[]> | null>(null);
 
-  function createBoardLoad() {
-    return getPhotoSourceAsync()
-      .then((src) => src.getRandom(24))
-      .then((photos) => {
-        const board = withPoolKeys(photos);
-        console.log("[StorageBudgetRoute] loaded prioritized board", { count: board.length });
-        return board;
+  async function createBoardLoad() {
+    const src = await getPhotoSourceAsync();
+    const permission = await src.requestPermission();
+    if (!permission.granted) {
+      console.log("[StorageBudgetRoute] photo access denied or no folder selected", {
+        isNative: src.isNative,
       });
+      return [];
+    }
+    const photos = await src.getRandom(24);
+    const board = withPoolKeys(photos);
+    console.log("[StorageBudgetRoute] loaded prioritized board", { count: board.length });
+    return board;
   }
 
   function preloadNextBoard() {
@@ -95,10 +100,25 @@ function StorageBudget() {
     });
   }
 
-  function commit() {
+  async function commit() {
     if (overBudget) return;
     const cleared = pool.filter((p) => !kept.has(p.poolKey));
     const freed = parseFloat(cleared.reduce((s, p) => s + p.sizeMB, 0).toFixed(2));
+    const deleteIds = cleared.map((photo) => photo.nativeId ?? photo.id).filter(Boolean);
+    console.log("[StorageBudgetRoute] confirming cleared photos", {
+      cleared: cleared.length,
+      deleteIds: deleteIds.length,
+      freed,
+    });
+    if (deleteIds.length > 0) {
+      try {
+        const result = await (await getPhotoSourceAsync()).deletePhotos(deleteIds);
+        console.log("[StorageBudgetRoute] delete result", result);
+      } catch (error) {
+        console.warn("[StorageBudgetRoute] delete failed", error);
+      }
+    }
+
     setStats((s) => ({
       ...s,
       cleaned: s.cleaned + kept.size,

@@ -23,6 +23,13 @@ type CompletionStep = "playing" | "summary";
 /** Build pairs only from photos that share a burst/multi-shot group. */
 async function buildPairs(n: number): Promise<BurstPair[]> {
   const src = await getPhotoSourceAsync();
+  const permission = await src.requestPermission();
+  if (!permission.granted) {
+    console.log("[ThisOrThat] photo access denied or no folder selected", {
+      isNative: src.isNative,
+    });
+    return [];
+  }
   let groups = await src.getBurstGroups(n);
   if (src.isNative && groups.length === 0) {
     const fallbackPhotos = await src.getRandom(n * 2);
@@ -196,23 +203,23 @@ export function ThisOrThat() {
 
   async function deleteRoundLosers() {
     if (deleteBusy) return;
-    const nativeIds = deletedLosersRef.current
-      .filter((photo) => photo.isNative && photo.nativeId)
-      .map((photo) => photo.nativeId!);
+    const deleteIds = deletedLosersRef.current
+      .map((photo) => photo.nativeId ?? photo.id)
+      .filter(Boolean);
 
     console.log("[ThisOrThat] confirming round deletion", {
       losers: deletedLosersRef.current.length,
-      nativeIds: nativeIds.length,
+      deleteIds: deleteIds.length,
       totalFreed,
     });
 
-    if (nativeIds.length > 0) {
+    if (deleteIds.length > 0) {
       try {
         setDeleteBusy(true);
-        const result = await (await getPhotoSourceAsync()).deletePhotos(nativeIds);
-        console.log("[ThisOrThat] native delete result", result);
+        const result = await (await getPhotoSourceAsync()).deletePhotos(deleteIds);
+        console.log("[ThisOrThat] delete result", result);
       } catch (error) {
-        console.warn("[ThisOrThat] native delete failed", error);
+        console.warn("[ThisOrThat] delete failed", error);
       } finally {
         setDeleteBusy(false);
       }
