@@ -162,7 +162,10 @@ export function updateSettings(patch: Partial<Settings>) {
 export function softDelete(item: { id: string; title: string; sizeMB: number }) {
   setStats((s) => ({
     ...s,
-    pendingDelete: [...s.pendingDelete, { ...item, deletedAt: Date.now() }],
+    pendingDelete: [
+      ...s.pendingDelete.filter((pending) => pending.id !== item.id),
+      { ...item, deletedAt: Date.now() },
+    ],
   }));
 }
 

@@ -2,7 +2,17 @@ import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useStats } from "@/hooks/use-stats";
 import { calculateGoalCheckpoints, getTodayLog } from "@/lib/storage";
-import { Scissors, Flame, HardDrive, Image, Info, ShieldCheck, X } from "lucide-react";
+import {
+  Scissors,
+  Flame,
+  HardDrive,
+  Image,
+  Info,
+  ShieldCheck,
+  X,
+  Clock3,
+  Trash2,
+} from "lucide-react";
 
 export function HomePage() {
   const s = useStats();
@@ -10,7 +20,8 @@ export function HomePage() {
   const totalReviewed = s.cleaned + s.deleted + s.slimmed;
   const freed = s.mbFreed;
   const freedDisplay = freed >= 1024 ? `${(freed / 1024).toFixed(1)} GB` : `${freed.toFixed(0)} MB`;
-  const todayFreed = getTodayLog(s).mbFreed;
+  const today = getTodayLog(s);
+  const todayFreed = today.mbFreed;
   const dailyGoal = Math.max(1, s.settings.dailyGoalMB);
   const dailyProgress = Math.min(100, (todayFreed / dailyGoal) * 100);
   const checkpoints = calculateGoalCheckpoints(dailyGoal);
@@ -75,6 +86,43 @@ export function HomePage() {
               {checkpoint} MB
             </span>
           ))}
+        </div>
+      </section>
+
+      <section className="mt-5 rounded-2xl border border-border bg-card p-4 shadow-card/50">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Clock3 className="h-4 w-4" />
+            </span>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Today’s activity
+              </p>
+              <p className="text-sm font-semibold text-foreground">
+                {todayFreed > 0 ? `${todayFreed.toFixed(1)} MB freed` : "No cleanup yet"}
+              </p>
+            </div>
+          </div>
+          {s.pendingDelete.length > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-semibold text-destructive">
+              <Trash2 className="h-3.5 w-3.5" /> {s.pendingDelete.length} pending
+            </span>
+          )}
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+          <div className="rounded-xl bg-muted/60 p-2">
+            <p className="font-display text-lg font-bold tabular-nums">{today.kept}</p>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Kept</p>
+          </div>
+          <div className="rounded-xl bg-muted/60 p-2">
+            <p className="font-display text-lg font-bold tabular-nums">{today.trimmed}</p>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Trimmed</p>
+          </div>
+          <div className="rounded-xl bg-muted/60 p-2">
+            <p className="font-display text-lg font-bold tabular-nums">{today.deleted}</p>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Deleted</p>
+          </div>
         </div>
       </section>
 

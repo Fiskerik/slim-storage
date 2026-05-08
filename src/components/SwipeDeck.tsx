@@ -84,6 +84,16 @@ export function SwipeDeck() {
   const preloadedRoundRef = useRef<Promise<SamplePhoto[]> | null>(null);
   const conversionCandidatesRef = useRef<SamplePhoto[]>([]);
 
+  useEffect(() => {
+    console.log("[SwipeDeck] onboarding state checked", {
+      onboarded: stats.settings.onboarded,
+      showOnboarding,
+    });
+    if (stats.settings.onboarded && showOnboarding) {
+      setShowOnboarding(false);
+    }
+  }, [stats.settings.onboarded, showOnboarding]);
+
   function createRoundLoad() {
     return getPhotoSourceAsync().then((src) => src.getRandom(cardsPerRound));
   }
