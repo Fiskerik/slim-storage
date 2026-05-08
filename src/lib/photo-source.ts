@@ -26,6 +26,7 @@ export type PhotoSource = {
   getOlder: (beforeYear: number, count: number) => Promise<LibraryPhoto[]>;
   getBurstGroups: (maxGroups: number) => Promise<LibraryPhoto[][]>;
   deletePhotos: (ids: string[]) => Promise<{ deleted: number }>;
+  trimPhotos: (ids: string[]) => Promise<{ trimmed: number }>;
 };
 
 type BridgeDeleteResult = { deleted?: number };
@@ -141,6 +142,13 @@ const nativeBridgeSource: PhotoSource = {
     const result = (await bridgeCall("deletePhotos", { ids })) as BridgeDeleteResult | null;
     return { deleted: result?.deleted ?? 0 };
   },
+
+  async trimPhotos(ids) {
+    console.log("[photo-source] native trim handled by existing cleanup flow", {
+      requested: ids.length,
+    });
+    return { trimmed: 0 };
+  },
 };
 
 function shuffle<T>(arr: T[]): T[] {
@@ -156,17 +164,31 @@ function shuffle<T>(arr: T[]): T[] {
 
 type WebFolderFile = File & { webkitRelativePath?: string };
 
+type FileSystemWritableFileStreamLike = {
+  write: (data: Blob) => Promise<void>;
+  close: () => Promise<void>;
+};
+
 type FileSystemFileHandleLike = {
   kind?: string;
   name: string;
   getFile: () => Promise<File>;
+  createWritable?: () => Promise<FileSystemWritableFileStreamLike>;
 };
 
 type FileSystemDirectoryHandleLike = {
   values: () => AsyncIterable<FileSystemDirectoryHandleLike | FileSystemFileHandleLike>;
+  removeEntry?: (name: string) => Promise<void>;
+};
+
+type WebFolderEntry = {
+  file: WebFolderFile;
+  fileHandle?: FileSystemFileHandleLike;
+  directoryHandle?: FileSystemDirectoryHandleLike;
 };
 
 let webFolderPhotos: LibraryPhoto[] = [];
+let webFolderEntries = new Map<string, WebFolderEntry>();
 let webObjectUrls: string[] = [];
 
 const IMAGE_EXTENSIONS = new Set([
@@ -188,38 +210,50 @@ function isImageFile(file: File): boolean {
   return ext ? IMAGE_EXTENSIONS.has(ext) : false;
 }
 
-function replaceWebFolderPhotos(files: WebFolderFile[]) {
+function replaceWebFolderPhotos(entries: WebFolderEntry[]) {
   webObjectUrls.forEach((url) => URL.revokeObjectURL(url));
   webObjectUrls = [];
-  webFolderPhotos = files.filter(isImageFile).map((file, index) => {
-    const url = URL.createObjectURL(file);
-    webObjectUrls.push(url);
-    const date = new Date(file.lastModified || Date.now());
-    const title = (file.webkitRelativePath || file.name).split("/").pop() || `Photo ${index + 1}`;
-    return {
-      id: `web-folder-${index}-${file.name}-${file.lastModified}`,
-      url,
-      thumb: url,
-      title,
-      year: date.getFullYear(),
-      month: MONTHS[date.getMonth()] ?? "Jan",
-      device: "Selected folder",
-      sizeMB: +(file.size / 1_000_000).toFixed(2),
-      hasGPS: false,
-      cleanupReasons: file.size / 1_000_000 >= 4 ? ["Large"] : ["Review"],
-      isNative: false,
-    };
-  });
+  webFolderEntries = new Map();
+  webFolderPhotos = entries
+    .filter(({ file }) => isImageFile(file))
+    .map(({ file, fileHandle, directoryHandle }, index) => {
+      const url = URL.createObjectURL(file);
+      webObjectUrls.push(url);
+      const date = new Date(file.lastModified || Date.now());
+      const title = (file.webkitRelativePath || file.name).split("/").pop() || `Photo ${index + 1}`;
+      const id = `web-folder-${index}-${file.name}-${file.lastModified}`;
+      webFolderEntries.set(id, { file, fileHandle, directoryHandle });
+      return {
+        id,
+        nativeId: id,
+        url,
+        thumb: url,
+        title,
+        year: date.getFullYear(),
+        month: MONTHS[date.getMonth()] ?? "Jan",
+        device: "Selected folder",
+        sizeMB: +(file.size / 1_000_000).toFixed(2),
+        hasGPS: false,
+        cleanupReasons: file.size / 1_000_000 >= 4 ? ["Large"] : ["Review"],
+        isNative: false,
+      };
+    });
   console.log("[photo-source] loaded web folder", { imageCount: webFolderPhotos.length });
 }
 
-async function collectDirectoryFiles(handle: FileSystemDirectoryHandleLike): Promise<File[]> {
-  const files: File[] = [];
+async function collectDirectoryFiles(
+  handle: FileSystemDirectoryHandleLike,
+): Promise<WebFolderEntry[]> {
+  const files: WebFolderEntry[] = [];
   for await (const entry of handle.values()) {
     if (entry.kind === "directory" && "values" in entry) {
       files.push(...(await collectDirectoryFiles(entry)));
     } else if (entry.kind === "file" && "getFile" in entry) {
-      files.push(await entry.getFile());
+      files.push({
+        file: (await entry.getFile()) as WebFolderFile,
+        fileHandle: entry,
+        directoryHandle: handle,
+      });
     }
   }
   return files;
@@ -246,12 +280,16 @@ async function requestWebFolder(): Promise<PhotoPermission> {
   if (typeof window === "undefined") return { granted: false, limited: false, canAskAgain: true };
   try {
     const showDirectoryPicker = (
-      window as unknown as { showDirectoryPicker?: () => Promise<FileSystemDirectoryHandleLike> }
+      window as unknown as {
+        showDirectoryPicker?: (options?: {
+          mode?: "read" | "readwrite";
+        }) => Promise<FileSystemDirectoryHandleLike>;
+      }
     ).showDirectoryPicker;
     const files = showDirectoryPicker
-      ? await collectDirectoryFiles(await showDirectoryPicker())
-      : await chooseFolderWithInput();
-    replaceWebFolderPhotos(files as WebFolderFile[]);
+      ? await collectDirectoryFiles(await showDirectoryPicker({ mode: "readwrite" }))
+      : (await chooseFolderWithInput()).map((file) => ({ file }));
+    replaceWebFolderPhotos(files);
     return { granted: webFolderPhotos.length > 0, limited: false, canAskAgain: true };
   } catch (error) {
     console.log("[photo-source] web folder selection cancelled or failed", { error });
@@ -284,11 +322,80 @@ const webSource: PhotoSource = {
     return groups;
   },
   async deletePhotos(ids) {
-    const idSet = new Set(ids);
-    webFolderPhotos = webFolderPhotos.filter((photo) => !idSet.has(photo.nativeId ?? photo.id));
-    return { deleted: ids.length };
+    let deleted = 0;
+    for (const id of ids) {
+      const entry = webFolderEntries.get(id);
+      try {
+        if (entry?.directoryHandle?.removeEntry) {
+          await entry.directoryHandle.removeEntry(entry.file.name);
+        }
+        webFolderEntries.delete(id);
+        deleted += 1;
+      } catch (error) {
+        console.log("[photo-source] web delete failed", { id, error });
+      }
+    }
+    const deletedIds = new Set(ids.filter((id) => !webFolderEntries.has(id)));
+    webFolderPhotos = webFolderPhotos.filter(
+      (photo) => !deletedIds.has(photo.nativeId ?? photo.id),
+    );
+    console.log("[photo-source] web delete completed", { requested: ids.length, deleted });
+    return { deleted };
+  },
+
+  async trimPhotos(ids) {
+    let trimmed = 0;
+    for (const id of ids) {
+      const entry = webFolderEntries.get(id);
+      if (!entry?.fileHandle?.createWritable) {
+        console.log("[photo-source] web trim skipped; writable file handle unavailable", { id });
+        continue;
+      }
+
+      try {
+        const photo = webFolderPhotos.find((item) => (item.nativeId ?? item.id) === id);
+        const blob = await trimWebImageToJpeg(photo?.url ?? URL.createObjectURL(entry.file));
+        if (!blob || blob.size >= entry.file.size) {
+          console.log("[photo-source] web trim skipped; no smaller JPEG produced", {
+            id,
+            originalSize: entry.file.size,
+            trimmedSize: blob?.size ?? 0,
+          });
+          continue;
+        }
+        const writable = await entry.fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        trimmed += 1;
+      } catch (error) {
+        console.log("[photo-source] web trim failed", { id, error });
+      }
+    }
+    console.log("[photo-source] web trim completed", { requested: ids.length, trimmed });
+    return { trimmed };
   },
 };
+
+function trimWebImageToJpeg(url: string): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth || image.width;
+      canvas.height = image.naturalHeight || image.height;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        resolve(null);
+        return;
+      }
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.82);
+    };
+    image.onerror = () => resolve(null);
+    image.decoding = "async";
+    image.src = url;
+  });
+}
 
 // ─── Resolver ───────────────────────────────────
 

@@ -235,6 +235,13 @@ export function SwipeDeck() {
       logDay({ trimmed: 1, mbFreed: saved, trimmedMbFreed: saved });
       recordTrim();
       hapticSuccess();
+      const trimId = photo.nativeId ?? photo.id;
+      if (!photo.isNative && trimId) {
+        void getPhotoSourceAsync()
+          .then((src) => src.trimPhotos([trimId]))
+          .then((result) => console.log("[SwipeDeck] web trim result", { trimId, result }))
+          .catch((error) => console.log("[SwipeDeck] web trim failed", { trimId, error }));
+      }
       // No per-swipe toast — summary is shown at the end
       advance();
     } else if (action === "delete") {
@@ -292,13 +299,13 @@ export function SwipeDeck() {
       kept: deletedPhotosRef.current.length - toDelete.length,
     });
 
-    const nativeIds = toDelete.filter((p) => p.isNative && p.nativeId).map((p) => p.nativeId!);
-    if (nativeIds.length > 0) {
+    const deleteIds = toDelete.map((p) => p.nativeId ?? p.id).filter(Boolean);
+    if (deleteIds.length > 0) {
       try {
-        const result = await (await getPhotoSourceAsync()).deletePhotos(nativeIds);
-        console.log("[SwipeDeck] native delete result", result);
+        const result = await (await getPhotoSourceAsync()).deletePhotos(deleteIds);
+        console.log("[SwipeDeck] delete result", { requested: deleteIds.length, result });
       } catch (e) {
-        console.warn("[Slim] native delete failed", e);
+        console.warn("[Slim] delete failed", e);
       }
     }
 
