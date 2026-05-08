@@ -1,5 +1,1 @@
-<<<<<<<< HEAD:mobile/mobile/assets/www/assets/mail-CfwUggiT.js
-import{c as e}from"./index-C7aExB3X.js";const o=[["path",{d:"m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7",key:"132q7q"}],["rect",{x:"2",y:"4",width:"20",height:"16",rx:"2",key:"izxlao"}]],a=e("mail",o);export{a as M};
-========
 import{c as e}from"./index-0QWkoCrt.js";const o=[["path",{d:"m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7",key:"132q7q"}],["rect",{x:"2",y:"4",width:"20",height:"16",rx:"2",key:"izxlao"}]],a=e("mail",o);export{a as M};
->>>>>>>> 507301ce23bc8baba7adf9e832ed1f8fcaf4d5c0:mobile/mobile/assets/www/assets/mail-kasKHCow.js

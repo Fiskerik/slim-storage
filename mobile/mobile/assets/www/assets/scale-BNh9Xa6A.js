@@ -1,5 +1,0 @@
-<<<<<<<< HEAD:mobile/mobile/assets/www/assets/scale-BNh9Xa6A.js
-import{c as a}from"./index-C7aExB3X.js";const e=[["path",{d:"M12 3v18",key:"108xh3"}],["path",{d:"m19 8 3 8a5 5 0 0 1-6 0zV7",key:"zcdpyk"}],["path",{d:"M3 7h1a17 17 0 0 0 8-2 17 17 0 0 0 8 2h1",key:"1yorad"}],["path",{d:"m5 8 3 8a5 5 0 0 1-6 0zV7",key:"eua70x"}],["path",{d:"M7 21h10",key:"1b0cd5"}]],d=a("scale",e);export{d as S};
-========
-import{c as a}from"./index-0QWkoCrt.js";const e=[["path",{d:"M12 3v18",key:"108xh3"}],["path",{d:"m19 8 3 8a5 5 0 0 1-6 0zV7",key:"zcdpyk"}],["path",{d:"M3 7h1a17 17 0 0 0 8-2 17 17 0 0 0 8 2h1",key:"1yorad"}],["path",{d:"m5 8 3 8a5 5 0 0 1-6 0zV7",key:"eua70x"}],["path",{d:"M7 21h10",key:"1b0cd5"}]],d=a("scale",e);export{d as S};
->>>>>>>> 507301ce23bc8baba7adf9e832ed1f8fcaf4d5c0:mobile/mobile/assets/www/assets/scale-BQSv9-Pg.js
