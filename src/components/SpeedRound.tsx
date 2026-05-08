@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Timer, Trash2, Check, Sparkles, Play } from "lucide-react";
 import { getPhotoSourceAsync, type LibraryPhoto } from "@/lib/photo-source";
+import { displayPhotoUrl, preloadPhotoImages } from "@/lib/image-preload";
 import { setStats, logDay } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
@@ -10,14 +11,6 @@ const DURATION = 30;
 type Phase = "intro" | "play" | "review" | "done";
 
 type Decision = { photo: LibraryPhoto; keep: boolean };
-
-function preloadPhotoImages(photos: LibraryPhoto[]) {
-  if (typeof window === "undefined") return;
-  photos.forEach((photo) => {
-    const image = new Image();
-    image.src = photo.url;
-  });
-}
 
 export function SpeedRound() {
   const [phase, setPhase] = useState<Phase>("intro");
@@ -182,7 +175,7 @@ export function SpeedRound() {
                       className="h-4 w-4"
                     />
                     <img
-                      src={photo.thumb || photo.url}
+                      src={displayPhotoUrl(photo)}
                       alt={photo.title}
                       className="h-12 w-12 rounded-lg object-cover"
                     />
@@ -294,7 +287,11 @@ export function SpeedRound() {
               transition={{ duration: 0.15 }}
               className="absolute inset-0 overflow-hidden rounded-3xl border border-border bg-card shadow-card"
             >
-              <img src={top.url} alt={top.title} className="h-full w-full object-cover" />
+              <img
+                src={displayPhotoUrl(top)}
+                alt={top.title}
+                className="h-full w-full object-cover"
+              />
               <div className="absolute inset-0 bg-gradient-to-t from-black/65 to-transparent" />
               <div className="absolute bottom-5 left-5 right-5 text-white">
                 <p className="text-xs opacity-80">{top.sizeMB.toFixed(1)} MB</p>

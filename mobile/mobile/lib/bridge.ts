@@ -257,28 +257,71 @@ function diversifyAssets(assets: MediaLibrary.Asset[], count: number): MediaLibr
   return selected;
 }
 
-function mimeTypeForAsset(asset: MediaLibrary.Asset): string {
+const WEB_ROOT_DIR = "www";
+const PHOTO_CACHE_DIR = "photo-cache";
+
+function extensionForAsset(asset: MediaLibrary.Asset): string {
   const name = asset.filename?.toLowerCase() || asset.uri.toLowerCase();
-  if (name.endsWith(".png")) return "image/png";
-  if (name.endsWith(".heic") || name.endsWith(".heif")) return "image/heic";
-  if (name.endsWith(".webp")) return "image/webp";
-  return "image/jpeg";
+  if (name.endsWith(".png")) return "png";
+  if (name.endsWith(".heic")) return "heic";
+  if (name.endsWith(".heif")) return "heif";
+  if (name.endsWith(".webp")) return "webp";
+  return "jpg";
 }
 
-async function readableAssetUri(
+function cacheKeyForAsset(asset: MediaLibrary.Asset): string {
+  const stableKey = [
+    asset.id,
+    asset.creationTime,
+    asset.modificationTime,
+    asset.width,
+    asset.height,
+  ]
+    .filter((part) => part !== undefined && part !== null)
+    .join("-");
+  return stableKey.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+async function ensurePhotoCacheDirectory(): Promise<string | null> {
+  const documentDirectory = FileSystem.documentDirectory;
+  if (!documentDirectory) return null;
+
+  const cacheDirectory = `${documentDirectory}${WEB_ROOT_DIR}/${PHOTO_CACHE_DIR}`;
+  const info = await FileSystem.getInfoAsync(cacheDirectory);
+  if (!info.exists) {
+    await FileSystem.makeDirectoryAsync(cacheDirectory, { intermediates: true });
+  }
+  return cacheDirectory;
+}
+
+async function cachedAssetUrl(
   asset: MediaLibrary.Asset,
   localUri?: string | null,
 ): Promise<string> {
   const sourceUri = localUri || asset.uri;
   if (!sourceUri || sourceUri.startsWith("data:")) return sourceUri;
 
+  const cacheDirectory = await ensurePhotoCacheDirectory();
+  if (!cacheDirectory || sourceUri.startsWith("ph://")) return sourceUri;
+
+  const filename = `${cacheKeyForAsset(asset)}.${extensionForAsset(asset)}`;
+  const cachedUri = `${cacheDirectory}/${filename}`;
+  const publicUrl = `/${PHOTO_CACHE_DIR}/${filename}`;
+
   try {
-    const base64 = await FileSystem.readAsStringAsync(sourceUri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    return `data:${mimeTypeForAsset(asset)};base64,${base64}`;
+    const cachedInfo = await FileSystem.getInfoAsync(cachedUri);
+    if (!cachedInfo.exists) {
+      await FileSystem.copyAsync({ from: sourceUri, to: cachedUri });
+      const copiedInfo = await FileSystem.getInfoAsync(cachedUri);
+      console.log("[Bridge] cached native photo for WebView", {
+        assetId: asset.id,
+        publicUrl,
+        bytes: "size" in copiedInfo ? copiedInfo.size : undefined,
+      });
+    }
+    return publicUrl;
   } catch (err: unknown) {
-    console.log("[Bridge] Could not inline photo for WebView preview", {
+    console.log("[Bridge] Could not cache photo for WebView preview", {
       assetId: asset.id,
       uri: sourceUri,
       error: err instanceof Error ? err.message : String(err),
@@ -329,7 +372,7 @@ async function assetToDTO(
 
   // Detect if asset might be iCloud-only (not locally available).
   const isCloudAsset = !localUri || localUri.startsWith("ph://") || sizeMB === 0;
-  const previewUri = await readableAssetUri(asset, localUri);
+  const previewUri = await cachedAssetUrl(asset, localUri);
 
   console.log("[Bridge] assetToDTO", {
     assetId: asset.id,
@@ -358,6 +401,27 @@ async function assetToDTO(
     creationTime: asset.creationTime,
     cleanupReasons: classifyAsset(asset, info, sizeMB, duplicateLookup),
   };
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index]);
+    }
+  }
+
+  const workerCount = Math.min(Math.max(1, limit), items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
 }
 
 function assetSortSizeMB(asset: MediaLibrary.Asset): number {
@@ -392,7 +456,7 @@ async function getPhotos(count: number): Promise<PhotoDTO[]> {
     firstAssetId: selected[0]?.id,
   });
 
-  return Promise.all(selected.map((asset) => assetToDTO(asset, duplicateLookup)));
+  return mapWithConcurrency(selected, 3, (asset) => assetToDTO(asset, duplicateLookup));
 }
 
 async function getOlderPhotos(beforeYear: number, count: number): Promise<PhotoDTO[]> {
@@ -407,7 +471,7 @@ async function getOlderPhotos(beforeYear: number, count: number): Promise<PhotoD
 
   const selected = shuffle(prioritySortAssets(result.assets)).slice(0, count);
   const duplicateLookup = buildDuplicateLookup(result.assets);
-  return Promise.all(selected.map((asset) => assetToDTO(asset, duplicateLookup)));
+  return mapWithConcurrency(selected, 3, (asset) => assetToDTO(asset, duplicateLookup));
 }
 
 async function getBurstGroups(maxGroups: number): Promise<PhotoDTO[][]> {
@@ -460,7 +524,9 @@ async function getBurstGroups(maxGroups: number): Promise<PhotoDTO[][]> {
 
   const duplicateLookup = buildDuplicateLookup(assets);
   return Promise.all(
-    topGroups.map((group) => Promise.all(group.map((asset) => assetToDTO(asset, duplicateLookup)))),
+    topGroups.map((group) =>
+      mapWithConcurrency(group, 3, (asset) => assetToDTO(asset, duplicateLookup)),
+    ),
   );
 }
 

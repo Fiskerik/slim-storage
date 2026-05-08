@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Scale, Sparkles, RefreshCw } from "lucide-react";
 import { getPhotoSourceAsync, type LibraryPhoto } from "@/lib/photo-source";
+import { displayPhotoUrl, preloadPhotoImages } from "@/lib/image-preload";
 import { setStats, logDay } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
@@ -14,14 +15,6 @@ type BurstPair = {
 };
 
 type CompletionStep = "playing" | "summary";
-
-function preloadPhotoImages(photos: SamplePhoto[]) {
-  if (typeof window === "undefined") return;
-  photos.forEach((photo) => {
-    const image = new Image();
-    image.src = photo.url;
-  });
-}
 
 /** Build pairs only from photos that share a burst/multi-shot group. */
 async function buildPairs(n: number): Promise<BurstPair[]> {
@@ -259,7 +252,11 @@ export function ThisOrThat() {
                 selectedIdx === i && "border-primary ring-2 ring-primary/30",
               )}
             >
-              <img src={cards[i].url} alt={cards[i].title} className="h-full w-full object-cover" />
+              <img
+                src={displayPhotoUrl(cards[i])}
+                alt={cards[i].title}
+                className="h-full w-full object-cover"
+              />
               <div className="absolute inset-0 bg-gradient-to-t from-black/65 to-transparent" />
               <div className="absolute bottom-2 left-2 right-2 text-left text-white">
                 <p className="text-[10px] uppercase tracking-wider opacity-80">

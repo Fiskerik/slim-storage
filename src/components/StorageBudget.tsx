@@ -2,18 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { HardDrive, Sparkles, Check, X, RotateCcw } from "lucide-react";
 import { getPhotoSourceAsync, type LibraryPhoto } from "@/lib/photo-source";
+import { displayPhotoUrl, preloadPhotoImages } from "@/lib/image-preload";
 import { setStats, logDay } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
 const BUDGET_MB = 50;
-
-function preloadPhotoImages(photos: LibraryPhoto[]) {
-  if (typeof window === "undefined") return;
-  photos.forEach((photo) => {
-    const image = new Image();
-    image.src = photo.thumb || photo.url;
-  });
-}
 
 export function StorageBudget() {
   const [pool, setPool] = useState<LibraryPhoto[]>([]);
@@ -168,7 +161,7 @@ export function StorageBudget() {
                   : "border-border opacity-60 grayscale",
               )}
             >
-              <img src={p.thumb} alt={p.title} className="h-full w-full object-cover" />
+              <img src={displayPhotoUrl(p)} alt={p.title} className="h-full w-full object-cover" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
               <div className="absolute bottom-1 left-1 right-1 flex items-center justify-between text-[9px] font-semibold text-white">
                 <span className="tabular-nums">{p.sizeMB.toFixed(1)}MB</span>
