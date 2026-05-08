@@ -9,6 +9,7 @@ import { FullPhotoDialog } from "@/components/FullPhotoDialog";
 import { PhotoSourceBar } from "@/components/PhotoSourceBar";
 import { setStats, logDay } from "@/lib/storage";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/games/storage-budget")({
   component: StorageBudget,
@@ -111,9 +112,11 @@ function StorageBudget() {
       deleteIds: deleteIds.length,
       freed,
     });
+    let deletedCount = 0;
     if (deleteIds.length > 0) {
       try {
         const result = await (await getPhotoSourceAsync()).deletePhotos(deleteIds);
+        deletedCount = result.deleted;
         console.log("[StorageBudgetRoute] delete result", result);
       } catch (error) {
         console.warn("[StorageBudgetRoute] delete failed", error);
@@ -138,6 +141,15 @@ function StorageBudget() {
       storageBudgetPlayed: 1,
     });
     setDone(true);
+    if (deleteIds.length > 0 && deletedCount < deleteIds.length) {
+      toast.warning("Some photos could not be moved to the recycle bin", {
+        description: `${deletedCount}/${deleteIds.length} photos were cleared from this board.`,
+      });
+    } else {
+      toast.success("Storage budget saved", {
+        description: `Cleared ${cleared.length} photos and freed ${freed.toFixed(1)} MB.`,
+      });
+    }
   }
 
   function restart() {

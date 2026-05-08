@@ -3,6 +3,7 @@
 // falls back to sample photos for web preview.
 
 import type { SamplePhoto } from "@/lib/photos";
+import { softDelete } from "@/lib/storage";
 
 export type LibraryPhoto = SamplePhoto & {
   /** True if this photo lives in the device's photo library (iOS), not bundled samples. */
@@ -392,26 +393,48 @@ const webSource: PhotoSource = {
   },
   async deletePhotos(ids) {
     let deleted = 0;
+    const deletedIds = new Set<string>();
+
     for (const id of ids) {
       const entry = webFolderEntries.get(id);
-      if (!entry) continue;
+      const photo = webFolderPhotos.find((item) => (item.nativeId ?? item.id) === id);
+      if (!entry || !photo) {
+        console.log("[photo-source] web delete skipped; photo entry unavailable", { id });
+        continue;
+      }
+
       try {
         const movedToTrash = await moveWebEntryToSlimTrash(entry);
+        let removedFromFolder = movedToTrash;
+
         if (!movedToTrash && entry.directoryHandle?.removeEntry) {
           await entry.directoryHandle.removeEntry(entry.file.name);
+          removedFromFolder = true;
         }
-        if (movedToTrash || entry.directoryHandle?.removeEntry) {
-          webFolderEntries.delete(id);
-          deleted += 1;
+
+        if (!removedFromFolder) {
+          console.log("[photo-source] web delete using soft-delete fallback", {
+            id,
+            hasDirectoryHandle: Boolean(entry.directoryHandle),
+          });
         }
+
+        softDelete({ id: photo.id, title: photo.title, sizeMB: photo.sizeMB });
+        webFolderEntries.delete(id);
+        deletedIds.add(id);
+        deleted += 1;
       } catch (error) {
         console.log("[photo-source] web delete failed", { id, error });
       }
     }
-    const deletedIds = new Set(ids.filter((id) => !webFolderEntries.has(id)));
-    webFolderPhotos = webFolderPhotos.filter(
-      (photo) => !deletedIds.has(photo.nativeId ?? photo.id),
-    );
+
+    if (deletedIds.size > 0) {
+      webFolderPhotos = webFolderPhotos.filter(
+        (photo) => !deletedIds.has(photo.nativeId ?? photo.id),
+      );
+      notifyPhotoSourceChanged();
+    }
+
     console.log("[photo-source] web delete completed", { requested: ids.length, deleted });
     return { deleted };
   },
