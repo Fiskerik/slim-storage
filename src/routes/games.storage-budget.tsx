@@ -6,6 +6,7 @@ import { Link } from "@tanstack/react-router";
 import { getPhotoSourceAsync, type LibraryPhoto } from "@/lib/photo-source";
 import { displayPhotoUrl, preloadPhotoImages } from "@/lib/image-preload";
 import { FullPhotoDialog } from "@/components/FullPhotoDialog";
+import { PhotoSourceBar } from "@/components/PhotoSourceBar";
 import { setStats, logDay } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
@@ -145,9 +146,30 @@ function StorageBudget() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center px-6 pt-20 text-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-muted border-t-primary" />
+      <div className="flex flex-col items-center px-6 pt-4 text-center">
+        <PhotoSourceBar />
+        <div className="mt-16 h-10 w-10 animate-spin rounded-full border-2 border-muted border-t-primary" />
         <p className="mt-4 text-sm text-muted-foreground">Loading old, large photos…</p>
+      </div>
+    );
+  }
+
+  if (pool.length === 0) {
+    return (
+      <div className="flex flex-col items-center px-6 pt-4 text-center">
+        <PhotoSourceBar
+          onChanged={() => {
+            preloadedBoardRef.current = null;
+            void loadPhotos();
+          }}
+        />
+        <div className="mt-10 flex h-16 w-16 items-center justify-center rounded-full bg-primary/15 text-primary">
+          <HardDrive className="h-7 w-7" />
+        </div>
+        <h2 className="mt-4 font-display text-2xl font-bold">No photos loaded</h2>
+        <p className="mt-1 max-w-xs text-sm text-muted-foreground">
+          Select a folder with photos to build a storage budget board.
+        </p>
       </div>
     );
   }
@@ -161,8 +183,9 @@ function StorageBudget() {
         .toFixed(2),
     );
     return (
-      <div className="flex flex-col items-center px-6 pt-10 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/15 text-primary">
+      <div className="flex flex-col items-center px-6 pt-4 text-center">
+        <PhotoSourceBar />
+        <div className="mt-6 flex h-16 w-16 items-center justify-center rounded-full bg-primary/15 text-primary">
           <Sparkles className="h-7 w-7" />
         </div>
         <h2 className="mt-4 font-display text-2xl font-bold">Budget locked in</h2>
@@ -193,9 +216,15 @@ function StorageBudget() {
   const pct = Math.min(100, (usedMB / BUDGET_MB) * 100);
 
   return (
-    <div className="px-5 pt-4 pb-8">
+    <div className="flex flex-col items-center px-5 pt-4 pb-8">
+      <PhotoSourceBar
+        onChanged={() => {
+          preloadedBoardRef.current = null;
+          void loadPhotos();
+        }}
+      />
       {/* Header */}
-      <div className="flex w-full items-center justify-between text-xs text-muted-foreground">
+      <div className="mt-3 flex w-full max-w-sm items-center justify-between text-xs text-muted-foreground">
         <Link
           to="/games"
           className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition"
@@ -211,7 +240,7 @@ function StorageBudget() {
       </div>
 
       {/* Budget bar */}
-      <div className="sticky top-0 z-30 mt-3 rounded-2xl border border-border bg-card/95 p-4 shadow-card backdrop-blur-xl">
+      <div className="sticky top-0 z-30 mt-3 w-full max-w-sm rounded-2xl border border-border bg-card/95 p-4 shadow-card backdrop-blur-xl">
         <div className="flex items-baseline justify-between">
           <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Budget</p>
           <p
@@ -244,7 +273,7 @@ function StorageBudget() {
       </p>
 
       {/* Photo grid */}
-      <div className="mt-3 grid grid-cols-3 gap-2">
+      <div className="mt-3 grid w-full max-w-sm grid-cols-3 gap-2">
         {pool.map((p) => {
           const on = kept.has(p.poolKey);
           return (
@@ -293,7 +322,7 @@ function StorageBudget() {
         onClick={commit}
         disabled={overBudget}
         className={cn(
-          "mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-sm font-semibold shadow-card transition",
+          "mt-5 inline-flex w-full max-w-sm items-center justify-center gap-2 rounded-full py-3.5 text-sm font-semibold shadow-card transition",
           overBudget
             ? "cursor-not-allowed bg-muted text-muted-foreground"
             : "bg-primary text-primary-foreground hover:opacity-90",

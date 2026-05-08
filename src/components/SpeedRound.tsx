@@ -8,6 +8,7 @@ import { useStats } from "@/hooks/use-stats";
 import { convertHeicPhotosToJpeg, isHeicPhoto } from "@/lib/photo-conversion";
 import { cn } from "@/lib/utils";
 import { FullPhotoDialog } from "@/components/FullPhotoDialog";
+import { PhotoSourceBar } from "@/components/PhotoSourceBar";
 import { toast } from "sonner";
 
 const DURATION = 30;
@@ -35,6 +36,10 @@ export function SpeedRound() {
           console.log("[SpeedRound] preloaded next round", { count: photos.length });
           preloadPhotoImages(photos.slice(0, 6));
           return photos;
+        })
+        .catch((error) => {
+          console.log("[SpeedRound] preload failed", { error });
+          return [];
         });
     }
   }
@@ -78,6 +83,13 @@ export function SpeedRound() {
     preloadedQueueRef.current = null;
     const preloadedPhotos = pending ? await pending : [];
     const photos = preloadedPhotos.length > 0 ? preloadedPhotos : await src.getRandom(40);
+    if (photos.length === 0) {
+      console.log("[SpeedRound] no photos available to start");
+      setQueue([]);
+      setDecisions([]);
+      setPhase("intro");
+      return;
+    }
     setQueue(photos);
     preloadPhotoImages(photos.slice(0, 6));
     preloadNextQueue();
@@ -111,7 +123,11 @@ export function SpeedRound() {
       setStats((s) => ({ ...s, cleaned: s.cleaned + 1 }));
       logDay({ kept: 1, speedRoundReviewed: 1 });
     }
-    setQueue((q) => q.slice(1));
+    setQueue((q) => {
+      const rest = q.slice(1);
+      if (rest.length === 0) setPhase("review");
+      return rest;
+    });
   }
 
   const [reviewSelection, setReviewSelection] = useState<Record<string, boolean>>({});
@@ -182,7 +198,7 @@ export function SpeedRound() {
       console.log("[SpeedRound] delete result", result);
     }
     const retainedPhotos = decisions
-      .filter((decision, index) => {
+      .filter((decision) => {
         if (decision.keep) return true;
         const trashIndex = trashed.findIndex((item) => item === decision);
         if (trashIndex === -1) return true;
@@ -190,12 +206,40 @@ export function SpeedRound() {
         return reviewSelection[key] === false;
       })
       .map((decision) => decision.photo);
+    const restoredTrash = trashed.filter((decision, index) => {
+      const key = `${decision.photo.id}:${decision.photo.nativeId ?? "web"}:${index}`;
+      return reviewSelection[key] === false;
+    });
+    const restoredMB = +restoredTrash
+      .reduce((sum, decision) => sum + decision.photo.sizeMB, 0)
+      .toFixed(2);
+    if (restoredTrash.length > 0) {
+      setStats((s) => ({
+        ...s,
+        deleted: Math.max(0, s.deleted - restoredTrash.length),
+        mbFreed: Math.max(0, +(s.mbFreed - restoredMB).toFixed(2)),
+        speedRoundTotalMbFreed: Math.max(0, +(s.speedRoundTotalMbFreed - restoredMB).toFixed(2)),
+      }));
+      logDay({ deleted: -restoredTrash.length, mbFreed: -restoredMB, deletedMbFreed: -restoredMB });
+    }
     await convertSpeedRoundHeicPhotos(retainedPhotos);
     conversionCandidatesRef.current = [];
     setPhase("done");
   }
 
   async function skipDelete() {
+    const restoredMB = +trashed
+      .reduce((sum, decision) => sum + decision.photo.sizeMB, 0)
+      .toFixed(2);
+    if (trashed.length > 0) {
+      setStats((s) => ({
+        ...s,
+        deleted: Math.max(0, s.deleted - trashed.length),
+        mbFreed: Math.max(0, +(s.mbFreed - restoredMB).toFixed(2)),
+        speedRoundTotalMbFreed: Math.max(0, +(s.speedRoundTotalMbFreed - restoredMB).toFixed(2)),
+      }));
+      logDay({ deleted: -trashed.length, mbFreed: -restoredMB, deletedMbFreed: -restoredMB });
+    }
     await convertSpeedRoundHeicPhotos(decisions.map((decision) => decision.photo));
     conversionCandidatesRef.current = [];
     setPhase("done");
@@ -203,8 +247,13 @@ export function SpeedRound() {
 
   if (phase === "intro") {
     return (
-      <div className="flex flex-col items-center px-6 pt-10 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-warm/30 text-warm-foreground shadow-card">
+      <div className="flex flex-col items-center px-6 pt-4 text-center">
+        <PhotoSourceBar
+          onChanged={() => {
+            preloadedQueueRef.current = null;
+          }}
+        />
+        <div className="mt-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-warm/30 text-warm-foreground shadow-card">
           <Timer className="h-7 w-7" />
         </div>
         <h2 className="mt-4 font-display text-3xl font-bold">Speed Round</h2>
@@ -223,8 +272,9 @@ export function SpeedRound() {
 
   if (phase === "review") {
     return (
-      <div className="flex flex-col items-center px-6 pt-10 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/15 text-primary">
+      <div className="flex flex-col items-center px-6 pt-4 text-center">
+        <PhotoSourceBar />
+        <div className="mt-6 flex h-16 w-16 items-center justify-center rounded-full bg-primary/15 text-primary">
           <Sparkles className="h-7 w-7" />
         </div>
         <h2 className="mt-4 font-display text-2xl font-bold">Time's up!</h2>
@@ -309,8 +359,13 @@ export function SpeedRound() {
 
   if (phase === "done") {
     return (
-      <div className="flex flex-col items-center px-6 pt-10 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/15 text-primary">
+      <div className="flex flex-col items-center px-6 pt-4 text-center">
+        <PhotoSourceBar
+          onChanged={() => {
+            preloadedQueueRef.current = null;
+          }}
+        />
+        <div className="mt-6 flex h-16 w-16 items-center justify-center rounded-full bg-primary/15 text-primary">
           <Sparkles className="h-7 w-7" />
         </div>
         <h2 className="mt-4 font-display text-2xl font-bold">Round complete</h2>
@@ -334,7 +389,13 @@ export function SpeedRound() {
 
   return (
     <div className="flex flex-col items-center px-5 pt-4">
-      <div className="w-full max-w-sm">
+      <PhotoSourceBar
+        onChanged={() => {
+          preloadedQueueRef.current = null;
+          void start();
+        }}
+      />
+      <div className="mt-3 w-full max-w-sm">
         <div className="flex items-center justify-between text-xs">
           <span className="inline-flex items-center gap-1.5 uppercase tracking-[0.18em] text-muted-foreground">
             <Timer className="h-3.5 w-3.5" /> Speed Round
