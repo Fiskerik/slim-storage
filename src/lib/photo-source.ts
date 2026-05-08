@@ -29,6 +29,12 @@ export type PhotoSource = {
   trimPhotos: (ids: string[], photos?: LibraryPhoto[]) => Promise<{ trimmed: number }>;
 };
 
+export type PhotoSourceSummary = {
+  label: string;
+  hasPhotos: boolean;
+  isNative: boolean;
+};
+
 type BridgeDeleteResult = { deleted?: number };
 type BridgeTrimResult = { converted?: boolean };
 
@@ -199,6 +205,7 @@ type FileSystemFileHandleLike = {
 };
 
 type FileSystemDirectoryHandleLike = {
+  name?: string;
   values: () => AsyncIterable<FileSystemDirectoryHandleLike | FileSystemFileHandleLike>;
   getDirectoryHandle?: (
     name: string,
@@ -220,6 +227,7 @@ type WebFolderEntry = {
 let webFolderPhotos: LibraryPhoto[] = [];
 let webFolderEntries = new Map<string, WebFolderEntry>();
 let webObjectUrls: string[] = [];
+let webFolderName = "No folder selected";
 
 const IMAGE_EXTENSIONS = new Set([
   "jpg",
@@ -240,7 +248,13 @@ function isImageFile(file: File): boolean {
   return ext ? IMAGE_EXTENSIONS.has(ext) : false;
 }
 
-function replaceWebFolderPhotos(entries: WebFolderEntry[]) {
+function notifyPhotoSourceChanged() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("slimPhotoSourceChanged"));
+  }
+}
+
+function replaceWebFolderPhotos(entries: WebFolderEntry[], folderName: string) {
   webObjectUrls.forEach((url) => URL.revokeObjectURL(url));
   webObjectUrls = [];
   webFolderEntries = new Map();
@@ -268,7 +282,12 @@ function replaceWebFolderPhotos(entries: WebFolderEntry[]) {
         isNative: false,
       };
     });
-  console.log("[photo-source] loaded web folder", { imageCount: webFolderPhotos.length });
+  webFolderName = folderName || "Selected folder";
+  console.log("[photo-source] loaded web folder", {
+    folderName: webFolderName,
+    imageCount: webFolderPhotos.length,
+  });
+  notifyPhotoSourceChanged();
 }
 
 async function collectDirectoryFiles(
@@ -316,15 +335,32 @@ async function requestWebFolder(): Promise<PhotoPermission> {
         }) => Promise<FileSystemDirectoryHandleLike>;
       }
     ).showDirectoryPicker;
-    const files = showDirectoryPicker
-      ? await collectDirectoryFiles(await showDirectoryPicker({ mode: "readwrite" }))
+    const pickedDirectory = showDirectoryPicker
+      ? await showDirectoryPicker({ mode: "readwrite" })
+      : null;
+    const files = pickedDirectory
+      ? await collectDirectoryFiles(pickedDirectory)
       : (await chooseFolderWithInput()).map((file) => ({ file }));
-    replaceWebFolderPhotos(files);
+    const fallbackFolderName =
+      files[0]?.file.webkitRelativePath?.split("/").filter(Boolean)[0] ?? "Selected folder";
+    replaceWebFolderPhotos(files, pickedDirectory?.name ?? fallbackFolderName);
     return { granted: webFolderPhotos.length > 0, limited: false, canAskAgain: true };
   } catch (error) {
     console.log("[photo-source] web folder selection cancelled or failed", { error });
     return { granted: webFolderPhotos.length > 0, limited: false, canAskAgain: true };
   }
+}
+
+export async function selectPhotoSourceFolder(): Promise<PhotoPermission> {
+  if (isNativeApp()) return nativeBridgeSource.requestPermission();
+  return requestWebFolder();
+}
+
+export function getPhotoSourceSummary(): PhotoSourceSummary {
+  if (isNativeApp()) {
+    return { label: "iPhone storage", hasPhotos: true, isNative: true };
+  }
+  return { label: webFolderName, hasPhotos: webFolderPhotos.length > 0, isNative: false };
 }
 
 function webPhotoPool(): LibraryPhoto[] {

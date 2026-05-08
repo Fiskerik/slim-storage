@@ -7,6 +7,7 @@ import { setStats, logDay } from "@/lib/storage";
 import { useStats } from "@/hooks/use-stats";
 import { cn } from "@/lib/utils";
 import { FullPhotoDialog } from "@/components/FullPhotoDialog";
+import { PhotoSourceBar } from "@/components/PhotoSourceBar";
 
 type SamplePhoto = LibraryPhoto;
 
@@ -218,6 +219,9 @@ export function MemoryGame() {
   if (phase === "intro") {
     return (
       <Intro
+        onSourceChanged={() => {
+          preloadedRoundRef.current = null;
+        }}
         onStart={start}
         accuracy={
           stats.memoryPlayed ? Math.round((stats.memoryCorrect / stats.memoryPlayed) * 100) : 0
@@ -236,8 +240,14 @@ export function MemoryGame() {
   if (!photo) return null;
 
   return (
-    <div className="flex flex-col items-center px-5 pt-2">
-      <div className="flex w-full max-w-sm items-center justify-between text-xs text-muted-foreground">
+    <div className="flex flex-col items-center px-5 pt-4">
+      <PhotoSourceBar
+        onChanged={() => {
+          preloadedRoundRef.current = null;
+          start();
+        }}
+      />
+      <div className="mt-3 flex w-full max-w-sm items-center justify-between text-xs text-muted-foreground">
         <span className="uppercase tracking-[0.18em]">
           Memory · {idx + 1}/{round.length}
         </span>
@@ -366,16 +376,19 @@ function ResultBadge({ guess, actual }: { guess: number; actual: number }) {
 
 function Intro({
   onStart,
+  onSourceChanged,
   accuracy,
   bestStreak,
 }: {
   onStart: () => void;
+  onSourceChanged: () => void;
   accuracy: number;
   bestStreak: number;
 }) {
   return (
-    <div className="flex flex-col items-center px-6 pt-8 text-center">
-      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-card">
+    <div className="flex flex-col items-center px-6 pt-4 text-center">
+      <PhotoSourceBar onChanged={onSourceChanged} />
+      <div className="mt-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-card">
         <Brain className="h-7 w-7" />
       </div>
       <h2 className="mt-4 font-display text-3xl font-bold">Memory Lane</h2>
@@ -421,8 +434,9 @@ function DoneScreen({
   onAgain: () => void;
 }) {
   return (
-    <div className="flex flex-col items-center px-6 pt-10 text-center">
-      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-warm/30 text-warm-foreground">
+    <div className="flex flex-col items-center px-6 pt-4 text-center">
+      <PhotoSourceBar />
+      <div className="mt-6 flex h-16 w-16 items-center justify-center rounded-full bg-warm/30 text-warm-foreground">
         <Sparkles className="h-7 w-7" />
       </div>
       <h2 className="mt-4 font-display text-2xl font-bold">Round complete</h2>

@@ -7,6 +7,7 @@ import { useStats } from "@/hooks/use-stats";
 import { convertHeicPhotosToJpeg, isHeicPhoto } from "@/lib/photo-conversion";
 import { cn } from "@/lib/utils";
 import { FullPhotoDialog } from "@/components/FullPhotoDialog";
+import { PhotoSourceBar } from "@/components/PhotoSourceBar";
 import { toast } from "sonner";
 
 type SamplePhoto = LibraryPhoto;
@@ -257,6 +258,24 @@ export function ThisOrThat() {
           </button>
           <button
             onClick={async () => {
+              const restoredMB = +deletedLosersRef.current
+                .reduce((sum, photo) => sum + photo.sizeMB, 0)
+                .toFixed(2);
+              setStats((s) => ({
+                ...s,
+                deleted: Math.max(0, s.deleted - deletedLosersRef.current.length),
+                mbFreed: Math.max(0, +(s.mbFreed - restoredMB).toFixed(2)),
+                thisOrThatDeleted: Math.max(
+                  0,
+                  s.thisOrThatDeleted - deletedLosersRef.current.length,
+                ),
+                thisOrThatMbFreed: Math.max(0, +(s.thisOrThatMbFreed - restoredMB).toFixed(2)),
+              }));
+              logDay({
+                deleted: -deletedLosersRef.current.length,
+                mbFreed: -restoredMB,
+                deletedMbFreed: -restoredMB,
+              });
               await convertThisOrThatHeicPhotos([
                 ...conversionCandidatesRef.current,
                 ...deletedLosersRef.current,
@@ -273,11 +292,31 @@ export function ThisOrThat() {
     );
   }
 
-  if (!cards || !pair) return null;
+  if (!cards || !pair) {
+    return (
+      <div className="flex flex-col items-center px-5 pt-4 text-center">
+        <PhotoSourceBar
+          onChanged={() => {
+            preloadedRoundRef.current = null;
+            void reset();
+          }}
+        />
+        <p className="mt-8 text-sm text-muted-foreground">
+          No photo pairs found. Select a folder with more photos or try again.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center px-5 pt-4">
-      <div className="flex w-full max-w-sm items-center justify-between text-xs text-muted-foreground">
+      <PhotoSourceBar
+        onChanged={() => {
+          preloadedRoundRef.current = null;
+          void reset();
+        }}
+      />
+      <div className="mt-3 flex w-full max-w-sm items-center justify-between text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5 uppercase tracking-[0.18em]">
           <Scale className="h-3.5 w-3.5" /> This or That · {progress}
         </span>
