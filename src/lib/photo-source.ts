@@ -26,10 +26,11 @@ export type PhotoSource = {
   getOlder: (beforeYear: number, count: number) => Promise<LibraryPhoto[]>;
   getBurstGroups: (maxGroups: number) => Promise<LibraryPhoto[][]>;
   deletePhotos: (ids: string[]) => Promise<{ deleted: number }>;
-  trimPhotos: (ids: string[]) => Promise<{ trimmed: number }>;
+  trimPhotos: (ids: string[], photos?: LibraryPhoto[]) => Promise<{ trimmed: number }>;
 };
 
 type BridgeDeleteResult = { deleted?: number };
+type BridgeTrimResult = { converted?: boolean };
 
 // ─── Bridge detection ───────────────────────────
 
@@ -143,11 +144,32 @@ const nativeBridgeSource: PhotoSource = {
     return { deleted: result?.deleted ?? 0 };
   },
 
-  async trimPhotos(ids) {
-    console.log("[photo-source] native trim handled by existing cleanup flow", {
-      requested: ids.length,
-    });
-    return { trimmed: 0 };
+  async trimPhotos(ids, photos = []) {
+    let trimmed = 0;
+    const photoById = new Map(photos.map((photo) => [photo.nativeId ?? photo.id, photo]));
+
+    for (const id of ids) {
+      const photo = photoById.get(id);
+      if (!photo) {
+        console.log("[photo-source] native trim skipped; photo data unavailable", { id });
+        continue;
+      }
+
+      try {
+        const jpegDataUri = await photoToJpegDataUri(photo.url || photo.thumb, 0.82);
+        const result = (await bridgeCall("replaceAssetWithJpeg", {
+          assetId: id,
+          filename: jpegFilenameForPhoto(photo),
+          jpegDataUri,
+        })) as BridgeTrimResult | null;
+        if (result?.converted) trimmed += 1;
+      } catch (error) {
+        console.log("[photo-source] native trim failed", { id, error });
+      }
+    }
+
+    console.log("[photo-source] native trim completed", { requested: ids.length, trimmed });
+    return { trimmed };
   },
 };
 
@@ -165,7 +187,7 @@ function shuffle<T>(arr: T[]): T[] {
 type WebFolderFile = File & { webkitRelativePath?: string };
 
 type FileSystemWritableFileStreamLike = {
-  write: (data: Blob) => Promise<void>;
+  write: (data: Blob | string) => Promise<void>;
   close: () => Promise<void>;
 };
 
@@ -178,6 +200,14 @@ type FileSystemFileHandleLike = {
 
 type FileSystemDirectoryHandleLike = {
   values: () => AsyncIterable<FileSystemDirectoryHandleLike | FileSystemFileHandleLike>;
+  getDirectoryHandle?: (
+    name: string,
+    options?: { create?: boolean },
+  ) => Promise<FileSystemDirectoryHandleLike>;
+  getFileHandle?: (
+    name: string,
+    options?: { create?: boolean },
+  ) => Promise<FileSystemFileHandleLike>;
   removeEntry?: (name: string) => Promise<void>;
 };
 
@@ -304,6 +334,9 @@ function webPhotoPool(): LibraryPhoto[] {
 const webSource: PhotoSource = {
   isNative: false,
   async requestPermission() {
+    if (webFolderPhotos.length > 0) {
+      return { granted: true, limited: false, canAskAgain: true };
+    }
     return requestWebFolder();
   },
   async getRandom(count) {
@@ -325,12 +358,16 @@ const webSource: PhotoSource = {
     let deleted = 0;
     for (const id of ids) {
       const entry = webFolderEntries.get(id);
+      if (!entry) continue;
       try {
-        if (entry?.directoryHandle?.removeEntry) {
+        const movedToTrash = await moveWebEntryToSlimTrash(entry);
+        if (!movedToTrash && entry.directoryHandle?.removeEntry) {
           await entry.directoryHandle.removeEntry(entry.file.name);
         }
-        webFolderEntries.delete(id);
-        deleted += 1;
+        if (movedToTrash || entry.directoryHandle?.removeEntry) {
+          webFolderEntries.delete(id);
+          deleted += 1;
+        }
       } catch (error) {
         console.log("[photo-source] web delete failed", { id, error });
       }
@@ -375,6 +412,54 @@ const webSource: PhotoSource = {
     return { trimmed };
   },
 };
+
+function jpegFilenameForPhoto(photo: Pick<LibraryPhoto, "title">): string {
+  const base = photo.title.replace(/\.[^.]+$/, "").trim() || "TrimSwipe photo";
+  return `${base}.jpg`;
+}
+
+function photoToJpegDataUri(url: string, quality: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth || image.width;
+      canvas.height = image.naturalHeight || image.height;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        reject(new Error("Canvas is unavailable for trimming"));
+        return;
+      }
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    image.onerror = () => reject(new Error(`Could not load image for trimming: ${url}`));
+    image.decoding = "async";
+    image.src = url;
+  });
+}
+
+async function moveWebEntryToSlimTrash(entry: WebFolderEntry): Promise<boolean> {
+  const parent = entry.directoryHandle;
+  if (!parent?.getDirectoryHandle || !parent.getFileHandle || !parent.removeEntry) return false;
+
+  const trash = await parent.getDirectoryHandle("_Slim_Recycle_Bin", { create: true });
+  if (!trash.getFileHandle) return false;
+
+  const targetName = `${Date.now()}-${entry.file.name}`;
+  const targetHandle = await trash.getFileHandle(targetName, { create: true });
+  if (!targetHandle.createWritable) return false;
+
+  const writable = await targetHandle.createWritable();
+  await writable.write(entry.file);
+  await writable.close();
+  await parent.removeEntry(entry.file.name);
+  console.log("[photo-source] web file moved to Slim recycle bin", {
+    from: entry.file.name,
+    to: `_Slim_Recycle_Bin/${targetName}`,
+  });
+  return true;
+}
 
 function trimWebImageToJpeg(url: string): Promise<Blob | null> {
   return new Promise((resolve) => {

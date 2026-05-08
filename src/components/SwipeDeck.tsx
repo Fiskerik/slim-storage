@@ -78,7 +78,7 @@ export function SwipeDeck() {
   const [confirmList, setConfirmList] = useState<SamplePhoto[] | null>(null);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [iCloudWarn, setICloudWarn] = useState<{ photo: SamplePhoto } | null>(null);
-  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(() => !stats.settings.onboarded);
   const [fullPhoto, setFullPhoto] = useState<SamplePhoto | null>(null);
   const preloadedRoundRef = useRef<Promise<SamplePhoto[]> | null>(null);
   const conversionCandidatesRef = useRef<SamplePhoto[]>([]);
@@ -105,6 +105,14 @@ export function SwipeDeck() {
 
   useEffect(() => {
     let cancelled = false;
+    if (showOnboarding) {
+      setLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setLoading(true);
     (async () => {
       const src = await getPhotoSourceAsync();
       console.log("[SwipeDeck] photo source resolved", { isNative: src.isNative });
@@ -127,12 +135,11 @@ export function SwipeDeck() {
       preloadNextRound();
       setLoading(false);
     })();
-    if (!stats.settings.onboarded) setShowOnboarding(true);
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [showOnboarding]);
 
   useEffect(() => {
     if (queue.length > 0) {
@@ -236,11 +243,11 @@ export function SwipeDeck() {
       recordTrim();
       hapticSuccess();
       const trimId = photo.nativeId ?? photo.id;
-      if (!photo.isNative && trimId) {
+      if (trimId) {
         void getPhotoSourceAsync()
-          .then((src) => src.trimPhotos([trimId]))
-          .then((result) => console.log("[SwipeDeck] web trim result", { trimId, result }))
-          .catch((error) => console.log("[SwipeDeck] web trim failed", { trimId, error }));
+          .then((src) => src.trimPhotos([trimId], [photo]))
+          .then((result) => console.log("[SwipeDeck] trim result", { trimId, result }))
+          .catch((error) => console.log("[SwipeDeck] trim failed", { trimId, error }));
       }
       // No per-swipe toast — summary is shown at the end
       advance();
