@@ -31,6 +31,7 @@ import {
 import { useStats } from "@/hooks/use-stats";
 import { Onboarding } from "@/components/Onboarding";
 import { FullPhotoDialog } from "@/components/FullPhotoDialog";
+import { PhotoSourceBar } from "@/components/PhotoSourceBar";
 import { toast } from "sonner";
 import { presentPaywall } from "@/lib/purchases";
 import { convertHeicPhotosToJpeg, isHeicPhoto } from "@/lib/photo-conversion";
@@ -379,7 +380,8 @@ export function SwipeDeck() {
 
   return (
     <div className="flex flex-col items-center px-5 pt-4">
-      <div className="flex w-full max-w-sm items-center justify-between">
+      <PhotoSourceBar onChanged={reset} />
+      <div className="mt-3 flex w-full max-w-sm items-center justify-between">
         <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
           {queue.length} left
         </p>

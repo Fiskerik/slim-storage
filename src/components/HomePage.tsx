@@ -78,6 +78,16 @@ export function HomePage() {
         </div>
       </section>
 
+      {/* Start cleaning CTA */}
+      <Link
+        to="/games"
+        className="mt-6 block rounded-2xl bg-primary p-5 text-center text-primary-foreground shadow-card transition hover:opacity-90"
+      >
+        <Scissors className="mx-auto h-6 w-6" />
+        <p className="mt-2 font-display text-lg font-bold">Start cleaning</p>
+        <p className="mt-1 text-xs opacity-80">Pick a game and free up space</p>
+      </Link>
+
       <section className="mt-5 rounded-2xl border border-primary/20 bg-primary/5 p-4">
         <div className="flex items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
@@ -97,16 +107,6 @@ export function HomePage() {
           </button>
         </div>
       </section>
-
-      {/* Start cleaning CTA */}
-      <Link
-        to="/games"
-        className="mt-6 block rounded-2xl bg-primary p-5 text-center text-primary-foreground shadow-card transition hover:opacity-90"
-      >
-        <Scissors className="mx-auto h-6 w-6" />
-        <p className="mt-2 font-display text-lg font-bold">Start cleaning</p>
-        <p className="mt-1 text-xs opacity-80">Pick a game and free up space</p>
-      </Link>
 
       {trimInfoOpen && <TrimInfoModal onClose={() => setTrimInfoOpen(false)} />}
     </div>
