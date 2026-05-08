@@ -1,0 +1,55 @@
+1. Always build the mobile web bundle first
+Run this from the repo root:
+
+npm run build:mobile-spa
+
+
+
+That command uses the project’s build:mobile-spa script.
+
+I ran it here and it completed successfully:
+
+Testing
+
+✅ npm run build:mobile-spa
+
+This catches a lot of “white screen because production JS won’t compile” issues before Expo/EAS is involved.
+
+2. Test the bundled web app in a browser
+After building, serve the generated static bundle:
+
+cd mobile/mobile/assets/www
+python3 -m http.server 4174
+Then open:
+
+http://localhost:4174
+Your sync script writes the production mobile SPA bundle to mobile/mobile/assets/www and explicitly checks that index.html exists.
+
+If this is blank in a desktop browser too, open DevTools and check the console. That usually exposes the actual JS crash much faster than TestFlight.
+
+3. Test the native iOS shell locally on a Mac
+This is the main step that prevents wasting Expo cloud build credits.
+
+From the mobile app folder:
+
+cd mobile/mobile
+npm run prebuild
+npx expo run:ios --configuration Release
+Why this matters:
+
+npm run prebuild in the mobile app runs ./scripts/build-and-sync.sh --prebuild, which rebuilds/syncs the web bundle and then runs Expo prebuild.
+
+The local Expo command builds and installs the native app using your local Xcode toolchain, instead of using EAS cloud credits.
+
+Use --configuration Release because TestFlight is a release-style build, not a debug Metro/dev-server build.
+
+Expo’s official docs also recommend local compilation with npx expo run:ios / npx expo run:android for local app builds, and note these commands compile and install the app locally. Expo local app development docs
+
+If you want to choose a real plugged-in iPhone:
+
+cd mobile/mobile
+npx expo run:ios --configuration Release --device
+4. Test the EAS production pipeline locally without cloud credits
+If you specifically want to test the same EAS build process before using cloud credits, use EAS local build:
+
+eas build --platform ios --profile production --local --output ./build/Trimswipe.ipa
