@@ -43,7 +43,7 @@ function hasBridge(): boolean {
   if (typeof window === "undefined") return false;
   return (
     typeof window.__slimBridgeCall === "function" ||
-    !!window.__SLIM_NATIVE__ ||
+
     typeof window.ReactNativeWebView?.postMessage === "function"
   );
 }

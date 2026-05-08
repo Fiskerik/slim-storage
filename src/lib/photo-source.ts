@@ -54,7 +54,7 @@ function hasNativeMarker(): boolean {
 
 function hasBridge(): boolean {
   if (typeof window === "undefined") return false;
-  if (hasNativeMarker()) return true;
+
   if (typeof window.__slimBridgeCall === "function") return true;
   if (typeof window.ReactNativeWebView?.postMessage === "function") return true;
   return false;

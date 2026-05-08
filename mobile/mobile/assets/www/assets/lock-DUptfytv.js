@@ -1,5 +1,0 @@
-<<<<<<<< HEAD:mobile/mobile/assets/www/assets/lock-DUptfytv.js
-import{c}from"./index-BxvRet-S.js";const e=[["rect",{width:"18",height:"11",x:"3",y:"11",rx:"2",ry:"2",key:"1w4ew1"}],["path",{d:"M7 11V7a5 5 0 0 1 10 0v4",key:"fwvmzm"}]],t=c("lock",e);export{t as L};
-========
-import{c}from"./index-D5sY9hfD.js";const e=[["rect",{width:"18",height:"11",x:"3",y:"11",rx:"2",ry:"2",key:"1w4ew1"}],["path",{d:"M7 11V7a5 5 0 0 1 10 0v4",key:"fwvmzm"}]],t=c("lock",e);export{t as L};
->>>>>>>> 5c835897f9bba836c281a5de9b494c01d69f89a6:mobile/mobile/assets/www/assets/lock-BCiU2kcQ.js
