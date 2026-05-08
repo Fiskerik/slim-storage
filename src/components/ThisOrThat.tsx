@@ -3,8 +3,11 @@ import { Scale, Sparkles, RefreshCw } from "lucide-react";
 import { getPhotoSourceAsync, type LibraryPhoto } from "@/lib/photo-source";
 import { displayPhotoUrl, preloadPhotoImages } from "@/lib/image-preload";
 import { setStats, logDay } from "@/lib/storage";
+import { useStats } from "@/hooks/use-stats";
+import { convertHeicPhotosToJpeg, isHeicPhoto } from "@/lib/photo-conversion";
 import { cn } from "@/lib/utils";
 import { FullPhotoDialog } from "@/components/FullPhotoDialog";
+import { toast } from "sonner";
 
 type SamplePhoto = LibraryPhoto;
 
@@ -59,6 +62,7 @@ const ROUND = 6;
 const SELECTION_ANIMATION_MS = 320;
 
 export function ThisOrThat() {
+  const stats = useStats();
   const [round, setRound] = useState<BurstPair[]>([]);
   const [idx, setIdx] = useState(0);
   const [step, setStep] = useState<CompletionStep>("playing");
@@ -66,6 +70,7 @@ export function ThisOrThat() {
   const [selectedIdx, setSelectedIdx] = useState<0 | 1 | null>(null);
   const preloadedRoundRef = useRef<Promise<BurstPair[]> | null>(null);
   const deletedLosersRef = useRef<SamplePhoto[]>([]);
+  const conversionCandidatesRef = useRef<SamplePhoto[]>([]);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [fullPhoto, setFullPhoto] = useState<SamplePhoto | null>(null);
 
@@ -113,8 +118,11 @@ export function ThisOrThat() {
   function pick(keepIdx: 0 | 1) {
     if (!cards || selectedIdx !== null) return;
 
+    const winner = cards[keepIdx];
     const loser = cards[keepIdx === 0 ? 1 : 0];
     const nextDeleteFreed = +(deleteFreed + loser.sizeMB).toFixed(2);
+
+    conversionCandidatesRef.current = [...conversionCandidatesRef.current, winner];
 
     setSelectedIdx(keepIdx);
     setDeleteFreed(nextDeleteFreed);
@@ -149,6 +157,29 @@ export function ThisOrThat() {
     }, SELECTION_ANIMATION_MS);
   }
 
+  async function convertThisOrThatHeicPhotos(photos: SamplePhoto[]) {
+    if (!stats.settings.convertHeicToJpegAfterRounds) return;
+    const heicCount = photos.filter(isHeicPhoto).length;
+    if (heicCount === 0) return;
+
+    toast.loading(`Converting ${heicCount} HEIC photo${heicCount === 1 ? "" : "s"} to JPG…`, {
+      id: "heic-conversion",
+    });
+    const result = await convertHeicPhotosToJpeg(photos);
+    if (result.converted > 0) {
+      toast.success(
+        `Converted ${result.converted} HEIC photo${result.converted === 1 ? "" : "s"} to JPG`,
+        {
+          id: "heic-conversion",
+        },
+      );
+    } else if (result.failed > 0 || result.skipped > 0) {
+      toast.error("HEIC to JPG conversion could not finish", { id: "heic-conversion" });
+    } else {
+      toast.dismiss("heic-conversion");
+    }
+  }
+
   async function reset() {
     const pairs = await consumeRoundLoad();
     setRound(pairs);
@@ -157,6 +188,7 @@ export function ThisOrThat() {
     setIdx(0);
     setDeleteFreed(0);
     deletedLosersRef.current = [];
+    conversionCandidatesRef.current = [];
     setDeleteBusy(false);
     setSelectedIdx(null);
     setStep("playing");
@@ -186,6 +218,7 @@ export function ThisOrThat() {
       }
     }
 
+    await convertThisOrThatHeicPhotos(conversionCandidatesRef.current);
     await reset();
   }
 
@@ -216,7 +249,13 @@ export function ThisOrThat() {
               : `Delete ${round.length} photo${round.length === 1 ? "" : "s"} · ${totalFreed.toFixed(1)} MB`}
           </button>
           <button
-            onClick={reset}
+            onClick={async () => {
+              await convertThisOrThatHeicPhotos([
+                ...conversionCandidatesRef.current,
+                ...deletedLosersRef.current,
+              ]);
+              await reset();
+            }}
             disabled={deleteBusy}
             className="inline-flex items-center justify-center gap-2 rounded-full border border-border bg-card px-6 py-3 text-sm font-semibold text-foreground hover:border-primary/40 disabled:opacity-60"
           >

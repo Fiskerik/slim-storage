@@ -14,6 +14,7 @@ import {
   Pencil,
   Check,
   FileText,
+  FileImage,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useStats } from "@/hooks/use-stats";
@@ -210,6 +211,13 @@ export function ProfilePage() {
           hint="Recommended. Stops you from losing originals."
           checked={s.iCloudBackupWarn}
           onChange={(v) => updateSettings({ iCloudBackupWarn: v })}
+        />
+        <ToggleRow
+          icon={<FileImage className="h-4 w-4" />}
+          label="Convert HEIC to JPG after rounds"
+          hint="Re-saves kept HEIC photos as smaller JPG copies, then removes the original HEIC."
+          checked={s.convertHeicToJpegAfterRounds}
+          onChange={(v) => updateSettings({ convertHeicToJpegAfterRounds: v })}
         />
         <ToggleRow
           icon={<Bell className="h-4 w-4" />}

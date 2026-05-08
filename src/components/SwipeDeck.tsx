@@ -33,6 +33,7 @@ import { Onboarding } from "@/components/Onboarding";
 import { FullPhotoDialog } from "@/components/FullPhotoDialog";
 import { toast } from "sonner";
 import { presentPaywall } from "@/lib/purchases";
+import { convertHeicPhotosToJpeg, isHeicPhoto } from "@/lib/photo-conversion";
 import { cn } from "@/lib/utils";
 
 type SamplePhoto = LibraryPhoto;
@@ -80,6 +81,7 @@ export function SwipeDeck() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [fullPhoto, setFullPhoto] = useState<SamplePhoto | null>(null);
   const preloadedRoundRef = useRef<Promise<SamplePhoto[]> | null>(null);
+  const conversionCandidatesRef = useRef<SamplePhoto[]>([]);
 
   function createRoundLoad() {
     return getPhotoSourceAsync().then((src) => src.getRandom(cardsPerRound));
@@ -165,6 +167,29 @@ export function SwipeDeck() {
     advance();
   }
 
+  async function convertSwipeHeicPhotos(photos: SamplePhoto[]) {
+    if (!stats.settings.convertHeicToJpegAfterRounds) return;
+    const heicCount = photos.filter(isHeicPhoto).length;
+    if (heicCount === 0) return;
+
+    toast.loading(`Converting ${heicCount} HEIC photo${heicCount === 1 ? "" : "s"} to JPG…`, {
+      id: "heic-conversion",
+    });
+    const result = await convertHeicPhotosToJpeg(photos);
+    if (result.converted > 0) {
+      toast.success(
+        `Converted ${result.converted} HEIC photo${result.converted === 1 ? "" : "s"} to JPG`,
+        {
+          id: "heic-conversion",
+        },
+      );
+    } else if (result.failed > 0 || result.skipped > 0) {
+      toast.error("HEIC to JPG conversion could not finish", { id: "heic-conversion" });
+    } else {
+      toast.dismiss("heic-conversion");
+    }
+  }
+
   function advance() {
     setQueue((q) => {
       const rest = q.slice(1);
@@ -174,7 +199,12 @@ export function SwipeDeck() {
         if (deletedPhotosRef.current.length > 0) {
           setConfirmList(deletedPhotosRef.current);
         } else {
-          setRecap({ ...sessionRef.current });
+          const finalRecap = { ...sessionRef.current };
+          const conversionCandidates = conversionCandidatesRef.current;
+          void convertSwipeHeicPhotos(conversionCandidates).finally(() => {
+            conversionCandidatesRef.current = [];
+            setRecap(finalRecap);
+          });
           sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
         }
       }
@@ -190,12 +220,14 @@ export function SwipeDeck() {
     }
 
     if (action === "keep") {
+      conversionCandidatesRef.current = [...conversionCandidatesRef.current, photo];
       sess.kept += 1;
       setStats((s) => ({ ...s, cleaned: s.cleaned + 1 }));
       logDay({ kept: 1 });
       hapticTap();
       advance();
     } else if (action === "trim") {
+      conversionCandidatesRef.current = [...conversionCandidatesRef.current, photo];
       const saved = estimateTrimSavings(photo);
       sess.trimmed += 1;
       sess.freed += saved;
@@ -231,6 +263,7 @@ export function SwipeDeck() {
     setRecap(null);
     sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
     deletedPhotosRef.current = [];
+    conversionCandidatesRef.current = [];
     setLoading(false);
   }
 
@@ -269,9 +302,12 @@ export function SwipeDeck() {
       }
     }
 
+    await convertSwipeHeicPhotos(conversionCandidatesRef.current);
+
     const finalRecap = { ...sess };
     sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
     deletedPhotosRef.current = [];
+    conversionCandidatesRef.current = [];
     setConfirmList(null);
     setRecap(finalRecap);
   }
@@ -318,7 +354,13 @@ export function SwipeDeck() {
   }
 
   if (recap) {
-    return <SessionSummary recap={recap} onContinue={reset} />;
+    return (
+      <SessionSummary
+        recap={recap}
+        onContinue={reset}
+        convertHeicEnabled={stats.settings.convertHeicToJpegAfterRounds}
+      />
+    );
   }
 
   return (
@@ -707,7 +749,15 @@ function ActionButton({
   );
 }
 
-function SessionSummary({ recap, onContinue }: { recap: SessionRecap; onContinue: () => void }) {
+function SessionSummary({
+  recap,
+  onContinue,
+  convertHeicEnabled,
+}: {
+  recap: SessionRecap;
+  onContinue: () => void;
+  convertHeicEnabled: boolean;
+}) {
   const total = recap.kept + recap.trimmed + recap.deleted;
   return (
     <div className="flex flex-col items-center px-6 pt-10 text-center">
