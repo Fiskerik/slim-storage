@@ -27,7 +27,7 @@ export function StatsPage() {
   const freedDisplay = freed >= 1024 ? `${(freed / 1024).toFixed(2)} GB` : `${freed.toFixed(1)} MB`;
 
   const [period, setPeriod] = useState<"week" | "month" | "year">("week");
-  const history = useMemo(() => buildPeriodDays(s.daily, period), [s.daily, period]);
+  const history = useMemo(() => buildActivityBuckets(s.daily, period), [s.daily, period]);
   const [selected, setSelected] = useState<DayLog | null>(null);
 
   return (
@@ -72,50 +72,45 @@ export function StatsPage() {
           ))}
         </div>
       </div>
-      <div className="mt-3 flex items-end justify-between gap-1.5">
-        {history.map((d) => {
-          const max = Math.max(1, ...history.map((x) => x.mbFreed));
-          const heightPct = Math.max(8, Math.round((d.mbFreed / max) * 100));
-          const hasActivity =
-            d.kept +
-              d.trimmed +
-              d.deleted +
-              d.memoryPlayed +
-              d.thisOrThatRounds +
-              d.speedRoundPlayed +
-              d.storageBudgetPlayed >
-            0;
-          const memoryCleared = d.memoryPlayed > 0;
-          const label = new Date(d.date + "T00:00:00").toLocaleDateString("en-US", {
-            weekday: "short",
-          })[0];
-          return (
-            <button
-              key={d.date}
-              onClick={() => setSelected(d)}
-              className="group flex min-w-0 flex-1 flex-col items-center gap-1.5"
-              aria-label={`${d.date} details`}
-            >
-              <div className="relative flex h-[88px] w-full items-end justify-center">
-                <div
-                  className={cn(
-                    "w-full rounded-2xl border transition group-hover:scale-[1.03]",
-                    memoryCleared
-                      ? "border-success/60 bg-success/80"
-                      : hasActivity
-                        ? "border-border bg-muted"
-                        : "border-dashed border-border bg-transparent",
-                  )}
-                  style={{ height: hasActivity ? `${heightPct}%` : "30%" }}
-                />
-              </div>
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                {label}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      {history.length > 0 ? (
+        <div className="mt-3 flex items-end justify-between gap-1.5">
+          {history.map((d) => {
+            const max = Math.max(1, ...history.map((x) => x.mbFreed));
+            const heightPct = Math.max(8, Math.round((d.mbFreed / max) * 100));
+            const hasActivity = hasDayActivity(d);
+            const memoryCleared = d.memoryPlayed > 0;
+            return (
+              <button
+                key={d.bucketKey}
+                onClick={() => setSelected(d)}
+                className="group flex min-w-0 flex-1 flex-col items-center gap-1.5"
+                aria-label={`${d.ariaLabel} details`}
+              >
+                <div className="relative flex h-[88px] w-full items-end justify-center">
+                  <div
+                    className={cn(
+                      "w-full rounded-2xl border transition group-hover:scale-[1.03]",
+                      memoryCleared
+                        ? "border-success/60 bg-success/80"
+                        : hasActivity
+                          ? "border-border bg-muted"
+                          : "border-dashed border-border bg-transparent",
+                    )}
+                    style={{ height: hasActivity ? `${heightPct}%` : "30%" }}
+                  />
+                </div>
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {d.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="mt-3 rounded-2xl border border-dashed border-border bg-card/60 px-4 py-8 text-center text-xs text-muted-foreground">
+          No activity data yet.
+        </div>
+      )}
 
       <h2 className="mt-7 px-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
         Cleanup
@@ -293,28 +288,76 @@ function emptyDay(date: string): DayLog {
   };
 }
 
-function buildPeriodDays(daily: DayLog[], period: "week" | "month" | "year"): DayLog[] {
-  const map = new Map(daily.map((d) => [d.date, { ...emptyDay(d.date), ...d }]));
-  const out: DayLog[] = [];
-  const days = period === "week" ? 7 : period === "month" ? 30 : 365;
-  const step = period === "year" ? 14 : 1;
-  for (let i = days - 1; i >= 0; i -= step) {
-    const date = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
-    const bucket = map.get(date) ?? emptyDay(date);
-    if (period === "year") {
-      const start = Math.max(0, i - step + 1);
-      const daysInBucket = Array.from({ length: i - start + 1 }, (_, idx) => {
-        const bucketDate = new Date(Date.now() - (start + idx) * 86_400_000)
-          .toISOString()
-          .slice(0, 10);
-        return map.get(bucketDate) ?? emptyDay(bucketDate);
-      });
-      out.push(daysInBucket.reduce(sumDays, { ...emptyDay(date), date }));
-    } else {
-      out.push(bucket);
-    }
+type ActivityBucket = DayLog & {
+  bucketKey: string;
+  label: string;
+  ariaLabel: string;
+};
+
+const MONTH_LABELS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+function hasDayActivity(day: DayLog): boolean {
+  return (
+    day.kept +
+      day.trimmed +
+      day.deleted +
+      day.memoryPlayed +
+      day.thisOrThatRounds +
+      day.speedRoundPlayed +
+      day.storageBudgetPlayed >
+    0
+  );
+}
+
+function buildActivityBuckets(
+  daily: DayLog[],
+  period: "week" | "month" | "year",
+): ActivityBucket[] {
+  if (period === "week") {
+    const map = new Map(daily.map((d) => [d.date, { ...emptyDay(d.date), ...d }]));
+    return Array.from({ length: 7 }, (_, index) => {
+      const daysAgo = 6 - index;
+      const date = new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
+      const day = map.get(date) ?? emptyDay(date);
+      const label = new Date(date + "T00:00:00").toLocaleDateString("en-US", {
+        weekday: "short",
+      })[0];
+      return { ...day, bucketKey: date, label, ariaLabel: date };
+    });
   }
-  return out;
+
+  const activeDays = daily.filter(hasDayActivity).sort((a, b) => a.date.localeCompare(b.date));
+  const grouped = new Map<string, ActivityBucket>();
+
+  activeDays.forEach((day) => {
+    const date = new Date(day.date + "T00:00:00");
+    const key = period === "month" ? day.date.slice(0, 7) : day.date.slice(0, 4);
+    const label = period === "month" ? (MONTH_LABELS[date.getMonth()] ?? key) : key;
+    const ariaLabel = period === "month" ? `${label} ${date.getFullYear()}` : key;
+    const existing = grouped.get(key);
+    const base = existing ?? {
+      ...emptyDay(period === "month" ? `${key}-01` : `${key}-01-01`),
+      bucketKey: key,
+      label,
+      ariaLabel,
+    };
+    grouped.set(key, { ...sumDays(base, day), bucketKey: key, label, ariaLabel });
+  });
+
+  return Array.from(grouped.values());
 }
 
 function sumDays(total: DayLog, day: DayLog): DayLog {
