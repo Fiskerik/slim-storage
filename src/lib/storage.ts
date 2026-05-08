@@ -6,7 +6,13 @@ export type DayLog = {
   trimmed: number;
   deleted: number;
   mbFreed: number;
+  trimmedMbFreed: number;
+  deletedMbFreed: number;
   memoryPlayed: number; // memory rounds completed that day
+  thisOrThatRounds: number;
+  speedRoundPlayed: number;
+  speedRoundReviewed: number;
+  storageBudgetPlayed: number;
 };
 
 export type Settings = {
@@ -15,6 +21,7 @@ export type Settings = {
   reminderEnabled: boolean;
   reminderTime: string; // "HH:MM" 24h
   iCloudBackupWarn: boolean;
+  convertHeicToJpegAfterRounds: boolean;
   onboarded: boolean;
   displayName: string;
   dailyGoalMB: number;
@@ -71,6 +78,7 @@ const DEFAULT_SETTINGS: Settings = {
   reminderEnabled: true,
   reminderTime: "19:00",
   iCloudBackupWarn: true,
+  convertHeicToJpegAfterRounds: false,
   onboarded: false,
   displayName: "You",
   dailyGoalMB: 100,
@@ -122,6 +130,23 @@ function readFromStorage(): Stats {
       ...DEFAULT,
       ...parsed,
       settings: { ...DEFAULT_SETTINGS, ...(parsed.settings ?? {}) },
+      daily: Array.isArray(parsed.daily)
+        ? parsed.daily.map((day: Partial<DayLog>) => ({
+            date: day.date ?? new Date().toISOString().slice(0, 10),
+            kept: day.kept ?? 0,
+            trimmed: day.trimmed ?? 0,
+            deleted: day.deleted ?? 0,
+            mbFreed: day.mbFreed ?? 0,
+            trimmedMbFreed: day.trimmedMbFreed ?? 0,
+            deletedMbFreed:
+              day.deletedMbFreed ?? Math.max(0, (day.mbFreed ?? 0) - (day.trimmedMbFreed ?? 0)),
+            memoryPlayed: day.memoryPlayed ?? 0,
+            thisOrThatRounds: day.thisOrThatRounds ?? 0,
+            speedRoundPlayed: day.speedRoundPlayed ?? 0,
+            speedRoundReviewed: day.speedRoundReviewed ?? 0,
+            storageBudgetPlayed: day.storageBudgetPlayed ?? 0,
+          }))
+        : [],
       pendingDelete: parsed.pendingDelete ?? [],
       startedAt: parsed.startedAt ?? new Date().toISOString().slice(0, 10),
     };
@@ -223,7 +248,13 @@ function upsertToday(s: Stats, patch: Partial<Omit<DayLog, "date">>): DayLog[] {
         trimmed: existing.trimmed + (patch.trimmed ?? 0),
         deleted: existing.deleted + (patch.deleted ?? 0),
         mbFreed: +(existing.mbFreed + (patch.mbFreed ?? 0)).toFixed(2),
+        trimmedMbFreed: +(existing.trimmedMbFreed + (patch.trimmedMbFreed ?? 0)).toFixed(2),
+        deletedMbFreed: +(existing.deletedMbFreed + (patch.deletedMbFreed ?? 0)).toFixed(2),
         memoryPlayed: existing.memoryPlayed + (patch.memoryPlayed ?? 0),
+        thisOrThatRounds: existing.thisOrThatRounds + (patch.thisOrThatRounds ?? 0),
+        speedRoundPlayed: existing.speedRoundPlayed + (patch.speedRoundPlayed ?? 0),
+        speedRoundReviewed: existing.speedRoundReviewed + (patch.speedRoundReviewed ?? 0),
+        storageBudgetPlayed: existing.storageBudgetPlayed + (patch.storageBudgetPlayed ?? 0),
       }
     : {
         date,
@@ -231,7 +262,13 @@ function upsertToday(s: Stats, patch: Partial<Omit<DayLog, "date">>): DayLog[] {
         trimmed: patch.trimmed ?? 0,
         deleted: patch.deleted ?? 0,
         mbFreed: +(patch.mbFreed ?? 0).toFixed(2),
+        trimmedMbFreed: +(patch.trimmedMbFreed ?? 0).toFixed(2),
+        deletedMbFreed: +(patch.deletedMbFreed ?? 0).toFixed(2),
         memoryPlayed: patch.memoryPlayed ?? 0,
+        thisOrThatRounds: patch.thisOrThatRounds ?? 0,
+        speedRoundPlayed: patch.speedRoundPlayed ?? 0,
+        speedRoundReviewed: patch.speedRoundReviewed ?? 0,
+        storageBudgetPlayed: patch.storageBudgetPlayed ?? 0,
       };
   const others = s.daily.filter((d) => d.date !== date);
   // keep last 30 days
@@ -252,7 +289,13 @@ export function getTodayLog(s: Stats = getStats()): DayLog {
       trimmed: 0,
       deleted: 0,
       mbFreed: 0,
+      trimmedMbFreed: 0,
+      deletedMbFreed: 0,
       memoryPlayed: 0,
+      thisOrThatRounds: 0,
+      speedRoundPlayed: 0,
+      speedRoundReviewed: 0,
+      storageBudgetPlayed: 0,
     }
   );
 }

@@ -14,6 +14,7 @@ import {
   Check,
 } from "lucide-react";
 import { getPhotoSourceAsync, isNativeApp, type LibraryPhoto } from "@/lib/photo-source";
+import { displayPhotoUrl, preloadPhotoImages } from "@/lib/image-preload";
 import { hapticTap, hapticSuccess, hapticError } from "@/lib/native-shell";
 import {
   setStats,
@@ -29,8 +30,10 @@ import {
 } from "@/lib/storage";
 import { useStats } from "@/hooks/use-stats";
 import { Onboarding } from "@/components/Onboarding";
+import { FullPhotoDialog } from "@/components/FullPhotoDialog";
 import { toast } from "sonner";
 import { presentPaywall } from "@/lib/purchases";
+import { convertHeicPhotosToJpeg, isHeicPhoto } from "@/lib/photo-conversion";
 import { cn } from "@/lib/utils";
 
 type SamplePhoto = LibraryPhoto;
@@ -45,17 +48,6 @@ type SessionRecap = {
 };
 
 const SWIPE_THRESHOLD = 110;
-
-function preloadPhotoImages(photos: SamplePhoto[]) {
-  if (typeof window === "undefined") return;
-  photos.forEach((photo) => {
-    const image = new Image();
-    image.decoding = "async";
-    image.loading = "eager";
-    image.src = photo.url;
-    image.decode?.().catch(() => undefined);
-  });
-}
 
 function estimateTrimSavings(photo: SamplePhoto): number {
   const metadataSavings = photo.hasGPS ? 0.18 : 0.08;
@@ -87,7 +79,9 @@ export function SwipeDeck() {
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [iCloudWarn, setICloudWarn] = useState<{ photo: SamplePhoto } | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [fullPhoto, setFullPhoto] = useState<SamplePhoto | null>(null);
   const preloadedRoundRef = useRef<Promise<SamplePhoto[]> | null>(null);
+  const conversionCandidatesRef = useRef<SamplePhoto[]>([]);
 
   function createRoundLoad() {
     return getPhotoSourceAsync().then((src) => src.getRandom(cardsPerRound));
@@ -114,19 +108,17 @@ export function SwipeDeck() {
     (async () => {
       const src = await getPhotoSourceAsync();
       console.log("[SwipeDeck] photo source resolved", { isNative: src.isNative });
-      if (src.isNative) {
-        const permission = await src.requestPermission();
-        if (!permission.granted) {
-          if (!cancelled) {
-            setPermissionDenied(true);
-            setPermissionLimited(false);
-            setLoading(false);
-          }
-          return;
-        }
+      const permission = await src.requestPermission();
+      if (!permission.granted) {
         if (!cancelled) {
-          setPermissionLimited(permission.limited);
+          setPermissionDenied(true);
+          setPermissionLimited(false);
+          setLoading(false);
         }
+        return;
+      }
+      if (!cancelled) {
+        setPermissionLimited(permission.limited);
       }
       const photos = await src.getRandom(cardsPerRound);
       if (cancelled) return;
@@ -166,13 +158,36 @@ export function SwipeDeck() {
     sess.deleted += 1;
     sess.freed += photo.sizeMB;
     setStats((s) => ({ ...s, deleted: s.deleted + 1, mbFreed: s.mbFreed + photo.sizeMB }));
-    logDay({ deleted: 1, mbFreed: photo.sizeMB });
+    logDay({ deleted: 1, mbFreed: photo.sizeMB, deletedMbFreed: photo.sizeMB });
     softDelete({ id: photo.id, title: photo.title, sizeMB: photo.sizeMB });
     deletedPhotosRef.current = [...deletedPhotosRef.current, photo];
 
     // No per-swipe toast — summary is shown at the end
 
     advance();
+  }
+
+  async function convertSwipeHeicPhotos(photos: SamplePhoto[]) {
+    if (!stats.settings.convertHeicToJpegAfterRounds) return;
+    const heicCount = photos.filter(isHeicPhoto).length;
+    if (heicCount === 0) return;
+
+    toast.loading(`Converting ${heicCount} HEIC photo${heicCount === 1 ? "" : "s"} to JPG…`, {
+      id: "heic-conversion",
+    });
+    const result = await convertHeicPhotosToJpeg(photos);
+    if (result.converted > 0) {
+      toast.success(
+        `Converted ${result.converted} HEIC photo${result.converted === 1 ? "" : "s"} to JPG`,
+        {
+          id: "heic-conversion",
+        },
+      );
+    } else if (result.failed > 0 || result.skipped > 0) {
+      toast.error("HEIC to JPG conversion could not finish", { id: "heic-conversion" });
+    } else {
+      toast.dismiss("heic-conversion");
+    }
   }
 
   function advance() {
@@ -184,7 +199,12 @@ export function SwipeDeck() {
         if (deletedPhotosRef.current.length > 0) {
           setConfirmList(deletedPhotosRef.current);
         } else {
-          setRecap({ ...sessionRef.current });
+          const finalRecap = { ...sessionRef.current };
+          const conversionCandidates = conversionCandidatesRef.current;
+          void convertSwipeHeicPhotos(conversionCandidates).finally(() => {
+            conversionCandidatesRef.current = [];
+            setRecap(finalRecap);
+          });
           sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
         }
       }
@@ -200,19 +220,28 @@ export function SwipeDeck() {
     }
 
     if (action === "keep") {
+      conversionCandidatesRef.current = [...conversionCandidatesRef.current, photo];
       sess.kept += 1;
       setStats((s) => ({ ...s, cleaned: s.cleaned + 1 }));
       logDay({ kept: 1 });
       hapticTap();
       advance();
     } else if (action === "trim") {
+      conversionCandidatesRef.current = [...conversionCandidatesRef.current, photo];
       const saved = estimateTrimSavings(photo);
       sess.trimmed += 1;
       sess.freed += saved;
       setStats((s) => ({ ...s, slimmed: s.slimmed + 1, mbFreed: s.mbFreed + saved }));
-      logDay({ trimmed: 1, mbFreed: saved });
+      logDay({ trimmed: 1, mbFreed: saved, trimmedMbFreed: saved });
       recordTrim();
       hapticSuccess();
+      const trimId = photo.nativeId ?? photo.id;
+      if (!photo.isNative && trimId) {
+        void getPhotoSourceAsync()
+          .then((src) => src.trimPhotos([trimId]))
+          .then((result) => console.log("[SwipeDeck] web trim result", { trimId, result }))
+          .catch((error) => console.log("[SwipeDeck] web trim failed", { trimId, error }));
+      }
       // No per-swipe toast — summary is shown at the end
       advance();
     } else if (action === "delete") {
@@ -241,6 +270,7 @@ export function SwipeDeck() {
     setRecap(null);
     sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
     deletedPhotosRef.current = [];
+    conversionCandidatesRef.current = [];
     setLoading(false);
   }
 
@@ -269,19 +299,22 @@ export function SwipeDeck() {
       kept: deletedPhotosRef.current.length - toDelete.length,
     });
 
-    const nativeIds = toDelete.filter((p) => p.isNative && p.nativeId).map((p) => p.nativeId!);
-    if (nativeIds.length > 0) {
+    const deleteIds = toDelete.map((p) => p.nativeId ?? p.id).filter(Boolean);
+    if (deleteIds.length > 0) {
       try {
-        const result = await (await getPhotoSourceAsync()).deletePhotos(nativeIds);
-        console.log("[SwipeDeck] native delete result", result);
+        const result = await (await getPhotoSourceAsync()).deletePhotos(deleteIds);
+        console.log("[SwipeDeck] delete result", { requested: deleteIds.length, result });
       } catch (e) {
-        console.warn("[Slim] native delete failed", e);
+        console.warn("[Slim] delete failed", e);
       }
     }
+
+    await convertSwipeHeicPhotos(conversionCandidatesRef.current);
 
     const finalRecap = { ...sess };
     sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
     deletedPhotosRef.current = [];
+    conversionCandidatesRef.current = [];
     setConfirmList(null);
     setRecap(finalRecap);
   }
@@ -298,14 +331,15 @@ export function SwipeDeck() {
         </div>
         <h2 className="mt-4 font-display text-2xl font-bold">Photo access needed</h2>
         <p className="mt-2 max-w-xs text-sm text-muted-foreground">
-          Slim works on the photos already in your library. Open Settings → Slim → Photos and enable
-          access.
+          {isNativeApp()
+            ? "Slim works on the photos already in your library. Open Settings → Slim → Photos and enable access."
+            : "Choose a folder of photos from your drive so Slim can build a cleanup queue in the browser."}
         </p>
         <button
           onClick={() => window.location.reload()}
           className="mt-6 inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-card"
         >
-          <RefreshCw className="h-4 w-4" /> I've enabled it
+          <RefreshCw className="h-4 w-4" /> {isNativeApp() ? "I've enabled it" : "Select folder"}
         </button>
       </div>
     );
@@ -316,7 +350,7 @@ export function SwipeDeck() {
       <div className="flex flex-col items-center px-6 pt-20 text-center">
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-muted border-t-primary" />
         <p className="mt-4 text-sm text-muted-foreground">
-          {isNativeApp() ? "Loading your photos…" : "Loading sample photos…"}
+          {isNativeApp() ? "Loading your photos…" : "Choose a folder to clean…"}
         </p>
       </div>
     );
@@ -327,7 +361,13 @@ export function SwipeDeck() {
   }
 
   if (recap) {
-    return <SessionSummary recap={recap} onContinue={reset} />;
+    return (
+      <SessionSummary
+        recap={recap}
+        onContinue={reset}
+        convertHeicEnabled={stats.settings.convertHeicToJpegAfterRounds}
+      />
+    );
   }
 
   return (
@@ -353,7 +393,14 @@ export function SwipeDeck() {
       <div className="relative mt-4 h-[460px] w-full max-w-sm">
         <AnimatePresence>
           {next && <PhotoCard key={next.id} photo={next} stacked />}
-          {top && <SwipeableCard key={top.id} photo={top} onAction={(a) => handleAction(top, a)} />}
+          {top && (
+            <SwipeableCard
+              key={top.id}
+              photo={top}
+              onAction={(a) => handleAction(top, a)}
+              onOpenFull={() => setFullPhoto(top)}
+            />
+          )}
           {!top && !recap && <EmptyDeckCard onReset={reset} />}
         </AnimatePresence>
       </div>
@@ -419,6 +466,8 @@ export function SwipeDeck() {
           }}
         />
       )}
+
+      <FullPhotoDialog photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </div>
   );
 }
@@ -518,7 +567,15 @@ function ICloudWarnModal({
   );
 }
 
-function SwipeableCard({ photo, onAction }: { photo: SamplePhoto; onAction: (a: Action) => void }) {
+function SwipeableCard({
+  photo,
+  onAction,
+  onOpenFull,
+}: {
+  photo: SamplePhoto;
+  onAction: (a: Action) => void;
+  onOpenFull: () => void;
+}) {
   const x = useMotionValue(0);
   const y = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-14, 14]);
@@ -551,7 +608,7 @@ function SwipeableCard({ photo, onAction }: { photo: SamplePhoto; onAction: (a: 
       transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.7 }}
       className="absolute inset-0 cursor-grab will-change-transform active:cursor-grabbing"
     >
-      <PhotoCard photo={photo}>
+      <PhotoCard photo={photo} onOpenFull={onOpenFull}>
         {/* Left edge — KEEP (green) */}
         <motion.div
           style={{ opacity: keepOpacity }}
@@ -592,10 +649,12 @@ function PhotoCard({
   photo,
   stacked,
   children,
+  onOpenFull,
 }: {
   photo: SamplePhoto;
   stacked?: boolean;
   children?: React.ReactNode;
+  onOpenFull?: () => void;
 }) {
   return (
     <div
@@ -605,11 +664,12 @@ function PhotoCard({
       )}
     >
       <img
-        src={photo.url}
+        onClick={onOpenFull}
+        src={displayPhotoUrl(photo)}
         alt={photo.title}
         loading={stacked ? "eager" : "eager"}
         decoding="async"
-        className="h-full w-full object-cover"
+        className={cn("h-full w-full object-cover", onOpenFull && "cursor-zoom-in")}
       />
       <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/10 to-transparent" />
 
@@ -696,7 +756,15 @@ function ActionButton({
   );
 }
 
-function SessionSummary({ recap, onContinue }: { recap: SessionRecap; onContinue: () => void }) {
+function SessionSummary({
+  recap,
+  onContinue,
+  convertHeicEnabled,
+}: {
+  recap: SessionRecap;
+  onContinue: () => void;
+  convertHeicEnabled: boolean;
+}) {
   const total = recap.kept + recap.trimmed + recap.deleted;
   return (
     <div className="flex flex-col items-center px-6 pt-10 text-center">
@@ -865,7 +933,7 @@ function DeleteConfirmStep({
               >
                 <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-muted">
                   <img
-                    src={p.thumb}
+                    src={displayPhotoUrl(p)}
                     alt={p.title}
                     loading="lazy"
                     className={cn("h-full w-full object-cover transition", !checked && "grayscale")}

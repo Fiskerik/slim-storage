@@ -1,9 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Timer, Trash2, Check, Sparkles, Play } from "lucide-react";
 import { getPhotoSourceAsync, type LibraryPhoto } from "@/lib/photo-source";
+import { displayPhotoUrl, preloadPhotoImages } from "@/lib/image-preload";
 import { setStats, logDay } from "@/lib/storage";
+import { useStats } from "@/hooks/use-stats";
+import { convertHeicPhotosToJpeg, isHeicPhoto } from "@/lib/photo-conversion";
 import { cn } from "@/lib/utils";
+import { FullPhotoDialog } from "@/components/FullPhotoDialog";
+import { toast } from "sonner";
 
 const DURATION = 30;
 
@@ -11,21 +16,16 @@ type Phase = "intro" | "play" | "review" | "done";
 
 type Decision = { photo: LibraryPhoto; keep: boolean };
 
-function preloadPhotoImages(photos: LibraryPhoto[]) {
-  if (typeof window === "undefined") return;
-  photos.forEach((photo) => {
-    const image = new Image();
-    image.src = photo.url;
-  });
-}
-
 export function SpeedRound() {
+  const stats = useStats();
   const [phase, setPhase] = useState<Phase>("intro");
   const [queue, setQueue] = useState<LibraryPhoto[]>([]);
   const [time, setTime] = useState(DURATION);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const tickRef = useRef<number | null>(null);
+  const completedRoundLoggedRef = useRef(false);
   const preloadedQueueRef = useRef<Promise<LibraryPhoto[]> | null>(null);
+  const conversionCandidatesRef = useRef<LibraryPhoto[]>([]);
 
   function preloadNextQueue() {
     if (!preloadedQueueRef.current) {
@@ -74,6 +74,8 @@ export function SpeedRound() {
     preloadNextQueue();
     setTime(DURATION);
     setDecisions([]);
+    conversionCandidatesRef.current = [];
+    completedRoundLoggedRef.current = false;
     setPhase("play");
   }
 
@@ -81,36 +83,87 @@ export function SpeedRound() {
     const top = queue[0];
     if (!top) return;
     setDecisions((d) => [...d, { photo: top, keep }]);
+    if (keep) {
+      conversionCandidatesRef.current = [...conversionCandidatesRef.current, top];
+    }
     if (!keep) {
       setStats((s) => ({
         ...s,
         deleted: s.deleted + 1,
         mbFreed: s.mbFreed + top.sizeMB,
       }));
-      logDay({ deleted: 1, mbFreed: top.sizeMB });
+      logDay({
+        deleted: 1,
+        mbFreed: top.sizeMB,
+        deletedMbFreed: top.sizeMB,
+        speedRoundReviewed: 1,
+      });
     } else {
       setStats((s) => ({ ...s, cleaned: s.cleaned + 1 }));
-      logDay({ kept: 1 });
+      logDay({ kept: 1, speedRoundReviewed: 1 });
     }
     setQueue((q) => q.slice(1));
   }
 
   const [reviewSelection, setReviewSelection] = useState<Record<string, boolean>>({});
 
-  const trashed = decisions.filter((d) => !d.keep);
-  const selectedForDelete = trashed.filter(
-    (d, index) => reviewSelection[`${d.photo.id}:${d.photo.nativeId ?? "web"}:${index}`] !== false,
+  const trashed = useMemo(() => decisions.filter((d) => !d.keep), [decisions]);
+  const selectedForDelete = useMemo(
+    () =>
+      trashed.filter(
+        (d, index) =>
+          reviewSelection[`${d.photo.id}:${d.photo.nativeId ?? "web"}:${index}`] !== false,
+      ),
+    [reviewSelection, trashed],
   );
-  const freedMB = selectedForDelete.reduce((s, d) => s + d.photo.sizeMB, 0);
+  const freedMB = useMemo(
+    () => selectedForDelete.reduce((s, d) => s + d.photo.sizeMB, 0),
+    [selectedForDelete],
+  );
 
   useEffect(() => {
     if (phase !== "review") return;
+    if (!completedRoundLoggedRef.current) {
+      completedRoundLoggedRef.current = true;
+      setStats((s) => ({
+        ...s,
+        speedRoundPlayed: s.speedRoundPlayed + 1,
+        speedRoundBestCount: Math.max(s.speedRoundBestCount, decisions.length),
+        speedRoundBestMb: Math.max(s.speedRoundBestMb, freedMB),
+        speedRoundTotalReviewed: s.speedRoundTotalReviewed + decisions.length,
+        speedRoundTotalMbFreed: s.speedRoundTotalMbFreed + freedMB,
+      }));
+      logDay({ speedRoundPlayed: 1 });
+    }
     const initial: Record<string, boolean> = {};
     trashed.forEach((d, index) => {
       initial[`${d.photo.id}:${d.photo.nativeId ?? "web"}:${index}`] = true;
     });
     setReviewSelection(initial);
-  }, [phase]);
+  }, [decisions.length, freedMB, phase, trashed]);
+
+  async function convertSpeedRoundHeicPhotos(photos: LibraryPhoto[]) {
+    if (!stats.settings.convertHeicToJpegAfterRounds) return;
+    const heicCount = photos.filter(isHeicPhoto).length;
+    if (heicCount === 0) return;
+
+    toast.loading(`Converting ${heicCount} HEIC photo${heicCount === 1 ? "" : "s"} to JPG…`, {
+      id: "heic-conversion",
+    });
+    const result = await convertHeicPhotosToJpeg(photos);
+    if (result.converted > 0) {
+      toast.success(
+        `Converted ${result.converted} HEIC photo${result.converted === 1 ? "" : "s"} to JPG`,
+        {
+          id: "heic-conversion",
+        },
+      );
+    } else if (result.failed > 0 || result.skipped > 0) {
+      toast.error("HEIC to JPG conversion could not finish", { id: "heic-conversion" });
+    } else {
+      toast.dismiss("heic-conversion");
+    }
+  }
 
   async function confirmDelete() {
     const src = await getPhotoSourceAsync();
@@ -118,10 +171,23 @@ export function SpeedRound() {
     if (src.isNative && ids.length > 0) {
       await src.deletePhotos(ids);
     }
+    const retainedPhotos = decisions
+      .filter((decision, index) => {
+        if (decision.keep) return true;
+        const trashIndex = trashed.findIndex((item) => item === decision);
+        if (trashIndex === -1) return true;
+        const key = `${decision.photo.id}:${decision.photo.nativeId ?? "web"}:${trashIndex}`;
+        return reviewSelection[key] === false;
+      })
+      .map((decision) => decision.photo);
+    await convertSpeedRoundHeicPhotos(retainedPhotos);
+    conversionCandidatesRef.current = [];
     setPhase("done");
   }
 
-  function skipDelete() {
+  async function skipDelete() {
+    await convertSpeedRoundHeicPhotos(decisions.map((decision) => decision.photo));
+    conversionCandidatesRef.current = [];
     setPhase("done");
   }
 
@@ -182,7 +248,7 @@ export function SpeedRound() {
                       className="h-4 w-4"
                     />
                     <img
-                      src={photo.thumb || photo.url}
+                      src={displayPhotoUrl(photo)}
                       alt={photo.title}
                       className="h-12 w-12 rounded-lg object-cover"
                     />
@@ -217,7 +283,11 @@ export function SpeedRound() {
           </div>
         ) : (
           <button
-            onClick={() => setPhase("done")}
+            onClick={async () => {
+              await convertSpeedRoundHeicPhotos(conversionCandidatesRef.current);
+              conversionCandidatesRef.current = [];
+              setPhase("done");
+            }}
             className="mt-6 inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-card hover:opacity-90"
           >
             Continue
@@ -294,7 +364,12 @@ export function SpeedRound() {
               transition={{ duration: 0.15 }}
               className="absolute inset-0 overflow-hidden rounded-3xl border border-border bg-card shadow-card"
             >
-              <img src={top.url} alt={top.title} className="h-full w-full object-cover" />
+              <img
+                src={displayPhotoUrl(top)}
+                alt={top.title}
+                className="h-full w-full cursor-zoom-in object-cover"
+                onClick={() => setFullPhoto(top)}
+              />
               <div className="absolute inset-0 bg-gradient-to-t from-black/65 to-transparent" />
               <div className="absolute bottom-5 left-5 right-5 text-white">
                 <p className="text-xs opacity-80">{top.sizeMB.toFixed(1)} MB</p>
@@ -319,6 +394,7 @@ export function SpeedRound() {
           <Trash2 className="h-5 w-5" /> Trash
         </button>
       </div>
+      <FullPhotoDialog photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </div>
   );
 }

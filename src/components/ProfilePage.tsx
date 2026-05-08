@@ -14,6 +14,7 @@ import {
   Pencil,
   Check,
   FileText,
+  FileImage,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useStats } from "@/hooks/use-stats";
@@ -212,6 +213,13 @@ export function ProfilePage() {
           onChange={(v) => updateSettings({ iCloudBackupWarn: v })}
         />
         <ToggleRow
+          icon={<FileImage className="h-4 w-4" />}
+          label="Convert HEIC to JPG after rounds"
+          hint="Re-saves kept HEIC photos as smaller JPG copies, then removes the original HEIC."
+          checked={s.convertHeicToJpegAfterRounds}
+          onChange={(v) => updateSettings({ convertHeicToJpegAfterRounds: v })}
+        />
+        <ToggleRow
           icon={<Bell className="h-4 w-4" />}
           label="Daily reminder"
           hint={s.reminderEnabled ? `At ${s.reminderTime}` : "Off"}
@@ -250,26 +258,24 @@ export function ProfilePage() {
             </div>
           </div>
         </div>
-        <Link
-          to="/privacy"
-          className="flex w-full items-center justify-between rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/40"
-        >
-          <div className="flex items-center gap-3">
-            <FileText className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Privacy Policy</span>
-          </div>
-          <ChevronRight className="h-4 w-4 text-muted-foreground" />
-        </Link>
-        <Link
-          to="/terms"
-          className="flex w-full items-center justify-between rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/40"
-        >
-          <div className="flex items-center gap-3">
-            <FileText className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Terms of Use (EULA)</span>
-          </div>
-          <ChevronRight className="h-4 w-4 text-muted-foreground" />
-        </Link>
+        <div className="grid grid-cols-2 gap-2">
+          <Link
+            to="/privacy"
+            className="flex items-center justify-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5 text-center transition hover:border-primary/40"
+          >
+            <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs font-medium">Privacy</span>
+            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+          </Link>
+          <Link
+            to="/terms"
+            className="flex items-center justify-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5 text-center transition hover:border-primary/40"
+          >
+            <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs font-medium">Terms</span>
+            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+          </Link>
+        </div>
       </div>
 
       <h2 className="mt-7 px-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
