@@ -36,16 +36,19 @@ async function prepareWritableWebRoot(): Promise<string> {
   const webRootUri = `${documentDirectory}${WEB_ROOT_ASSET_DIR}`;
   const markerUri = `${webRootUri}/index.html`;
 
-  if (!(await pathExists(markerUri))) {
-    console.log("[LocalWebView] Extracting bundled web assets to writable web root", {
+  if (await pathExists(webRootUri)) {
+    console.log("[LocalWebView] Removing cached web assets before extracting bundled app version", {
       webRootUri,
+      hadIndexHtml: await pathExists(markerUri),
     });
-    if (await pathExists(webRootUri)) {
-      await FileSystem.deleteAsync(webRootUri, { idempotent: true });
-    }
-    await FileSystem.makeDirectoryAsync(webRootUri, { intermediates: true });
-    await extractBundledAssets(webRootUri, WEB_ROOT_ASSET_DIR);
+    await FileSystem.deleteAsync(webRootUri, { idempotent: true });
   }
+
+  console.log("[LocalWebView] Extracting bundled web assets to writable web root", {
+    webRootUri,
+  });
+  await FileSystem.makeDirectoryAsync(webRootUri, { intermediates: true });
+  await extractBundledAssets(webRootUri, WEB_ROOT_ASSET_DIR);
 
   return webRootUri;
 }
