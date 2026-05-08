@@ -14,6 +14,7 @@ import {
   Check,
 } from "lucide-react";
 import { getPhotoSourceAsync, isNativeApp, type LibraryPhoto } from "@/lib/photo-source";
+import { displayPhotoUrl, preloadPhotoImages } from "@/lib/image-preload";
 import { hapticTap, hapticSuccess, hapticError } from "@/lib/native-shell";
 import {
   setStats,
@@ -45,17 +46,6 @@ type SessionRecap = {
 };
 
 const SWIPE_THRESHOLD = 110;
-
-function preloadPhotoImages(photos: SamplePhoto[]) {
-  if (typeof window === "undefined") return;
-  photos.forEach((photo) => {
-    const image = new Image();
-    image.decoding = "async";
-    image.loading = "eager";
-    image.src = photo.url;
-    image.decode?.().catch(() => undefined);
-  });
-}
 
 function estimateTrimSavings(photo: SamplePhoto): number {
   const metadataSavings = photo.hasGPS ? 0.18 : 0.08;
@@ -605,7 +595,7 @@ function PhotoCard({
       )}
     >
       <img
-        src={photo.url}
+        src={displayPhotoUrl(photo)}
         alt={photo.title}
         loading={stacked ? "eager" : "eager"}
         decoding="async"
@@ -865,7 +855,7 @@ function DeleteConfirmStep({
               >
                 <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-muted">
                   <img
-                    src={p.thumb}
+                    src={displayPhotoUrl(p)}
                     alt={p.title}
                     loading="lazy"
                     className={cn("h-full w-full object-cover transition", !checked && "grayscale")}

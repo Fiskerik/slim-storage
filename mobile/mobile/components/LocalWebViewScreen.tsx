@@ -5,7 +5,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Server, {
   extractBundledAssets,
   getActiveServer,
-  resolveAssetsPath,
 } from "@dr.pogodin/react-native-static-server";
 import * as FileSystem from "expo-file-system/legacy";
 import { handleBridgeMessage } from "../lib/bridge";
@@ -28,7 +27,7 @@ async function pathExists(uri: string): Promise<boolean> {
   return info.exists;
 }
 
-async function prepareAndroidWebRoot(): Promise<string> {
+async function prepareWritableWebRoot(): Promise<string> {
   const documentDirectory = FileSystem.documentDirectory;
   if (!documentDirectory) {
     throw new Error("Expo document directory is unavailable");
@@ -38,7 +37,9 @@ async function prepareAndroidWebRoot(): Promise<string> {
   const markerUri = `${webRootUri}/index.html`;
 
   if (!(await pathExists(markerUri))) {
-    console.log("[LocalWebView] Extracting bundled web assets", { webRootUri });
+    console.log("[LocalWebView] Extracting bundled web assets to writable web root", {
+      webRootUri,
+    });
     if (await pathExists(webRootUri)) {
       await FileSystem.deleteAsync(webRootUri, { idempotent: true });
     }
@@ -50,11 +51,7 @@ async function prepareAndroidWebRoot(): Promise<string> {
 }
 
 async function getWebRootPath(): Promise<string> {
-  if (Platform.OS === "android") {
-    return prepareAndroidWebRoot();
-  }
-
-  return resolveAssetsPath(WEB_ROOT_ASSET_DIR);
+  return prepareWritableWebRoot();
 }
 
 function buildBridgeSetupScript(insets: {

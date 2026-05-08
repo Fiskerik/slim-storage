@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Brain, Check, Trash2, Sparkles } from "lucide-react";
 import { getPhotoSourceAsync, type LibraryPhoto } from "@/lib/photo-source";
+import { displayPhotoUrl, preloadPhotoImages } from "@/lib/image-preload";
 import { setStats, logDay } from "@/lib/storage";
 import { useStats } from "@/hooks/use-stats";
 import { cn } from "@/lib/utils";
@@ -13,14 +14,6 @@ const MAX_YEAR = new Date().getFullYear();
 const AUTO_KEEP_SECONDS = 5;
 
 type Phase = "intro" | "guess" | "reveal" | "done";
-
-function preloadPhotoImages(photos: SamplePhoto[]) {
-  if (typeof window === "undefined") return;
-  photos.forEach((photo) => {
-    const image = new Image();
-    image.src = photo.url;
-  });
-}
 
 /** Generate 4 year options with randomized position for the correct answer */
 function generateYearOptions(correctYear: number): number[] {
@@ -234,7 +227,7 @@ export function MemoryGame() {
         <AnimatePresence mode="wait">
           <motion.img
             key={photo.id}
-            src={photo.url}
+            src={displayPhotoUrl(photo)}
             alt="Memory photo"
             initial={{ opacity: 0, scale: 1.02 }}
             animate={{ opacity: 1, scale: 1 }}

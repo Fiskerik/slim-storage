@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { HardDrive, Sparkles, Check, X, RotateCcw, ArrowLeft } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { getPhotoSourceAsync, type LibraryPhoto } from "@/lib/photo-source";
+import { displayPhotoUrl, preloadPhotoImages } from "@/lib/image-preload";
 import { setStats, logDay } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
@@ -15,14 +16,6 @@ const BUDGET_MB = 50;
 
 // Unique pool entry so duplicate-seed photos never share an id in the kept-Set.
 type PoolEntry = LibraryPhoto & { poolKey: string };
-
-function preloadPhotoImages(photos: PoolEntry[]) {
-  if (typeof window === "undefined") return;
-  photos.forEach((photo) => {
-    const image = new Image();
-    image.src = photo.thumb || photo.url;
-  });
-}
 
 function withPoolKeys(photos: LibraryPhoto[]): PoolEntry[] {
   return photos.map((photo, index) => ({
@@ -236,7 +229,7 @@ function StorageBudget() {
               )}
             >
               <img
-                src={p.thumb}
+                src={displayPhotoUrl(p)}
                 alt={p.title}
                 className="h-full w-full object-cover"
                 loading="lazy"
