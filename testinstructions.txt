@@ -4,22 +4,23 @@ Run this from the repo root:
 npm run build:mobile-spa
 
 
-
-That command uses the project’s build:mobile-spa script.
-
-I ran it here and it completed successfully:
-
-Testing
-
-✅ npm run build:mobile-spa
-
-This catches a lot of “white screen because production JS won’t compile” issues before Expo/EAS is involved.
-
 2. Test the bundled web app in a browser
 After building, serve the generated static bundle:
 
 cd mobile/mobile/assets/www
-python3 -m http.server 4174
+python3 - <<'PY'
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+
+class NoCache(SimpleHTTPRequestHandler):
+    def end_headers(self):
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+                    self.send_header("Pragma", "no-cache")
+                            self.send_header("Expires", "0")
+                                    super().end_headers()
+
+                                    HTTPServer(("0.0.0.0", 4174), NoCache).serve_forever()
+                                    PY
+
 Then open:
 
 http://localhost:4174
@@ -32,6 +33,8 @@ This is the main step that prevents wasting Expo cloud build credits.
 
 From the mobile app folder:
 
+
+npx expo-doctor
 cd mobile/mobile
 npm run prebuild
 npx expo run:ios --configuration Release
