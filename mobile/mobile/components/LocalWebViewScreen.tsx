@@ -54,6 +54,13 @@ async function prepareWritableWebRoot(): Promise<string> {
 }
 
 async function getWebRootPath(): Promise<string> {
+  if (Platform.OS !== "android") {
+    console.log("[LocalWebView] Serving bundled iOS web assets from app bundle", {
+      webRootAssetDir: WEB_ROOT_ASSET_DIR,
+    });
+    return WEB_ROOT_ASSET_DIR;
+  }
+
   return prepareWritableWebRoot();
 }
 
