@@ -2,19 +2,19 @@
   "expo": {
     "name": "Trimswipe",
     "slug": "slim-storage",
-    "version": "1.0.1",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "trimswipe",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "bundleIdentifier": "com.fiskerik.trimswipe",
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Needed to find your pictures.",
         "NSPhotoLibraryUsageDescription": "Trimswipe needs access to your photo library so you can swipe through your photos and free up storage.",
-        "NSPhotoLibraryAddUsageDescription": "Trimswipe may save optimized versions of your photos."
+        "NSPhotoLibraryAddUsageDescription": "Trimswipe may save optimized versions of your photos.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "plugins": [
@@ -27,15 +27,28 @@
           "savePhotosPermission": "Trimswipe may save optimized versions of your photos.",
           "isAccessMediaLocationEnabled": true
         }
-      ]
+      ],
+      "expo-image",
+      "expo-web-browser"
     ],
     "extra": {
       "eas": {
-        "projectId": "d4669864-8848-4389-9831-f565f1295982"
-      }
+        "projectId": "761a961b-b2ba-48b1-9e2f-8051dee70c08"
+      },
+      "router": {}
     },
     "android": {
-      "package": "com.fiskerik.trimswipe"
-    }
+      "package": "com.fiskerik.trimswipe",
+      "permissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.ACCESS_MEDIA_LOCATION",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO"
+      ]
+    },
+    "owner": "eddypham1981"
   }
 }
