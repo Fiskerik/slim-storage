@@ -10,7 +10,8 @@
         "EXPO_PUBLIC_RC_KEY": "@rc_api_key",
         "EXPO_PUBLIC_RC_ENTITLEMENT_ID": "@rc_entitlement_id",
         "EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID": "@rc_product_id"
-      }
+      },
+      "node": "22.12.0"
     }
   },
   "cli": {
