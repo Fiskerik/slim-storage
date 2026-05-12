@@ -2,10 +2,6 @@ import { useRef, useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, View, StyleSheet, Text, Pressable, ActivityIndicator } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Server, {
-  extractBundledAssets,
-  getActiveServer,
-} from "@dr.pogodin/react-native-static-server";
 import * as FileSystem from "expo-file-system/legacy";
 import { handleBridgeMessage } from "../lib/bridge";
 
@@ -15,12 +11,26 @@ const FALLBACK_PORTS = [PRIMARY_PORT, 0, 8766, 8767, 8768].filter(
   (port, index, ports) => Number.isFinite(port) && ports.indexOf(port) === index,
 );
 
-type StaticServerInstance = InstanceType<typeof Server>;
+type StaticServerModule = typeof import("@dr.pogodin/react-native-static-server");
+type StaticServerInstance = {
+  origin?: string;
+  start(details?: string): Promise<string>;
+  stop(): Promise<string | void>;
+  addStateListener?: (listener: (state: string, details: string, error?: Error) => void) => unknown;
+};
 
-type ServerState = {
+type WebRootState = {
   url: string | null;
+  readAccessUrl: string | null;
   error: string | null;
 };
+
+let staticServerModulePromise: Promise<StaticServerModule> | null = null;
+
+function loadStaticServerModule(): Promise<StaticServerModule> {
+  staticServerModulePromise ??= import("@dr.pogodin/react-native-static-server");
+  return staticServerModulePromise;
+}
 
 async function pathExists(uri: string): Promise<boolean> {
   const info = await FileSystem.getInfoAsync(uri);
@@ -48,6 +58,7 @@ async function prepareWritableWebRoot(): Promise<string> {
     webRootUri,
   });
   await FileSystem.makeDirectoryAsync(webRootUri, { intermediates: true });
+  const { extractBundledAssets } = await loadStaticServerModule();
   await extractBundledAssets(webRootUri, WEB_ROOT_ASSET_DIR);
 
   return webRootUri;
@@ -62,6 +73,32 @@ async function getWebRootPath(): Promise<string> {
   }
 
   return prepareWritableWebRoot();
+}
+
+async function getBundledIosWebRoot(): Promise<{ url: string; readAccessUrl: string }> {
+  const bundleDirectory = FileSystem.bundleDirectory;
+  if (!bundleDirectory) {
+    throw new Error("Expo bundle directory is unavailable");
+  }
+
+  const normalizedBundleDirectory = bundleDirectory.endsWith("/")
+    ? bundleDirectory
+    : `${bundleDirectory}/`;
+  const readAccessUrl = `${normalizedBundleDirectory}${WEB_ROOT_ASSET_DIR}`;
+  const indexUrl = `${readAccessUrl}/index.html`;
+  const indexInfo = await FileSystem.getInfoAsync(indexUrl);
+
+  console.log("[LocalWebView] Checking bundled iOS web root", {
+    bundleDirectory: normalizedBundleDirectory,
+    indexUrl,
+    exists: indexInfo.exists,
+  });
+
+  if (!indexInfo.exists) {
+    throw new Error(`Bundled web app entrypoint is missing at ${indexUrl}`);
+  }
+
+  return { url: indexUrl, readAccessUrl };
 }
 
 function buildBridgeSetupScript(insets: {
@@ -139,6 +176,7 @@ function buildBridgeSetupScript(insets: {
 }
 
 async function startStaticServer(): Promise<{ server: StaticServerInstance; url: string }> {
+  const { default: Server, getActiveServer } = await loadStaticServerModule();
   const activeServer = getActiveServer?.();
   if (activeServer?.origin) {
     console.log("[LocalWebView] Reusing active static server", { origin: activeServer.origin });
@@ -182,28 +220,50 @@ export function LocalWebViewScreen() {
   const webViewRef = useRef<WebView>(null);
   const serverRef = useRef<StaticServerInstance | null>(null);
   const insets = useSafeAreaInsets();
-  const [serverState, setServerState] = useState<ServerState>({ url: null, error: null });
+  const [webRootState, setWebRootState] = useState<WebRootState>({
+    url: null,
+    readAccessUrl: null,
+    error: null,
+  });
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
-  const bootServer = useCallback(() => {
+  const bootWebRoot = useCallback(() => {
     let cancelled = false;
-    setServerState({ url: null, error: null });
+    setWebRootState({ url: null, readAccessUrl: null, error: null });
 
-    startStaticServer()
-      .then(({ server, url }) => {
+    const webRootPromise = startStaticServer()
+      .then(({ server, url }) => ({
+        url,
+        readAccessUrl: null,
+        server,
+      }))
+      .catch(async (error: unknown) => {
+        if (Platform.OS !== "ios") {
+          throw error;
+        }
+
+        console.log("[LocalWebView] Static server unavailable on iOS; falling back to file URL", {
+          error,
+        });
+        const { url, readAccessUrl } = await getBundledIosWebRoot();
+        return { url, readAccessUrl, server: null };
+      });
+
+    webRootPromise
+      .then(({ server, url, readAccessUrl }) => {
         if (cancelled) {
-          server.stop().catch(() => undefined);
+          server?.stop().catch(() => undefined);
           return;
         }
         serverRef.current = server;
-        setServerState({ url, error: null });
+        setWebRootState({ url, readAccessUrl, error: null });
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        const message = error instanceof Error ? error.message : "Unable to start local web server";
-        console.log("[LocalWebView] Unable to start static server", { error });
-        setServerState({ url: null, error: message });
+        const message = error instanceof Error ? error.message : "Unable to load local web app";
+        console.log("[LocalWebView] Unable to prepare local web root", { error });
+        setWebRootState({ url: null, readAccessUrl: null, error: message });
       });
 
     return () => {
@@ -212,13 +272,13 @@ export function LocalWebViewScreen() {
   }, []);
 
   useEffect(() => {
-    const cancelBoot = bootServer();
+    const cancelBoot = bootWebRoot();
     return () => {
       cancelBoot();
       serverRef.current?.stop().catch(() => undefined);
       serverRef.current = null;
     };
-  }, [bootServer]);
+  }, [bootWebRoot]);
 
   const onMessage = useCallback(async (event: WebViewMessageEvent) => {
     try {
@@ -244,26 +304,26 @@ export function LocalWebViewScreen() {
   const retry = useCallback(() => {
     setLoadError(null);
     setReloadKey((key) => key + 1);
-    if (!serverState.url) {
-      bootServer();
+    if (!webRootState.url) {
+      bootWebRoot();
     }
-  }, [bootServer, serverState.url]);
+  }, [bootWebRoot, webRootState.url]);
 
   return (
     <View style={[styles.container, { backgroundColor: "#0a0a0a" }]}>
-      {serverState.error || loadError ? (
+      {webRootState.error || loadError ? (
         <View style={styles.errorContainer}>
           <Text style={styles.errorTitle}>Couldn’t load TrimSwipe</Text>
-          <Text style={styles.errorText}>{loadError || serverState.error}</Text>
+          <Text style={styles.errorText}>{loadError || webRootState.error}</Text>
           <Pressable onPress={retry} style={styles.retryButton}>
             <Text style={styles.retryButtonText}>Retry</Text>
           </Pressable>
         </View>
-      ) : serverState.url ? (
+      ) : webRootState.url ? (
         <WebView
           key={reloadKey}
           ref={webViewRef}
-          source={{ uri: serverState.url }}
+          source={{ uri: webRootState.url }}
           style={styles.webview}
           onMessage={onMessage}
           onError={(event) => {
@@ -291,7 +351,10 @@ export function LocalWebViewScreen() {
           decelerationRate="normal"
           contentMode="mobile"
           allowsLinkPreview={false}
-          originWhitelist={["http://127.0.0.1:*", "http://localhost:*"]}
+          allowFileAccess
+          allowFileAccessFromFileURLs
+          allowingReadAccessToURL={webRootState.readAccessUrl ?? undefined}
+          originWhitelist={["http://127.0.0.1:*", "http://localhost:*", "file://*"]}
         />
       ) : (
         <View style={styles.loadingContainer}>
