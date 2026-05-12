@@ -4,7 +4,6 @@
     "slug": "slim-storage",
     "version": "1.0.4",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
     "scheme": "trimswipe",
     "userInterfaceStyle": "automatic",
     "ios": {
