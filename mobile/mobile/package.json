@@ -11,7 +11,8 @@
     "lint": "expo lint",
     "sync:web": "./scripts/build-and-sync.sh",
     "prebuild": "./scripts/build-and-sync.sh --prebuild",
-    "eas-build-post-install": "echo 'Skipping internal build, handled by root'"
+    "eas-build-post-install": "echo 'Skipping internal build, handled by root'",
+    "postinstall": "node ../../scripts/patch-static-server-podspec.mjs"
   },
   "dependencies": {
     "@dr.pogodin/react-native-fs": "^2.37.0",
