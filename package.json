@@ -16,7 +16,7 @@
     "ios:sync": "vite build && bun scripts/build-ios.ts && cap sync ios",
     "ios:open": "cap open ios",
     "ios:run": "vite build && bun scripts/build-ios.ts && cap sync ios && cap run ios",
-    "eas-build-post-install": "npm run build:mobile-spa && cd mobile/mobile && npx expo prebuild --clean",
+    "eas-build-post-install": "npm run build:mobile-spa && cd mobile/mobile && npm ci --legacy-peer-deps && npx expo prebuild --clean",
     "doctor": "expo-doctor",
     "build:mobile-spa": "vite build --config vite.mobile.config.ts",
     "mobile:sync-web": "mobile/mobile/scripts/build-and-sync.sh"
@@ -64,6 +64,7 @@
     "date-fns": "^4.1.0",
     "embla-carousel-react": "^8.6.0",
     "expo": "~55.0.23",
+    "expo-router": "^55.0.13",
     "expo-file-system": "~55.0.17",
     "expo-haptics": "~55.0.14",
     "expo-media-library": "~55.0.16",
