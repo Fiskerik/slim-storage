@@ -26,7 +26,7 @@
     ],
     "extra": {
       "eas": {
-        
+        "projectId": "761a961b-b2ba-48b1-9e2f-8051dee70c08"
       }
     },
     "android": {
@@ -41,6 +41,6 @@
         "android.permission.READ_MEDIA_AUDIO"
       ]
     },
-    "owner": "fiskerik89"
+    "owner": "eddypham1981"
   }
 }
