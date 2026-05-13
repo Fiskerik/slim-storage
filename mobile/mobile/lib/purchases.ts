@@ -1,6 +1,7 @@
 // RevenueCat purchase handling for the native bridge.
 // Fully integrated with RevenueCat SDK for TrimSwipe.
 
+import { Platform } from "react-native";
 import Purchases, {
   LOG_LEVEL,
   type CustomerInfo,
@@ -43,35 +44,60 @@ type PurchaseResult = {
 };
 
 let configured = false;
+let configuringPromise: Promise<boolean> | null = null;
+
+function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 export async function initializePurchases(): Promise<boolean> {
   if (configured) return true;
+  if (configuringPromise) return configuringPromise;
 
-  if (!REVENUECAT_API_KEY) {
-    console.error("[RevenueCat] Missing EXPO_PUBLIC_RC_KEY");
-    return false;
-  }
+  configuringPromise = (async () => {
+    if (!REVENUECAT_API_KEY) {
+      console.error("[RevenueCat] Missing EXPO_PUBLIC_RC_KEY");
+      return false;
+    }
 
-  if (!ENTITLEMENT_ID) {
-    console.error("[RevenueCat] Missing EXPO_PUBLIC_RC_ENTITLEMENT_ID");
-    return false;
-  }
+    if (Platform.OS === "ios" && !REVENUECAT_API_KEY.startsWith("appl_")) {
+      console.error(
+        "[RevenueCat] Invalid iOS API key. EXPO_PUBLIC_RC_KEY must use the appl_ key for TestFlight builds.",
+      );
+      return false;
+    }
 
-  if (!LIFETIME_PRODUCT_ID) {
-    console.error("[RevenueCat] Missing EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID");
-    return false;
-  }
+    if (!ENTITLEMENT_ID) {
+      console.error("[RevenueCat] Missing EXPO_PUBLIC_RC_ENTITLEMENT_ID");
+      return false;
+    }
 
-  try {
-    Purchases.setLogLevel(IS_PRODUCTION ? LOG_LEVEL.ERROR : LOG_LEVEL.DEBUG);
-    Purchases.configure({ apiKey: REVENUECAT_API_KEY });
-    configured = true;
-    console.log("[RevenueCat] Configured successfully");
-    return true;
-  } catch (err: any) {
-    console.error("[RevenueCat] Configuration failed:", err?.message);
-    return false;
-  }
+    if (!LIFETIME_PRODUCT_ID) {
+      console.error("[RevenueCat] Missing EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID");
+      return false;
+    }
+
+    try {
+      if (await Purchases.isConfigured()) {
+        configured = true;
+        console.log("[RevenueCat] Already configured");
+        return true;
+      }
+
+      Purchases.setLogLevel(IS_PRODUCTION ? LOG_LEVEL.ERROR : LOG_LEVEL.DEBUG);
+      Purchases.configure({ apiKey: REVENUECAT_API_KEY });
+      configured = true;
+      console.log("[RevenueCat] Configured successfully");
+      return true;
+    } catch (err: unknown) {
+      console.error("[RevenueCat] Configuration failed:", getErrorMessage(err));
+      return false;
+    }
+  })().finally(() => {
+    configuringPromise = null;
+  });
+
+  return configuringPromise;
 }
 
 function isProFromInfo(info: CustomerInfo): boolean {
