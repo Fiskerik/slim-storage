@@ -82,18 +82,24 @@ def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBu
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
 android {
+    // TrimSwipe local web bundle assets for @dr.pogodin/react-native-static-server
+    sourceSets {
+        main {
+            assets.srcDirs += ['../../assets']
+        }
+    }
     ndkVersion rootProject.ext.ndkVersion
 
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.trimswipe"
+    namespace 'com.fiskerik.trimswipe'
     defaultConfig {
-        applicationId "com.trimswipe"
+        applicationId 'com.fiskerik.trimswipe'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
-        versionName "1.0"
+        versionName "1.0.3"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
