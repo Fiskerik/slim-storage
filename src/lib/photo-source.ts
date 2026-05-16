@@ -54,7 +54,8 @@ function hasNativeMarker(): boolean {
 
 function hasBridge(): boolean {
   if (typeof window === "undefined") return false;
-  if (hasNativeMarker()) return true;
+  // Native markers can exist in browser previews of bundled HTML, so require
+  // an actual callable bridge signal before treating the app as native.
   if (typeof window.__slimBridgeCall === "function") return true;
   if (typeof window.ReactNativeWebView?.postMessage === "function") return true;
   return false;

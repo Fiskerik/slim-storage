@@ -41,9 +41,10 @@ type PurchaseBridgeResult = Partial<PurchaseState> & {
 
 function hasBridge(): boolean {
   if (typeof window === "undefined") return false;
+  // __SLIM_NATIVE__ can be set by bundled HTML before the bridge script runs.
+  // Treat the native bridge as present only when something callable exists.
   return (
     typeof window.__slimBridgeCall === "function" ||
-    !!window.__SLIM_NATIVE__ ||
     typeof window.ReactNativeWebView?.postMessage === "function"
   );
 }
