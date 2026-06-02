@@ -2,7 +2,6 @@ import * as MediaLibrary from "expo-media-library";
 import * as Haptics from "expo-haptics";
 import * as FileSystem from "expo-file-system/legacy";
 import { Linking } from "react-native";
-import { handlePurchaseMessage } from "./purchases";
 
 type BridgeRequest = {
   id: string;
@@ -16,6 +15,15 @@ type BridgeResponse = {
   result?: unknown;
   error?: string;
 };
+
+type PurchaseModule = typeof import("./purchases");
+
+let purchaseModulePromise: Promise<PurchaseModule> | null = null;
+
+function loadPurchaseModule(): Promise<PurchaseModule> {
+  purchaseModulePromise ??= import("./purchases");
+  return purchaseModulePromise;
+}
 
 function numberFromData(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
@@ -82,6 +90,7 @@ export async function handleBridgeMessage(request: BridgeRequest): Promise<Bridg
       default:
         // Check if it's a purchase-related method
         if (method.startsWith("purchases_")) {
+          const { handlePurchaseMessage } = await loadPurchaseModule();
           result = await handlePurchaseMessage(method, data);
           break;
         }
