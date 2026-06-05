@@ -12,6 +12,16 @@ export type LibraryPhoto = SamplePhoto & {
   nativeId?: string;
   /** True if the photo is only in iCloud and not downloaded locally. */
   isCloudAsset?: boolean;
+  /** Native/library creation timestamp in milliseconds, when available. */
+  creationTime?: number;
+};
+
+export type PhotoTargetMode = "balanced" | "big-or-old" | "old-and-large";
+
+export type PhotoTargetOptions = {
+  mode?: PhotoTargetMode;
+  minSizeMB?: number;
+  minAgeYears?: number;
 };
 
 export type PhotoPermission = {
@@ -23,7 +33,7 @@ export type PhotoPermission = {
 export type PhotoSource = {
   isNative: boolean;
   requestPermission: () => Promise<PhotoPermission>;
-  getRandom: (count: number) => Promise<LibraryPhoto[]>;
+  getRandom: (count: number, options?: PhotoTargetOptions) => Promise<LibraryPhoto[]>;
   getOlder: (beforeYear: number, count: number) => Promise<LibraryPhoto[]>;
   getBurstGroups: (maxGroups: number) => Promise<LibraryPhoto[][]>;
   deletePhotos: (ids: string[]) => Promise<{ deleted: number }>;
@@ -109,9 +119,25 @@ function dtoToLibraryPhoto(dto: Record<string, unknown>): LibraryPhoto {
     isNative: true,
     nativeId: String(dto.nativeId ?? dto.id ?? ""),
     isCloudAsset: Boolean(dto.isCloudAsset),
+    creationTime:
+      typeof dto.creationTime === "number"
+        ? dto.creationTime
+        : new Date(Number(dto.year ?? new Date().getFullYear()), 0, 1).getTime(),
     cleanupReasons: Array.isArray(dto.cleanupReasons)
       ? dto.cleanupReasons.filter((item): item is string => typeof item === "string")
       : [],
+  };
+}
+
+function normalizeTargetOptions(options?: PhotoTargetOptions): Required<PhotoTargetOptions> {
+  const rawMode = options?.mode ?? "balanced";
+  const mode: PhotoTargetMode =
+    rawMode === "big-or-old" || rawMode === "old-and-large" ? rawMode : "balanced";
+
+  return {
+    mode,
+    minSizeMB: Math.min(50, Math.max(1, options?.minSizeMB ?? 8)),
+    minAgeYears: Math.min(30, Math.max(1, options?.minAgeYears ?? 4)),
   };
 }
 
@@ -127,8 +153,11 @@ const nativeBridgeSource: PhotoSource = {
     };
   },
 
-  async getRandom(count) {
-    const photos = (await bridgeCall("getPhotos", { count })) as Record<string, unknown>[] | null;
+  async getRandom(count, options) {
+    const photos = (await bridgeCall("getPhotos", {
+      count,
+      targeting: normalizeTargetOptions(options),
+    })) as Record<string, unknown>[] | null;
     return (photos || []).map(dtoToLibraryPhoto);
   },
 
@@ -279,6 +308,7 @@ function replaceWebFolderPhotos(entries: WebFolderEntry[], folderName: string) {
         device: "Selected folder",
         sizeMB: +(file.size / 1_000_000).toFixed(2),
         hasGPS: false,
+        creationTime: file.lastModified || Date.now(),
         cleanupReasons: file.size / 1_000_000 >= 4 ? ["Large"] : ["Review"],
         isNative: false,
       };
@@ -368,6 +398,50 @@ function webPhotoPool(): LibraryPhoto[] {
   return webFolderPhotos;
 }
 
+function photoAgeYears(photo: LibraryPhoto): number {
+  const creationTime = photo.creationTime ?? new Date(photo.year, 0, 1).getTime();
+  return (Date.now() - creationTime) / (365.25 * 24 * 60 * 60 * 1000);
+}
+
+function matchesTarget(photo: LibraryPhoto, options: Required<PhotoTargetOptions>): boolean {
+  if (options.mode === "balanced") return true;
+
+  const isLarge = photo.sizeMB >= options.minSizeMB;
+  const isOld = photoAgeYears(photo) >= options.minAgeYears;
+  return options.mode === "old-and-large" ? isLarge && isOld : isLarge || isOld;
+}
+
+function targetScore(photo: LibraryPhoto, options: Required<PhotoTargetOptions>): number {
+  const age = Math.max(0, photoAgeYears(photo));
+  const sizeRatio = options.minSizeMB > 0 ? photo.sizeMB / options.minSizeMB : 0;
+  const ageRatio = options.minAgeYears > 0 ? age / options.minAgeYears : 0;
+  const isLarge = photo.sizeMB >= options.minSizeMB;
+  const isOld = age >= options.minAgeYears;
+
+  return (
+    Math.min(sizeRatio, 4) +
+    Math.min(ageRatio, 4) +
+    (isLarge ? 2 : 0) +
+    (isOld ? 2 : 0) +
+    (isLarge && isOld ? 3 : 0)
+  );
+}
+
+function chooseTargetedPhotos(
+  photos: LibraryPhoto[],
+  count: number,
+  options?: PhotoTargetOptions,
+): LibraryPhoto[] {
+  const targetOptions = normalizeTargetOptions(options);
+  const targeted = photos.filter((photo) => matchesTarget(photo, targetOptions));
+  const fallback = photos.filter((photo) => !targeted.includes(photo));
+  const pool = targetOptions.mode === "balanced" ? photos : [...targeted, ...fallback];
+
+  return shuffle(pool)
+    .sort((a, b) => targetScore(b, targetOptions) - targetScore(a, targetOptions))
+    .slice(0, count);
+}
+
 const webSource: PhotoSource = {
   isNative: false,
   async requestPermission() {
@@ -376,8 +450,8 @@ const webSource: PhotoSource = {
     }
     return requestWebFolder();
   },
-  async getRandom(count) {
-    return shuffle(webPhotoPool()).slice(0, count);
+  async getRandom(count, options) {
+    return chooseTargetedPhotos(webPhotoPool(), count, options);
   },
   async getOlder(beforeYear, count) {
     const pool = webPhotoPool().filter((p) => p.year < beforeYear);

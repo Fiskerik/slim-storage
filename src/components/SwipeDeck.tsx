@@ -13,7 +13,12 @@ import {
   Trash2,
   Check,
 } from "lucide-react";
-import { getPhotoSourceAsync, isNativeApp, type LibraryPhoto } from "@/lib/photo-source";
+import {
+  getPhotoSourceAsync,
+  isNativeApp,
+  type LibraryPhoto,
+  type PhotoTargetOptions,
+} from "@/lib/photo-source";
 import { displayPhotoUrl, preloadPhotoImages } from "@/lib/image-preload";
 import { hapticTap, hapticSuccess, hapticError } from "@/lib/native-shell";
 import {
@@ -27,6 +32,7 @@ import {
   softDelete,
   undoDelete,
   updateSettings,
+  type Settings,
 } from "@/lib/storage";
 import { useStats } from "@/hooks/use-stats";
 import { Onboarding } from "@/components/Onboarding";
@@ -50,6 +56,25 @@ type SessionRecap = {
 
 const SWIPE_THRESHOLD = 110;
 
+function swipeTargetingFromSettings(settings: Settings): PhotoTargetOptions {
+  return {
+    mode: settings.swipeTargetMode,
+    minSizeMB: settings.swipeMinSizeMB,
+    minAgeYears: settings.swipeMinAgeYears,
+  };
+}
+
+function swipeFocusLabel(options: PhotoTargetOptions): string | null {
+  const mode = options.mode ?? "balanced";
+  if (mode === "balanced") return null;
+
+  const size = options.minSizeMB ?? 8;
+  const age = options.minAgeYears ?? 4;
+  return mode === "old-and-large"
+    ? `Old + large: ${age}+ yrs and ${size}+ MB`
+    : `Big or old: ${size}+ MB or ${age}+ yrs`;
+}
+
 function estimateTrimSavings(photo: SamplePhoto): number {
   const metadataSavings = photo.hasGPS ? 0.18 : 0.08;
   const compressionSavings = photo.sizeMB * 0.28;
@@ -71,6 +96,8 @@ function shuffle<T>(arr: T[]): T[] {
 export function SwipeDeck() {
   const stats = useStats();
   const cardsPerRound = Math.min(30, Math.max(5, stats.settings.cardsPerRound));
+  const swipeTargeting = swipeTargetingFromSettings(stats.settings);
+  const focusLabel = swipeFocusLabel(swipeTargeting);
   const [queue, setQueue] = useState<SamplePhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [permissionDenied, setPermissionDenied] = useState(false);
@@ -95,7 +122,7 @@ export function SwipeDeck() {
   }, [stats.settings.onboarded, showOnboarding]);
 
   function createRoundLoad() {
-    return getPhotoSourceAsync().then((src) => src.getRandom(cardsPerRound));
+    return getPhotoSourceAsync().then((src) => src.getRandom(cardsPerRound, swipeTargeting));
   }
 
   function preloadNextRound() {
@@ -139,7 +166,7 @@ export function SwipeDeck() {
       if (!cancelled) {
         setPermissionLimited(permission.limited);
       }
-      const photos = await src.getRandom(cardsPerRound);
+      const photos = await src.getRandom(cardsPerRound, swipeTargeting);
       if (cancelled) return;
       setQueue(photos);
       preloadPhotoImages(photos.slice(0, 12));
@@ -391,15 +418,22 @@ export function SwipeDeck() {
   return (
     <div className="flex flex-col items-center px-5 pt-4">
       <PhotoSourceBar onChanged={reset} />
-      <div className="mt-3 flex w-full max-w-sm items-center justify-between">
+      <div className="mt-3 flex w-full max-w-sm flex-wrap items-center justify-between gap-2">
         <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
           {queue.length} left
         </p>
-        {!stats.isPro && (
-          <span className="rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-semibold tabular-nums text-muted-foreground">
-            {trimsLeft}/{FREE_TRIM_LIMIT} free trims today
-          </span>
-        )}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {focusLabel && (
+            <span className="rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary">
+              {focusLabel}
+            </span>
+          )}
+          {!stats.isPro && (
+            <span className="rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-semibold tabular-nums text-muted-foreground">
+              {trimsLeft}/{FREE_TRIM_LIMIT} free trims today
+            </span>
+          )}
+        </div>
       </div>
 
       {permissionLimited && (

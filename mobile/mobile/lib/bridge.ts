@@ -31,6 +31,12 @@ function stringFromData(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
 }
 
+function recordFromData(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 export async function handleBridgeMessage(request: BridgeRequest): Promise<BridgeResponse> {
   const { id, method, data } = request;
 
@@ -42,7 +48,10 @@ export async function handleBridgeMessage(request: BridgeRequest): Promise<Bridg
         result = await requestPermission();
         break;
       case "getPhotos":
-        result = await getPhotos(numberFromData(data.count, 10));
+        result = await getPhotos(
+          numberFromData(data.count, 10),
+          targetOptionsFromData(recordFromData(data.targeting)),
+        );
         break;
       case "getOlderPhotos":
         result = await getOlderPhotos(
@@ -126,7 +135,30 @@ type PhotoDTO = {
   cleanupReasons: string[];
 };
 
+type PhotoTargetMode = "balanced" | "big-or-old" | "old-and-large";
+
+type PhotoTargetOptions = {
+  mode: PhotoTargetMode;
+  minSizeMB: number;
+  minAgeYears: number;
+};
+
+type PhotoMetadataCache = {
+  version: 1;
+  updatedAt: number;
+  photos: PhotoDTO[];
+};
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const DEFAULT_TARGET_OPTIONS: PhotoTargetOptions = {
+  mode: "balanced",
+  minSizeMB: 8,
+  minAgeYears: 4,
+};
+const PHOTO_METADATA_CACHE_FILE = "slim-photo-metadata-cache-v1.json";
+const PHOTO_METADATA_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const PHOTO_METADATA_CACHE_LIMIT = 600;
+const BACKGROUND_CACHE_HYDRATE_LIMIT = 48;
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -135,6 +167,18 @@ function shuffle<T>(arr: T[]): T[] {
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
+}
+
+function targetOptionsFromData(data: Record<string, unknown>): PhotoTargetOptions {
+  const rawMode = stringFromData(data.mode, DEFAULT_TARGET_OPTIONS.mode);
+  const mode: PhotoTargetMode =
+    rawMode === "big-or-old" || rawMode === "old-and-large" ? rawMode : "balanced";
+
+  return {
+    mode,
+    minSizeMB: Math.min(50, Math.max(1, numberFromData(data.minSizeMB, 8))),
+    minAgeYears: Math.min(30, Math.max(1, numberFromData(data.minAgeYears, 4))),
+  };
 }
 
 function hasExifFlag(info: MediaLibrary.AssetInfo, keys: string[]): boolean {
@@ -208,10 +252,31 @@ function buildDuplicateLookup(assets: MediaLibrary.Asset[]): Set<string> {
   return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key));
 }
 
-function diversifyAssets(assets: MediaLibrary.Asset[], count: number): MediaLibrary.Asset[] {
+function assetMatchesTargetOptions(asset: MediaLibrary.Asset, options: PhotoTargetOptions): boolean {
+  if (options.mode === "balanced") return true;
+
+  const isLarge = assetSortSizeMB(asset) >= options.minSizeMB;
+  const isOld = photoAgeYears(asset.creationTime) >= options.minAgeYears;
+  return options.mode === "old-and-large" ? isLarge && isOld : isLarge || isOld;
+}
+
+function targetScoreForAsset(asset: MediaLibrary.Asset, options: PhotoTargetOptions): number {
+  return targetScoreForPhoto(
+    { creationTime: asset.creationTime, sizeMB: assetSortSizeMB(asset) },
+    options,
+  );
+}
+
+function diversifyAssets(
+  assets: MediaLibrary.Asset[],
+  count: number,
+  options = DEFAULT_TARGET_OPTIONS,
+): MediaLibrary.Asset[] {
   const targetCount = Math.max(1, count);
   const duplicateLookup = buildDuplicateLookup(assets);
   const now = Date.now();
+  const largeThreshold = options.mode === "balanced" ? 4 : options.minSizeMB;
+  const oldThreshold = options.mode === "balanced" ? 5 : options.minAgeYears;
   const buckets: Record<string, MediaLibrary.Asset[]> = {
     Old: [],
     Large: [],
@@ -231,15 +296,15 @@ function diversifyAssets(assets: MediaLibrary.Asset[], count: number): MediaLibr
       asset.width && asset.height
         ? Math.max(asset.width, asset.height) / Math.max(1, Math.min(asset.width, asset.height))
         : 1;
-    if (ageYears >= 5) buckets.Old.push(asset);
-    if (sizeMB >= 4) buckets.Large.push(asset);
+    if (ageYears >= oldThreshold) buckets.Old.push(asset);
+    if (sizeMB >= largeThreshold) buckets.Large.push(asset);
     if (duplicateLookup.has(duplicateKey(asset))) buckets["Duplicate/Similar"].push(asset);
     if (filename.includes("blur")) buckets.Blurry.push(asset);
     if (filename.includes("dark") || filename.includes("night")) buckets.Dark.push(asset);
     if (!asset.filename) buckets["No context"].push(asset);
     if (aspectRatio > 2.2 || sizeMB < 0.35 || filename.includes("pocket"))
       buckets["Mistake?"].push(asset);
-    if (ageYears < 5 && sizeMB < 4) buckets.Recent.push(asset);
+    if (ageYears < oldThreshold && sizeMB < largeThreshold) buckets.Recent.push(asset);
   });
 
   Object.keys(buckets).forEach((key) => {
@@ -270,6 +335,249 @@ function diversifyAssets(assets: MediaLibrary.Asset[], count: number): MediaLibr
 
 const WEB_ROOT_DIR = "www";
 const PHOTO_CACHE_DIR = "photo-cache";
+let photoMetadataCacheMemory: PhotoMetadataCache | null | undefined;
+
+function emptyPhotoMetadataCache(): PhotoMetadataCache {
+  return { version: 1, updatedAt: 0, photos: [] };
+}
+
+function metadataCacheUri(): string | null {
+  const documentDirectory = FileSystem.documentDirectory;
+  return documentDirectory ? `${documentDirectory}${PHOTO_METADATA_CACHE_FILE}` : null;
+}
+
+function isPhotoDTO(value: unknown): value is PhotoDTO {
+  const item = recordFromData(value);
+  return (
+    typeof item.id === "string" &&
+    typeof item.uri === "string" &&
+    typeof item.thumbUri === "string" &&
+    typeof item.title === "string" &&
+    typeof item.nativeId === "string" &&
+    typeof item.creationTime === "number"
+  );
+}
+
+function normalizeCachedPhotos(photos: unknown): PhotoDTO[] {
+  if (!Array.isArray(photos)) return [];
+  const byId = new Map<string, PhotoDTO>();
+
+  photos.filter(isPhotoDTO).forEach((photo) => {
+    byId.set(photo.nativeId || photo.id, {
+      ...photo,
+      isNative: true,
+      nativeId: photo.nativeId || photo.id,
+      cleanupReasons: Array.isArray(photo.cleanupReasons) ? photo.cleanupReasons : ["Review"],
+    });
+  });
+
+  return [...byId.values()];
+}
+
+async function readPhotoMetadataCache(): Promise<PhotoMetadataCache> {
+  if (photoMetadataCacheMemory !== undefined) return photoMetadataCacheMemory;
+
+  const uri = metadataCacheUri();
+  if (!uri) {
+    photoMetadataCacheMemory = emptyPhotoMetadataCache();
+    return photoMetadataCacheMemory;
+  }
+
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    if (!info.exists) {
+      photoMetadataCacheMemory = emptyPhotoMetadataCache();
+      return photoMetadataCacheMemory;
+    }
+
+    const raw = await FileSystem.readAsStringAsync(uri);
+    const parsed = JSON.parse(raw) as Partial<PhotoMetadataCache>;
+    photoMetadataCacheMemory = {
+      version: 1,
+      updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : 0,
+      photos: normalizeCachedPhotos(parsed.photos),
+    };
+  } catch (error) {
+    console.log("[Bridge] Could not read photo metadata cache", { error });
+    photoMetadataCacheMemory = emptyPhotoMetadataCache();
+  }
+
+  return photoMetadataCacheMemory;
+}
+
+async function writePhotoMetadataCache(cache: PhotoMetadataCache): Promise<void> {
+  const uri = metadataCacheUri();
+  if (!uri) return;
+
+  const retained = normalizeCachedPhotos(cache.photos)
+    .map((photo) => ({
+      photo,
+      score: targetScoreForPhoto(photo, { mode: "big-or-old", minSizeMB: 4, minAgeYears: 3 }),
+    }))
+    .sort((a, b) => {
+      const scoreDiff = b.score - a.score;
+      if (Math.abs(scoreDiff) > 0.01) return scoreDiff;
+      return b.photo.creationTime - a.photo.creationTime;
+    })
+    .slice(0, PHOTO_METADATA_CACHE_LIMIT)
+    .map(({ photo }) => photo);
+
+  photoMetadataCacheMemory = { version: 1, updatedAt: Date.now(), photos: retained };
+
+  try {
+    await FileSystem.writeAsStringAsync(uri, JSON.stringify(photoMetadataCacheMemory));
+  } catch (error) {
+    console.log("[Bridge] Could not write photo metadata cache", { error });
+  }
+}
+
+async function upsertCachedPhotos(photos: PhotoDTO[]): Promise<void> {
+  if (photos.length === 0) return;
+
+  const cache = await readPhotoMetadataCache();
+  const byId = new Map(cache.photos.map((photo) => [photo.nativeId || photo.id, photo]));
+  photos.forEach((photo) => {
+    byId.set(photo.nativeId || photo.id, photo);
+  });
+  await writePhotoMetadataCache({ version: 1, updatedAt: cache.updatedAt, photos: [...byId.values()] });
+}
+
+async function removeCachedPhotoIds(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+
+  const idSet = new Set(ids);
+  const cache = await readPhotoMetadataCache();
+  await writePhotoMetadataCache({
+    version: 1,
+    updatedAt: cache.updatedAt,
+    photos: cache.photos.filter((photo) => !idSet.has(photo.nativeId || photo.id)),
+  });
+}
+
+function publicCacheUriToFileUri(uri: string): string | null {
+  const documentDirectory = FileSystem.documentDirectory;
+  if (!documentDirectory || !uri.startsWith(`/${PHOTO_CACHE_DIR}/`)) return null;
+  return `${documentDirectory}${WEB_ROOT_DIR}${uri}`;
+}
+
+async function cachedPhotoHasPreview(photo: PhotoDTO): Promise<boolean> {
+  const previewFileUri = publicCacheUriToFileUri(photo.uri);
+  if (!previewFileUri) return true;
+
+  try {
+    const info = await FileSystem.getInfoAsync(previewFileUri);
+    return info.exists;
+  } catch {
+    return false;
+  }
+}
+
+function photoAgeYears(creationTime: number): number {
+  return (Date.now() - creationTime) / (365.25 * 24 * 60 * 60 * 1000);
+}
+
+function photoMatchesTargetOptions(photo: Pick<PhotoDTO, "creationTime" | "sizeMB">, options: PhotoTargetOptions): boolean {
+  if (options.mode === "balanced") return true;
+
+  const isLarge = photo.sizeMB >= options.minSizeMB;
+  const isOld = photoAgeYears(photo.creationTime) >= options.minAgeYears;
+  return options.mode === "old-and-large" ? isLarge && isOld : isLarge || isOld;
+}
+
+function targetScoreForPhoto(photo: Pick<PhotoDTO, "creationTime" | "sizeMB">, options: PhotoTargetOptions): number {
+  const age = Math.max(0, photoAgeYears(photo.creationTime));
+  const sizeRatio = options.minSizeMB > 0 ? photo.sizeMB / options.minSizeMB : 0;
+  const ageRatio = options.minAgeYears > 0 ? age / options.minAgeYears : 0;
+  const isLarge = photo.sizeMB >= options.minSizeMB;
+  const isOld = age >= options.minAgeYears;
+
+  return (
+    Math.min(sizeRatio, 4) +
+    Math.min(ageRatio, 4) +
+    (isLarge ? 2 : 0) +
+    (isOld ? 2 : 0) +
+    (isLarge && isOld ? 3 : 0)
+  );
+}
+
+async function getCachedTargetedPhotos(
+  count: number,
+  options: PhotoTargetOptions,
+  excludedIds = new Set<string>(),
+): Promise<PhotoDTO[]> {
+  const cache = await readPhotoMetadataCache();
+  if (cache.photos.length === 0) return [];
+
+  const cacheAgeMs = Date.now() - cache.updatedAt;
+  const candidates = cache.photos.filter((photo) => !excludedIds.has(photo.nativeId || photo.id));
+  const targeted = candidates.filter((photo) => photoMatchesTargetOptions(photo, options));
+  const pool = options.mode === "balanced" ? candidates : targeted;
+  const ranked = shuffle(pool)
+    .map((photo) => ({
+      photo,
+      score: targetScoreForPhoto(photo, options) + Math.random() * 0.35,
+    }))
+    .sort((a, b) => b.score - a.score)
+    .map(({ photo }) => photo);
+
+  const selected: PhotoDTO[] = [];
+  const seen = new Set<string>();
+
+  for (const photo of ranked) {
+    if (selected.length >= count) break;
+    const photoId = photo.nativeId || photo.id;
+    if (seen.has(photoId)) continue;
+    seen.add(photoId);
+    if (await cachedPhotoHasPreview(photo)) selected.push(photo);
+  }
+
+  console.log("[Bridge] metadata cache candidates", {
+    requested: count,
+    cacheSize: cache.photos.length,
+    cacheAgeHours: +(cacheAgeMs / (60 * 60 * 1000)).toFixed(1),
+    cacheFresh: cacheAgeMs <= PHOTO_METADATA_CACHE_TTL_MS,
+    targeted: targeted.length,
+    returned: selected.length,
+    mode: options.mode,
+  });
+
+  return selected;
+}
+
+function mergePhotoDTOs(photos: PhotoDTO[]): PhotoDTO[] {
+  const byId = new Map<string, PhotoDTO>();
+  photos.forEach((photo) => byId.set(photo.nativeId || photo.id, photo));
+  return [...byId.values()];
+}
+
+function warmMetadataCacheFromAssets(
+  assets: MediaLibrary.Asset[],
+  duplicateLookup: Set<string>,
+  skipIds: Set<string>,
+) {
+  void (async () => {
+    try {
+      const cache = await readPhotoMetadataCache();
+      const cachedIds = new Set(cache.photos.map((photo) => photo.nativeId || photo.id));
+      const toHydrate = assets
+        .filter((asset) => !skipIds.has(asset.id) && !cachedIds.has(asset.id))
+        .slice(0, BACKGROUND_CACHE_HYDRATE_LIMIT);
+
+      if (toHydrate.length === 0) return;
+
+      const hydrated = await mapWithConcurrency(toHydrate, 2, (asset) =>
+        assetToDTO(asset, duplicateLookup),
+      );
+      await upsertCachedPhotos(hydrated);
+      console.log("[Bridge] warmed photo metadata cache", {
+        hydrated: hydrated.length,
+        cacheSize: (await readPhotoMetadataCache()).photos.length,
+      });
+    } catch (error) {
+      console.log("[Bridge] metadata cache warm failed", { error });
+    }
+  })();
+}
 
 function extensionForAsset(asset: MediaLibrary.Asset): string {
   const name = asset.filename?.toLowerCase() || asset.uri.toLowerCase();
@@ -448,26 +756,112 @@ function prioritySortAssets(assets: MediaLibrary.Asset[]): MediaLibrary.Asset[] 
   });
 }
 
-async function getPhotos(count: number): Promise<PhotoDTO[]> {
+function mergeAssets(assets: MediaLibrary.Asset[]): MediaLibrary.Asset[] {
+  const byId = new Map<string, MediaLibrary.Asset>();
+  assets.forEach((asset) => byId.set(asset.id, asset));
+  return [...byId.values()];
+}
+
+async function fetchCandidateAssets(
+  targetCount: number,
+  options: PhotoTargetOptions,
+): Promise<MediaLibrary.Asset[]> {
+  const first = Math.min(250, Math.max(targetCount * 8, 80));
+
+  if (options.mode === "balanced") {
+    const result = await MediaLibrary.getAssetsAsync({
+      mediaType: "photo",
+      first,
+      sortBy: [[MediaLibrary.SortBy.creationTime, true]],
+    });
+    return result.assets;
+  }
+
+  const cutoffDate = Date.now() - options.minAgeYears * 365.25 * 24 * 60 * 60 * 1000;
+  const [recentResult, olderResult] = await Promise.all([
+    MediaLibrary.getAssetsAsync({
+      mediaType: "photo",
+      first,
+      sortBy: [[MediaLibrary.SortBy.creationTime, true]],
+    }),
+    MediaLibrary.getAssetsAsync({
+      mediaType: "photo",
+      first,
+      createdBefore: cutoffDate,
+      sortBy: [[MediaLibrary.SortBy.creationTime, true]],
+    }),
+  ]);
+
+  return mergeAssets([...recentResult.assets, ...olderResult.assets]);
+}
+
+function selectAssetsForRound(
+  assets: MediaLibrary.Asset[],
+  count: number,
+  options: PhotoTargetOptions,
+): MediaLibrary.Asset[] {
+  if (assets.length === 0 || count <= 0) return [];
+
+  const targeted = assets.filter((asset) => assetMatchesTargetOptions(asset, options));
+  const fallback = assets.filter((asset) => !targeted.includes(asset));
+  const pool = options.mode === "balanced" ? assets : [...targeted, ...fallback];
+  const ranked = shuffle(pool).sort((a, b) => targetScoreForAsset(b, options) - targetScoreForAsset(a, options));
+
+  return diversifyAssets(ranked, count, options);
+}
+
+async function getPhotos(
+  count: number,
+  options = DEFAULT_TARGET_OPTIONS,
+): Promise<PhotoDTO[]> {
   const targetCount = Math.max(1, count);
-  const result = await MediaLibrary.getAssetsAsync({
-    mediaType: "photo",
-    first: Math.min(250, Math.max(targetCount * 4, targetCount)),
-    sortBy: [[MediaLibrary.SortBy.creationTime, true]],
-  });
+  const cached = await getCachedTargetedPhotos(targetCount, options);
+  const cachedIds = new Set(cached.map((photo) => photo.nativeId || photo.id));
 
-  if (result.assets.length === 0) return [];
+  if (cached.length >= targetCount) {
+    console.log("[Bridge] getPhotos served from metadata cache", {
+      requested: targetCount,
+      returned: cached.length,
+      mode: options.mode,
+    });
+    return cached.slice(0, targetCount);
+  }
 
-  const selected = diversifyAssets(result.assets, targetCount);
-  const duplicateLookup = buildDuplicateLookup(result.assets);
+  const assets = await fetchCandidateAssets(targetCount, options);
+  if (assets.length === 0) return cached;
+
+  const remainingCount = targetCount - cached.length;
+  const freshAssets = assets.filter((asset) => !cachedIds.has(asset.id));
+  const selected = selectAssetsForRound(freshAssets, remainingCount, options);
+  const duplicateLookup = buildDuplicateLookup(assets);
   console.log("[Bridge] getPhotos selected diversified assets", {
     requested: targetCount,
-    fetched: result.assets.length,
+    cached: cached.length,
+    fetched: assets.length,
     returned: selected.length,
     firstAssetId: selected[0]?.id,
+    mode: options.mode,
+    minSizeMB: options.minSizeMB,
+    minAgeYears: options.minAgeYears,
   });
 
-  return mapWithConcurrency(selected, 3, (asset) => assetToDTO(asset, duplicateLookup));
+  const fresh = await mapWithConcurrency(selected, 3, (asset) => assetToDTO(asset, duplicateLookup));
+  const skipWarmIds = new Set([...cachedIds, ...fresh.map((photo) => photo.nativeId || photo.id)]);
+  await upsertCachedPhotos(fresh);
+  warmMetadataCacheFromAssets(assets, duplicateLookup, skipWarmIds);
+
+  const combined = mergePhotoDTOs([...cached, ...fresh]);
+  if (combined.length >= targetCount || options.mode === "balanced") {
+    return combined.slice(0, targetCount);
+  }
+
+  const combinedIds = new Set(combined.map((photo) => photo.nativeId || photo.id));
+  const fallbackCached = await getCachedTargetedPhotos(
+    targetCount - combined.length,
+    DEFAULT_TARGET_OPTIONS,
+    combinedIds,
+  );
+  return mergePhotoDTOs([...combined, ...fallbackCached]).slice(0, targetCount);
 }
 
 async function getOlderPhotos(beforeYear: number, count: number): Promise<PhotoDTO[]> {
@@ -571,6 +965,7 @@ async function replaceAssetWithJpeg(
     });
     const created = await MediaLibrary.createAssetAsync(targetUri);
     await MediaLibrary.deleteAssetsAsync([assetId]);
+    await removeCachedPhotoIds([assetId]);
     await FileSystem.deleteAsync(targetUri, { idempotent: true });
 
     console.log("[Bridge] replaceAssetWithJpeg completed", {
@@ -592,6 +987,7 @@ async function deletePhotos(ids: string[]): Promise<{ deleted: number }> {
 
   try {
     await MediaLibrary.deleteAssetsAsync(ids);
+    await removeCachedPhotoIds(ids);
     console.log("[Bridge] deletePhotos completed", { requested: ids.length });
     return { deleted: ids.length };
   } catch (error) {
