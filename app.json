@@ -14,7 +14,6 @@
       }
     },
     "plugins": [
-      "./mobile/mobile/plugins/withStaticServerAssets",
       [
         "expo-media-library",
         {
@@ -22,7 +21,8 @@
           "savePhotosPermission": "Trimswipe may save optimized versions of your photos.",
           "isAccessMediaLocationEnabled": true
         }
-      ]
+      ],
+      "expo-image"
     ],
     "extra": {
       "eas": {

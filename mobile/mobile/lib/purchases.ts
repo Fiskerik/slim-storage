@@ -9,10 +9,15 @@ import Purchases, {
   type PurchasesPackage,
 } from "react-native-purchases";
 
-const REVENUECAT_API_KEY = process.env.EXPO_PUBLIC_RC_KEY ?? "";
-const LIFETIME_PRODUCT_ID = process.env.EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID ?? "lifetime_premium_1";
-const ENTITLEMENT_ID = process.env.EXPO_PUBLIC_RC_ENTITLEMENT_ID ?? "TrimswipePro";
-const IS_PRODUCTION = process.env.NODE_ENV === "production";
+function envValue(key: string): string | undefined {
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+  return env?.[key];
+}
+
+const REVENUECAT_API_KEY = envValue("EXPO_PUBLIC_RC_KEY") ?? "";
+const LIFETIME_PRODUCT_ID = envValue("EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID") ?? "lifetime_premium_1";
+const ENTITLEMENT_ID = envValue("EXPO_PUBLIC_RC_ENTITLEMENT_ID") ?? "TrimswipePro";
+const IS_PRODUCTION = envValue("NODE_ENV") === "production";
 
 type PurchaseRequest = {
   productId?: string;

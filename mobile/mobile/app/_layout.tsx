@@ -1,12 +1,12 @@
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { LocalWebViewScreen } from '../components/LocalWebViewScreen';
+import { NativeTrimSwipeApp } from '../components/NativeTrimSwipeApp';
 
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
-      <LocalWebViewScreen />
+      <NativeTrimSwipeApp />
     </SafeAreaProvider>
   );
 }
