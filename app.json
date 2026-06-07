@@ -22,7 +22,8 @@
           "savePhotosPermission": "Trimswipe may save optimized versions of your photos.",
           "isAccessMediaLocationEnabled": true
         }
-      ]
+      ],
+      "expo-router"
     ],
     "extra": {
       "eas": {
