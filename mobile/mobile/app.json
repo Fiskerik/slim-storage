@@ -17,7 +17,6 @@
       }
     },
     "plugins": [
-      "./plugins/withStaticServerAssets",
       "expo-router",
       [
         "expo-media-library",

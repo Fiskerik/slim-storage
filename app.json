@@ -14,7 +14,6 @@
       }
     },
     "plugins": [
-      "./mobile/mobile/plugins/withStaticServerAssets",
       [
         "expo-media-library",
         {

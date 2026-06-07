@@ -181,6 +181,48 @@ export function ProfilePage() {
           onChange={(v) => updateSettings({ cardsPerRound: v })}
           suffix="cards"
         />
+        <ToggleRow
+          icon={<Sparkles className="h-4 w-4" />}
+          label="Heavy Hitters in Swipe"
+          hint="Prioritize photos that are large, old, or both"
+          checked={s.swipeTargetMode !== "balanced"}
+          onChange={(v) => updateSettings({ swipeTargetMode: v ? "big-or-old" : "balanced" })}
+        />
+        {s.swipeTargetMode !== "balanced" && (
+          <>
+            <ToggleRow
+              icon={<Shield className="h-4 w-4" />}
+              label="Require old and large"
+              hint="Off means Swipe accepts either threshold"
+              checked={s.swipeTargetMode === "old-and-large"}
+              onChange={(v) =>
+                updateSettings({ swipeTargetMode: v ? "old-and-large" : "big-or-old" })
+              }
+            />
+            <SliderRow
+              icon={<FileImage className="h-4 w-4" />}
+              label="Large threshold"
+              hint="Photos at or above this size are prioritized"
+              value={s.swipeMinSizeMB}
+              min={4}
+              max={25}
+              step={1}
+              onChange={(v) => updateSettings({ swipeMinSizeMB: v })}
+              suffix="MB"
+            />
+            <SliderRow
+              icon={<Layers className="h-4 w-4" />}
+              label="Old threshold"
+              hint="Photos at or above this age are prioritized"
+              value={s.swipeMinAgeYears}
+              min={1}
+              max={10}
+              step={1}
+              onChange={(v) => updateSettings({ swipeMinAgeYears: v })}
+              suffix="years"
+            />
+          </>
+        )}
         <SliderRow
           icon={<Sparkles className="h-4 w-4" />}
           label="Daily savings goal"

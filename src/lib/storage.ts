@@ -22,6 +22,9 @@ export type Settings = {
   reminderTime: string; // "HH:MM" 24h
   iCloudBackupWarn: boolean;
   convertHeicToJpegAfterRounds: boolean;
+  swipeTargetMode: "balanced" | "big-or-old" | "old-and-large";
+  swipeMinSizeMB: number;
+  swipeMinAgeYears: number;
   onboarded: boolean;
   displayName: string;
   dailyGoalMB: number;
@@ -79,6 +82,9 @@ const DEFAULT_SETTINGS: Settings = {
   reminderTime: "19:00",
   iCloudBackupWarn: true,
   convertHeicToJpegAfterRounds: false,
+  swipeTargetMode: "big-or-old",
+  swipeMinSizeMB: 8,
+  swipeMinAgeYears: 4,
   onboarded: false,
   displayName: "You",
   dailyGoalMB: 100,
