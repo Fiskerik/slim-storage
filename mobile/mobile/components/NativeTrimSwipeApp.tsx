@@ -22,7 +22,10 @@ import {
   estimateTrimSavings,
   loadPhotoRound,
   requestPhotoPermission,
+  scanPhotoLibrary,
   trimPhoto,
+  type NativeLibraryScan,
+  type NativeLibraryScanProgress,
   type NativePhoto,
 } from "../lib/native-photo-source";
 import {
@@ -33,12 +36,13 @@ import {
   type NativeActionLogEntry,
   type NativeActionType,
   type NativeDailyStats,
+  type NativeSeenPhoto,
   type NativeSessionMode,
   type NativeSettings,
   type NativeStats,
 } from "../lib/native-store";
 
-type Screen = "swipe" | "stats" | "review" | "settings";
+type Screen = "games" | "swipe" | "this-or-that" | "storage-budget" | "memory-lane" | "stats" | "settings";
 type Action = "keep" | "trim" | "delete";
 
 type SessionRecap = {
@@ -61,6 +65,9 @@ const DAILY_REVIEW_TARGET = 10;
 const WEEKLY_SAVINGS_TARGET_MB = 500;
 const FOUR_K_VIDEO_MB_PER_MINUTE = 375;
 const TIME_ATTACK_SECONDS = 60;
+const FREE_DAILY_TRIM_LIMIT = 10;
+const SELECTION_GRACE_DAYS = 7;
+const SEEN_PHOTO_LIMIT = 500;
 
 function formatMB(value: number): string {
   return value >= 1024 ? `${(value / 1024).toFixed(2)} GB` : `${value.toFixed(1)} MB`;
@@ -164,11 +171,43 @@ function sumDays(stats: NativeStats, days: number): NativeDailyStats {
   );
 }
 
+function sumPeriod(stats: NativeStats, predicate: (date: Date) => boolean): NativeDailyStats {
+  return Object.entries(stats.dailyActivity).reduce((total, [key, value]) => {
+    const date = new Date(`${key}T12:00:00`);
+    return predicate(date) ? mergeDailyStats(total, value) : total;
+  }, EMPTY_DAILY_STATS);
+}
+
+function monthStats(stats: NativeStats): NativeDailyStats {
+  const now = new Date();
+  return sumPeriod(
+    stats,
+    (date) => date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth(),
+  );
+}
+
+function yearStats(stats: NativeStats): NativeDailyStats {
+  const now = new Date();
+  return sumPeriod(stats, (date) => date.getFullYear() === now.getFullYear());
+}
+
 function currentStreak(stats: NativeStats): number {
   let streak = 0;
   let cursor = new Date();
 
   while (dailyFor(stats, dateKey(cursor)).reviewed > 0) {
+    streak += 1;
+    cursor = addDays(cursor, -1);
+  }
+
+  return streak;
+}
+
+function trimStreak(stats: NativeStats): number {
+  let streak = 0;
+  let cursor = new Date();
+
+  while (dailyFor(stats, dateKey(cursor)).trimmed > 0) {
     streak += 1;
     cursor = addDays(cursor, -1);
   }
@@ -193,6 +232,30 @@ function levelInfo(stats: NativeStats): { level: number; title: string; progress
   return { level, title, progress, next: `${Math.ceil(25 - (points % 25))} pts to level ${level + 1}` };
 }
 
+function yearOptions(correctYear: number): number[] {
+  const currentYear = new Date().getFullYear();
+  const candidates = new Set<number>([correctYear]);
+  [-1, 1, -2, 2, -4, 4, -7, 7].forEach((offset) => {
+    const year = correctYear + offset;
+    if (year >= 2007 && year <= currentYear) candidates.add(year);
+  });
+
+  while (candidates.size < 4) {
+    candidates.add(Math.max(2007, currentYear - Math.floor(Math.random() * 12)));
+  }
+
+  return shuffleSmall([...candidates].slice(0, 4));
+}
+
+function shuffleSmall<T>(items: T[]): T[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
 function createActionLogEntry(photo: NativePhoto, action: Action, mbFreed: number): NativeActionLogEntry {
   return {
     id: `${Date.now()}-${photo.id}`,
@@ -211,6 +274,45 @@ function appendActionLog(stats: NativeStats, entry: NativeActionLogEntry): Nativ
   };
 }
 
+function recentSelectionIds(stats: NativeStats): string[] {
+  const cutoff = Date.now() - SELECTION_GRACE_DAYS * DAY_MS;
+  const ids = new Set<string>();
+
+  stats.recentSeenPhotos.forEach((item) => {
+    const seenAt = Date.parse(item.lastSeenAt);
+    if (!Number.isNaN(seenAt) && seenAt >= cutoff) ids.add(item.photoId);
+  });
+
+  stats.actionLog.forEach((item) => {
+    const actedAt = Date.parse(item.createdAt);
+    if (!Number.isNaN(actedAt) && actedAt >= cutoff) ids.add(item.photoId);
+  });
+
+  return [...ids];
+}
+
+function withRecentlySeenPhotos(stats: NativeStats, photos: NativePhoto[]): NativeStats {
+  if (photos.length === 0) return stats;
+
+  const now = new Date().toISOString();
+  const cutoff = Date.now() - SELECTION_GRACE_DAYS * DAY_MS;
+  const entries = new Map<string, NativeSeenPhoto>();
+
+  stats.recentSeenPhotos.forEach((item) => {
+    const seenAt = Date.parse(item.lastSeenAt);
+    if (!Number.isNaN(seenAt) && seenAt >= cutoff) entries.set(item.photoId, item);
+  });
+
+  photos.forEach((photo) => entries.set(photo.id, { photoId: photo.id, lastSeenAt: now }));
+
+  return {
+    ...stats,
+    recentSeenPhotos: [...entries.values()]
+      .sort((a, b) => Date.parse(b.lastSeenAt) - Date.parse(a.lastSeenAt))
+      .slice(0, SEEN_PHOTO_LIMIT),
+  };
+}
+
 function progressShareText(stats: NativeStats): string {
   const week = sumDays(stats, 7);
   return [
@@ -221,7 +323,7 @@ function progressShareText(stats: NativeStats): string {
 }
 
 export function NativeTrimSwipeApp() {
-  const [screen, setScreen] = useState<Screen>("swipe");
+  const [screen, setScreen] = useState<Screen>("games");
   const [stats, setStats] = useState<NativeStats>(DEFAULT_NATIVE_STATS);
   const [queue, setQueue] = useState<NativePhoto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -234,12 +336,18 @@ export function NativeTrimSwipeApp() {
   const [trimmingCount, setTrimmingCount] = useState(0);
   const [timeLeft, setTimeLeft] = useState(0);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [libraryScan, setLibraryScan] = useState<NativeLibraryScan | null>(null);
+  const [scanProgress, setScanProgress] = useState<NativeLibraryScanProgress | null>(null);
+  const [scanBusy, setScanBusy] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
   const pendingDeletesRef = useRef<NativePhoto[]>([]);
 
   const settings = roundSettings(stats.settings);
   const top = queue[0];
   const next = queue[1];
+  const trimsToday = dailyFor(stats, dateKey()).trimmed;
+  const trimsRemainingToday = Math.max(0, FREE_DAILY_TRIM_LIMIT - trimsToday);
 
   useEffect(() => {
     let cancelled = false;
@@ -274,12 +382,40 @@ export function NativeTrimSwipeApp() {
     }
   }
 
-  async function loadRound() {
+  async function runLibraryScan() {
+    setScanBusy(true);
+    setScanError(null);
+    setScanProgress({ scanned: 0 });
+
+    try {
+      const permission = await requestPhotoPermission();
+      if (!permission.granted) {
+        setPermissionDenied(true);
+        setPermissionLimited(false);
+        setScanError("Photo access is needed to scan your library.");
+        return;
+      }
+
+      setPermissionDenied(false);
+      setPermissionLimited(permission.limited);
+      const result = await scanPhotoLibrary(setScanProgress);
+      setLibraryScan(result);
+      setScanProgress(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not scan the photo library";
+      setScanError(message);
+    } finally {
+      setScanBusy(false);
+    }
+  }
+
+  async function loadRound(settingsOverride = settings) {
+    const activeSettings = roundSettings(settingsOverride);
     setLoading(true);
     setError(null);
     setRecap(null);
     setPendingDeletes([]);
-    setTimeLeft(settings.sessionMode === "time-attack" ? TIME_ATTACK_SECONDS : 0);
+    setTimeLeft(activeSettings.sessionMode === "time-attack" ? TIME_ATTACK_SECONDS : 0);
     pendingDeletesRef.current = [];
     sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
 
@@ -294,8 +430,11 @@ export function NativeTrimSwipeApp() {
 
       setPermissionDenied(false);
       setPermissionLimited(permission.limited);
-      const photos = await loadPhotoRound(settings.cardsPerRound, settings);
+      const photos = await loadPhotoRound(activeSettings.cardsPerRound, activeSettings, {
+        avoidIds: recentSelectionIds(stats),
+      });
       setQueue(photos);
+      commitStats((current) => withRecentlySeenPhotos(current, photos));
       if (photos.length === 0) {
         setError("No photos were available in the current library selection.");
       }
@@ -308,10 +447,11 @@ export function NativeTrimSwipeApp() {
   }
 
   useEffect(() => {
+    if (!statsLoaded || !stats.onboardingComplete) return;
     void loadRound();
     // Run once after initial settings load. Manual reload picks up later settings changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stats.startedAt]);
+  }, [statsLoaded, stats.onboardingComplete, stats.startedAt]);
 
   useEffect(() => {
     if (settings.sessionMode !== "time-attack" || loading || recap || pendingDeletes.length > 0) return undefined;
@@ -416,6 +556,14 @@ export function NativeTrimSwipeApp() {
       return;
     }
 
+    if (trimsRemainingToday <= 0) {
+      Alert.alert(
+        "Daily trim limit reached",
+        `Free accounts can trim ${FREE_DAILY_TRIM_LIMIT} photos per day. Keep reviewing or delete photos today, and trims reset tomorrow.`,
+      );
+      return;
+    }
+
     const estimated = estimateTrimSavings(photo);
     session.trimmed += 1;
     session.freed += estimated;
@@ -491,8 +639,24 @@ export function NativeTrimSwipeApp() {
     }));
   }
 
+  function startGame(patch: Partial<NativeSettings>) {
+    const nextSettings = roundSettings({ ...settings, ...patch });
+    commitStats((current) => ({ ...current, settings: nextSettings }));
+    setScreen("swipe");
+    void loadRound(nextSettings);
+  }
+
   async function bulkTrimPhotos(photos: NativePhoto[]) {
-    const candidates = photos.filter((photo) => !photo.isCloudAsset);
+    const available = Math.max(0, FREE_DAILY_TRIM_LIMIT - dailyFor(stats, dateKey()).trimmed);
+    const candidates = photos.filter((photo) => !photo.isCloudAsset).slice(0, available);
+    if (available <= 0) {
+      Alert.alert(
+        "Daily trim limit reached",
+        `Free accounts can trim ${FREE_DAILY_TRIM_LIMIT} photos per day. This limit will become part of the Pro tier later.`,
+      );
+      return;
+    }
+
     if (candidates.length === 0) {
       Alert.alert("Nothing local to trim", "This deck only has iCloud-only or unavailable photos.");
       return;
@@ -533,17 +697,91 @@ export function NativeTrimSwipeApp() {
     setBulkBusy(false);
   }
 
+  async function confirmGameOutcome({
+    title,
+    detail,
+    kept,
+    deleted,
+  }: {
+    title: string;
+    detail: string;
+    kept: NativePhoto[];
+    deleted: NativePhoto[];
+  }): Promise<number> {
+    if (deleted.length === 0) return 0;
+
+    return new Promise((resolve) => {
+      Alert.alert(title, detail, [
+        { text: "Cancel", style: "cancel", onPress: () => resolve(0) },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            const result = await deletePhotos(deleted.map((photo) => photo.id));
+            const deletedPhotos = deleted.slice(0, result.deleted);
+            const keptPhotos = result.deleted > 0 ? kept : [];
+            const freed = deletedPhotos.reduce((sum, photo) => sum + photo.sizeMB, 0);
+            if (result.deleted !== deleted.length) {
+              Alert.alert("Delete incomplete", `${result.deleted}/${deleted.length} photos were moved to Recently Deleted.`);
+            }
+
+            if (deletedPhotos.length > 0 || keptPhotos.length > 0) {
+              commitStats((current) => {
+                const next = withDailyActivity(
+                  {
+                    ...current,
+                    reviewed: current.reviewed + keptPhotos.length + deletedPhotos.length,
+                    kept: current.kept + keptPhotos.length,
+                    deleted: current.deleted + deletedPhotos.length,
+                    mbFreed: +(current.mbFreed + freed).toFixed(2),
+                    deleteMbFreed: +(current.deleteMbFreed + freed).toFixed(2),
+                  },
+                  {
+                    reviewed: keptPhotos.length + deletedPhotos.length,
+                    kept: keptPhotos.length,
+                    deleted: deletedPhotos.length,
+                    mbFreed: freed,
+                    deleteMbFreed: freed,
+                  },
+                );
+
+                return [...keptPhotos, ...deletedPhotos].reduce((statsSoFar, photo) => {
+                  const action: Action = deletedPhotos.some((deletedPhoto) => deletedPhoto.id === photo.id)
+                    ? "delete"
+                    : "keep";
+                  return appendActionLog(
+                    statsSoFar,
+                    createActionLogEntry(photo, action, action === "delete" ? photo.sizeMB : 0),
+                  );
+                }, next);
+              });
+            }
+
+            resolve(result.deleted);
+          },
+        },
+      ]);
+    });
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
       <View style={[styles.shell, settings.highContrast && styles.shellHighContrast]}>
         {!statsLoaded ? (
           <Centered>
-            <ActivityIndicator color="#f8fafc" size="large" />
+            <ActivityIndicator color="#f97316" size="large" />
             <Text style={styles.muted}>Preparing TrimSwipe...</Text>
           </Centered>
         ) : !stats.onboardingComplete ? (
           <OnboardingScreen
+            scan={libraryScan}
+            scanBusy={scanBusy}
+            scanError={scanError}
+            scanProgress={scanProgress}
+            permissionDenied={permissionDenied}
+            permissionLimited={permissionLimited}
+            onScan={runLibraryScan}
             onDone={completeOnboarding}
             onOpenSettings={() => {
               completeOnboarding();
@@ -565,6 +803,8 @@ export function NativeTrimSwipeApp() {
             trimmingCount={trimmingCount}
             timeLeft={timeLeft}
             largeControls={settings.largeText}
+            trimsRemaining={trimsRemainingToday}
+            trimLimit={FREE_DAILY_TRIM_LIMIT}
             onAction={handleAction}
             onReload={loadRound}
             onOpenSettings={() => Linking.openSettings()}
@@ -582,11 +822,62 @@ export function NativeTrimSwipeApp() {
             onOpenSettings={() => setScreen("settings")}
             onShare={shareProgress}
           />
-        ) : screen === "review" ? (
-          <ReviewScreen
+        ) : screen === "this-or-that" ? (
+          <ThisOrThatScreen
+            settings={settings}
+            onBack={() => setScreen("games")}
+            onConfirmOutcome={(kept, deleted) =>
+              confirmGameOutcome({
+                title: "Delete the unpicked photos?",
+                detail: `This will move ${deleted.length} photo${deleted.length === 1 ? "" : "s"} to Recently Deleted and free about ${formatMB(
+                  deleted.reduce((sum, photo) => sum + photo.sizeMB, 0),
+                )}.`,
+                kept,
+                deleted,
+              })
+            }
+          />
+        ) : screen === "storage-budget" ? (
+          <StorageBudgetScreen
+            settings={settings}
+            onBack={() => setScreen("games")}
+            onConfirmOutcome={(kept, deleted) =>
+              confirmGameOutcome({
+                title: "Delete photos outside your budget?",
+                detail: `This will move ${deleted.length} photo${deleted.length === 1 ? "" : "s"} to Recently Deleted and free about ${formatMB(
+                  deleted.reduce((sum, photo) => sum + photo.sizeMB, 0),
+                )}.`,
+                kept,
+                deleted,
+              })
+            }
+          />
+        ) : screen === "memory-lane" ? (
+          <MemoryLaneScreen
+            settings={settings}
+            onBack={() => setScreen("games")}
+            onConfirmOutcome={(kept, deleted) =>
+              confirmGameOutcome({
+                title: "Delete cleared memories?",
+                detail: `This will move ${deleted.length} photo${deleted.length === 1 ? "" : "s"} to Recently Deleted and free about ${formatMB(
+                  deleted.reduce((sum, photo) => sum + photo.sizeMB, 0),
+                )}.`,
+                kept,
+                deleted,
+              })
+            }
+          />
+        ) : screen === "games" ? (
+          <GamesScreen
+            settings={settings}
             queue={queue}
             actionLog={stats.actionLog}
             busy={bulkBusy}
+            trimsRemaining={trimsRemainingToday}
+            onStartGame={startGame}
+            onOpenThisOrThat={() => setScreen("this-or-that")}
+            onOpenStorageBudget={() => setScreen("storage-budget")}
+            onOpenMemoryLane={() => setScreen("memory-lane")}
             onBulkTrim={() => void bulkTrimPhotos(queue)}
             onStartRound={() => {
               setScreen("swipe");
@@ -616,6 +907,8 @@ function SwipeScreen({
   trimmingCount,
   timeLeft,
   largeControls,
+  trimsRemaining,
+  trimLimit,
   onAction,
   onReload,
   onOpenSettings,
@@ -636,6 +929,8 @@ function SwipeScreen({
   trimmingCount: number;
   timeLeft: number;
   largeControls: boolean;
+  trimsRemaining: number;
+  trimLimit: number;
   onAction: (photo: NativePhoto, action: Action) => void;
   onReload: () => void;
   onOpenSettings: () => void;
@@ -646,7 +941,7 @@ function SwipeScreen({
   if (loading) {
     return (
       <Centered>
-        <ActivityIndicator color="#f8fafc" size="large" />
+        <ActivityIndicator color="#f97316" size="large" />
         <Text style={styles.muted}>Loading your photo round...</Text>
       </Centered>
     );
@@ -703,6 +998,7 @@ function SwipeScreen({
         </View>
         <View style={styles.swipeStatusColumn}>
           <Text style={styles.queuePill}>{queueCount} left</Text>
+          <Text style={styles.trimLimitPill}>{trimsRemaining}/{trimLimit} trims</Text>
           {settings.sessionMode === "time-attack" ? <Text style={styles.timerPill}>{timeLeft}s</Text> : null}
           {trimmingCount > 0 ? <Text style={styles.trimBadge}>Trimming {trimmingCount}</Text> : null}
         </View>
@@ -716,7 +1012,13 @@ function SwipeScreen({
       </View>
       <View style={styles.actions}>
         <ActionButton label="Keep" tone="keep" large={largeControls} onPress={() => top && onAction(top, "keep")} />
-        <ActionButton label="Trim" tone="trim" large={largeControls} onPress={() => top && onAction(top, "trim")} />
+        <ActionButton
+          label={trimsRemaining > 0 ? "Trim" : "Limit hit"}
+          tone="trim"
+          large={largeControls}
+          disabled={trimsRemaining <= 0}
+          onPress={() => top && onAction(top, "trim")}
+        />
         <ActionButton label="Delete" tone="delete" large={largeControls} onPress={() => top && onAction(top, "delete")} />
       </View>
     </View>
@@ -772,6 +1074,16 @@ function SwipeablePhotoCard({
     inputRange: [-180, 0, 180],
     outputRange: ["-12deg", "0deg", "12deg"],
   });
+  const keepOpacity = pan.x.interpolate({
+    inputRange: [-SWIPE_THRESHOLD, -20, 0],
+    outputRange: [0.38, 0.14, 0],
+    extrapolate: "clamp",
+  });
+  const deleteOpacity = pan.x.interpolate({
+    inputRange: [0, 20, SWIPE_THRESHOLD],
+    outputRange: [0, 0.14, 0.38],
+    extrapolate: "clamp",
+  });
 
   return (
     <Animated.View
@@ -784,6 +1096,8 @@ function SwipeablePhotoCard({
       ]}
     >
       <PhotoCard photo={photo} />
+      <Animated.View pointerEvents="none" style={[styles.swipeTint, styles.keepTint, { opacity: keepOpacity }]} />
+      <Animated.View pointerEvents="none" style={[styles.swipeTint, styles.deleteTint, { opacity: deleteOpacity }]} />
     </Animated.View>
   );
 }
@@ -891,7 +1205,10 @@ function StatsScreen({
 }) {
   const today = dailyFor(stats, dateKey());
   const week = sumDays(stats, 7);
+  const month = monthStats(stats);
+  const year = yearStats(stats);
   const streak = currentStreak(stats);
+  const trimsInARow = trimStreak(stats);
   const health = storageHealthScore(stats, week, streak);
   const level = levelInfo(stats);
   const videoText =
@@ -957,6 +1274,19 @@ function StatsScreen({
         <QuickActionButton label="Share" detail={`${stats.shareCount} shared`} onPress={onShare} />
       </View>
 
+      <SectionTitle title="TrimStreak" detail={trimsInARow > 0 ? `${trimsInARow} days active` : "Start today"} />
+      <View style={styles.streakCard}>
+        <View>
+          <Text style={styles.streakValue}>{trimsInARow}</Text>
+          <Text style={styles.mutedSmall}>days with at least one trim</Text>
+        </View>
+        <View style={styles.streakDivider} />
+        <View style={styles.streakCopy}>
+          <Text style={styles.challengeTitle}>{today.trimmed}/{FREE_DAILY_TRIM_LIMIT} trims today</Text>
+          <Text style={styles.mutedSmall}>Free trims reset daily. Pro can lift this later.</Text>
+        </View>
+      </View>
+
       <SectionTitle title="Challenges" detail={streak > 0 ? `${streak}-day streak` : "Build your first streak"} />
       <ChallengeCard
         title="Clean 10 photos today"
@@ -973,6 +1303,13 @@ function StatsScreen({
 
       <SectionTitle title="Impact" detail="What actually freed space" />
       <ImpactBreakdown trimMB={stats.trimMbFreed} deleteMB={stats.deleteMbFreed} />
+      <SectionTitle title="Trim savings" detail="This week / month / year" />
+      <View style={styles.metricGrid}>
+        <MetricCard label="Today trimmed" value={formatMB(today.trimMbFreed)} />
+        <MetricCard label="This week" value={formatMB(week.trimMbFreed)} />
+        <MetricCard label="This month" value={formatMB(month.trimMbFreed)} />
+        <MetricCard label="This year" value={formatMB(year.trimMbFreed)} />
+      </View>
       <View style={styles.metricGrid}>
         <MetricCard label="Reviewed" value={String(stats.reviewed)} />
         <MetricCard label="Trimmed" value={String(stats.trimmed)} />
@@ -1156,25 +1493,168 @@ function AchievementGrid({ achievements }: { achievements: Achievement[] }) {
   );
 }
 
-function OnboardingScreen({ onDone, onOpenSettings }: { onDone: () => void; onOpenSettings: () => void }) {
+function OnboardingScreen({
+  scan,
+  scanBusy,
+  scanError,
+  scanProgress,
+  permissionDenied,
+  permissionLimited,
+  onScan,
+  onDone,
+  onOpenSettings,
+}: {
+  scan: NativeLibraryScan | null;
+  scanBusy: boolean;
+  scanError: string | null;
+  scanProgress: NativeLibraryScanProgress | null;
+  permissionDenied: boolean;
+  permissionLimited: boolean;
+  onScan: () => void;
+  onDone: () => void;
+  onOpenSettings: () => void;
+}) {
+  const progressText = scanProgress?.total
+    ? `Scanning ${scanProgress.scanned}/${scanProgress.total} photos...`
+    : scanProgress
+      ? `Scanning ${scanProgress.scanned} photos...`
+      : "Scanning...";
+
   return (
     <ScrollView contentContainerStyle={[styles.content, styles.onboardingContent]}>
       <View style={styles.dashboardHero}>
         <Text style={styles.eyebrow}>Welcome</Text>
-        <Text style={styles.heroTitle}>Clean your camera roll in quick rounds.</Text>
+        <Text style={styles.heroTitle}>See what your camera roll is costing.</Text>
         <Text style={styles.dashboardCopy}>
-          Swipe left to keep, up to trim, and right to delete. TrimSwipe starts with big, old, or suspicious photos so
-          every round feels useful.
+          Start with a scan. TrimSwipe estimates your photo storage, how much trimming can save, and how much space
+          likely duplicates or bad shots could free if deleted.
         </Text>
+        {permissionLimited ? (
+          <Text style={styles.warning}>Limited photo access is enabled, so this scan only covers selected photos.</Text>
+        ) : null}
+        {scanError ? <Text style={styles.warning}>{scanError}</Text> : null}
+        <PrimaryButton
+          label={scanBusy ? progressText : scan ? "Scan again" : "Scan photo library"}
+          disabled={scanBusy}
+          onPress={onScan}
+        />
+        {permissionDenied ? <SecondaryButton label="Open iOS Settings" onPress={() => Linking.openSettings()} /> : null}
       </View>
-      <View style={styles.onboardingSteps}>
-        <OnboardingStep title="Smart focus" detail="Choose big, old, similar, screenshot, iCloud, or mistake-focused decks." />
-        <OnboardingStep title="Progress loops" detail="Daily and weekly challenges turn cleanup into a light habit." />
-        <OnboardingStep title="Review before delete" detail="Deletes are confirmed before they move to Recently Deleted." />
-      </View>
-      <PrimaryButton label="Start swiping" onPress={onDone} />
-      <SecondaryButton label="Tune settings first" onPress={onOpenSettings} />
+
+      {scan ? (
+        <>
+          <ScanResults scan={scan} />
+          <PrimaryButton label="Choose a cleanup game" onPress={onDone} />
+          <SecondaryButton label="Tune settings first" onPress={onOpenSettings} />
+        </>
+      ) : (
+        <View style={styles.onboardingSteps}>
+          <OnboardingStep title="Device-aware bars" detail="The full bar is your iPhone or iPad storage capacity." />
+          <OnboardingStep title="Trim estimate" detail="See how much space compression can save without deleting." />
+          <OnboardingStep title="Delete estimate" detail="See likely duplicate and mistake savings before making choices." />
+        </View>
+      )}
     </ScrollView>
+  );
+}
+
+function ScanResults({ scan }: { scan: NativeLibraryScan }) {
+  const capacityMB = scan.deviceCapacityMB ?? Math.max(1, scan.totalSizeMB);
+  const afterTrimMB = Math.max(0, scan.totalSizeMB - scan.trimSavingsMB);
+  const afterDeleteMB = Math.max(0, scan.totalSizeMB - scan.deleteSavingsMB);
+  const capacityLabel = scan.deviceCapacityMB
+    ? `${formatMB(scan.deviceCapacityMB)} device capacity`
+    : "Photo library size used as scale";
+
+  return (
+    <View style={styles.scanPanel}>
+      <View style={styles.scanHeader}>
+        <View>
+          <Text style={styles.eyebrow}>Scan result</Text>
+          <Text style={styles.scanTotal}>{formatMB(scan.totalSizeMB)}</Text>
+        </View>
+        <Text style={styles.scanCapacity}>{capacityLabel}</Text>
+      </View>
+
+      <View style={styles.scanMetricGrid}>
+        <ScanMetric label="Photos scanned" value={String(scan.assetCount)} />
+        <ScanMetric label="Trim can save" value={formatMB(scan.trimSavingsMB)} />
+        <ScanMetric label="Delete can save" value={formatMB(scan.deleteSavingsMB)} />
+        <ScanMetric label="Screenshots found" value={String(scan.screenshotCount)} />
+      </View>
+
+      <View style={styles.storageBars}>
+        <StorageBar
+          label="Photo library now"
+          detail={`${formatMB(scan.totalSizeMB)} allocated`}
+          valueMB={scan.totalSizeMB}
+          capacityMB={capacityMB}
+          tone="now"
+        />
+        <StorageBar
+          label="After Trim"
+          detail={`${formatMB(scan.trimSavingsMB)} estimated savings`}
+          valueMB={afterTrimMB}
+          capacityMB={capacityMB}
+          tone="trim"
+        />
+        <StorageBar
+          label="After Delete"
+          detail={`${formatMB(scan.deleteSavingsMB)} from duplicates and likely mistakes`}
+          valueMB={afterDeleteMB}
+          capacityMB={capacityMB}
+          tone="delete"
+        />
+      </View>
+
+      <Text style={styles.scanFootnote}>
+        Delete estimate includes {scan.duplicateRemovalCount} duplicate candidates and {scan.mistakeCount} likely blurry,
+        dark, or accidental photos. Some sizes are estimated when iOS does not expose exact bytes.
+      </Text>
+    </View>
+  );
+}
+
+function ScanMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.scanMetric}>
+      <Text style={styles.scanMetricValue}>{value}</Text>
+      <Text style={styles.mutedSmall}>{label}</Text>
+    </View>
+  );
+}
+
+function StorageBar({
+  label,
+  detail,
+  valueMB,
+  capacityMB,
+  tone,
+}: {
+  label: string;
+  detail: string;
+  valueMB: number;
+  capacityMB: number;
+  tone: "now" | "trim" | "delete";
+}) {
+  const fillStyle =
+    tone === "trim"
+      ? styles.storageFillTrim
+      : tone === "delete"
+        ? styles.storageFillDelete
+        : styles.storageFillNow;
+
+  return (
+    <View style={styles.storageBarBlock}>
+      <View style={styles.impactLabelRow}>
+        <Text style={styles.impactLabel}>{label}</Text>
+        <Text style={styles.impactAmount}>{formatMB(valueMB)}</Text>
+      </View>
+      <View style={styles.storageTrack}>
+        <View style={[styles.storageFill, fillStyle, { width: progressWidth(valueMB / capacityMB) }]} />
+      </View>
+      <Text style={styles.mutedSmall}>{detail}</Text>
+    </View>
   );
 }
 
@@ -1187,16 +1667,28 @@ function OnboardingStep({ title, detail }: { title: string; detail: string }) {
   );
 }
 
-function ReviewScreen({
+function GamesScreen({
+  settings,
   queue,
   actionLog,
   busy,
+  trimsRemaining,
+  onStartGame,
+  onOpenThisOrThat,
+  onOpenStorageBudget,
+  onOpenMemoryLane,
   onBulkTrim,
   onStartRound,
 }: {
+  settings: NativeSettings;
   queue: NativePhoto[];
   actionLog: NativeActionLogEntry[];
   busy: boolean;
+  trimsRemaining: number;
+  onStartGame: (patch: Partial<NativeSettings>) => void;
+  onOpenThisOrThat: () => void;
+  onOpenStorageBudget: () => void;
+  onOpenMemoryLane: () => void;
   onBulkTrim: () => void;
   onStartRound: () => void;
 }) {
@@ -1205,6 +1697,52 @@ function ReviewScreen({
 
   return (
     <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
+      <View style={styles.gamesHero}>
+        <Text style={styles.eyebrow}>Games</Text>
+        <Text style={styles.heroTitle}>Choose your cleanup game</Text>
+        <Text style={styles.dashboardCopy}>
+          Start with classic TrimSwipe, or use a smaller game when you want a different kind of decision.
+        </Text>
+      </View>
+
+      <Pressable
+        onPress={() => onStartGame({ sessionMode: "classic" })}
+        style={styles.primaryGameCard}
+      >
+        <View style={styles.primaryGameBadge}>
+          <Text style={styles.primaryGameBadgeText}>Main game</Text>
+        </View>
+        <Text style={styles.primaryGameTitle}>TrimSwipe</Text>
+        <Text style={styles.primaryGameDetail}>Keep, trim, or delete one photo at a time.</Text>
+      </Pressable>
+
+      <View style={styles.gameGrid}>
+        <GameModeCard
+          title="This or That"
+          detail="Pick one keeper from two similar photos."
+          active={false}
+          onPress={onOpenThisOrThat}
+        />
+        <GameModeCard
+          title="Storage Budget"
+          detail="Keep photos under a 50 MB budget."
+          active={false}
+          onPress={onOpenStorageBudget}
+        />
+        <GameModeCard
+          title="Speed Round"
+          detail="60 seconds, save what you can."
+          active={settings.sessionMode === "time-attack"}
+          onPress={() => onStartGame({ sessionMode: "time-attack" })}
+        />
+        <GameModeCard
+          title="Memory Lane"
+          detail="Older photos first, decide what stays."
+          active={settings.targetMode === "old-only"}
+          onPress={onOpenMemoryLane}
+        />
+      </View>
+
       <View style={styles.dashboardHero}>
         <View style={styles.dashboardHeroTop}>
           <View>
@@ -1219,6 +1757,7 @@ function ReviewScreen({
         <Text style={styles.dashboardCopy}>
           Trim all local photos in the current deck, then keep swiping the rest. Deletes still require confirmation.
         </Text>
+        <Text style={styles.mutedSmall}>{trimsRemaining}/{FREE_DAILY_TRIM_LIMIT} free trims left today</Text>
         <PrimaryButton
           label={busy ? "Trimming..." : `Trim ${trimCandidates.length} photos, save ~${formatMB(trimSavings)}`}
           onPress={onBulkTrim}
@@ -1239,6 +1778,445 @@ function ReviewScreen({
         <EmptyPanel title="No actions yet" detail="Your keep, trim, and delete history will appear here." />
       )}
     </ScrollView>
+  );
+}
+
+function GameModeCard({
+  title,
+  detail,
+  active,
+  onPress,
+}: {
+  title: string;
+  detail: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={[styles.gameCard, active && styles.gameCardActive]}>
+      <Text style={[styles.gameTitle, active && styles.gameTitleActive]}>{title}</Text>
+      <Text style={[styles.gameDetail, active && styles.gameDetailActive]}>{detail}</Text>
+    </Pressable>
+  );
+}
+
+function ThisOrThatScreen({
+  settings,
+  onBack,
+  onConfirmOutcome,
+}: {
+  settings: NativeSettings;
+  onBack: () => void;
+  onConfirmOutcome: (kept: NativePhoto[], deleted: NativePhoto[]) => Promise<number>;
+}) {
+  const [pairs, setPairs] = useState<Array<[NativePhoto, NativePhoto]>>([]);
+  const [index, setIndex] = useState(0);
+  const [kept, setKept] = useState<NativePhoto[]>([]);
+  const [deleted, setDeleted] = useState<NativePhoto[]>([]);
+  const [loadingPairs, setLoadingPairs] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  async function loadPairs() {
+    setLoadingPairs(true);
+    try {
+      const permission = await requestPhotoPermission();
+      if (!permission.granted) {
+        setPairs([]);
+        return;
+      }
+
+      const photos = await loadPhotoRound(12, {
+        ...settings,
+        cardsPerRound: 12,
+        targetMode: "similar",
+        sessionMode: "classic",
+      });
+      const nextPairs: Array<[NativePhoto, NativePhoto]> = [];
+      for (let i = 0; i + 1 < photos.length; i += 2) {
+        nextPairs.push([photos[i], photos[i + 1]]);
+      }
+      setPairs(nextPairs);
+      setIndex(0);
+      setKept([]);
+      setDeleted([]);
+    } finally {
+      setLoadingPairs(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadPairs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const pair = pairs[index];
+  const freed = deleted.reduce((sum, photo) => sum + photo.sizeMB, 0);
+
+  function pick(keepIndex: 0 | 1) {
+    if (!pair) return;
+    const keeper = pair[keepIndex];
+    const loser = pair[keepIndex === 0 ? 1 : 0];
+    setKept((current) => [...current, keeper]);
+    setDeleted((current) => [...current, loser]);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setIndex((current) => current + 1);
+  }
+
+  async function confirmDeletes() {
+    setBusy(true);
+    const count = await onConfirmOutcome(kept, deleted);
+    setBusy(false);
+    if (count > 0 || deleted.length === 0) void loadPairs();
+  }
+
+  if (loadingPairs) {
+    return (
+      <Centered>
+        <ActivityIndicator color="#f97316" size="large" />
+        <Text style={styles.muted}>Building This or That pairs...</Text>
+      </Centered>
+    );
+  }
+
+  if (!pair) {
+    return (
+      <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
+        <MiniGameHeader title="This or That" detail="Round complete" onBack={onBack} />
+        <View style={styles.dashboardHero}>
+          <Text style={styles.heroTitle}>{deleted.length} photos ready</Text>
+          <Text style={styles.dashboardCopy}>
+            You picked {kept.length} keepers. Deleting the other choices would free about {formatMB(freed)}.
+          </Text>
+          <PrimaryButton label={busy ? "Deleting..." : `Delete losers, save ${formatMB(freed)}`} disabled={busy} onPress={confirmDeletes} />
+          <SecondaryButton label="Play another round without deleting" onPress={() => void loadPairs()} />
+        </View>
+      </ScrollView>
+    );
+  }
+
+  return (
+    <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
+      <MiniGameHeader title="This or That" detail={`${index + 1}/${pairs.length} pairs`} onBack={onBack} />
+      <View style={styles.dashboardHero}>
+        <Text style={styles.heroTitle}>Tap the photo to keep</Text>
+        <Text style={styles.dashboardCopy}>The unpicked photo waits for final delete confirmation.</Text>
+      </View>
+      <View style={styles.thisThatRow}>
+        <ChoicePhoto photo={pair[0]} label="A" onPress={() => pick(0)} />
+        <ChoicePhoto photo={pair[1]} label="B" onPress={() => pick(1)} />
+      </View>
+      <Text style={styles.centerText}>Queued savings: {formatMB(freed)}</Text>
+    </ScrollView>
+  );
+}
+
+function StorageBudgetScreen({
+  settings,
+  onBack,
+  onConfirmOutcome,
+}: {
+  settings: NativeSettings;
+  onBack: () => void;
+  onConfirmOutcome: (kept: NativePhoto[], deleted: NativePhoto[]) => Promise<number>;
+}) {
+  const budgetMB = 50;
+  const [photos, setPhotos] = useState<NativePhoto[]>([]);
+  const [keptIds, setKeptIds] = useState<Set<string>>(new Set());
+  const [loadingPhotos, setLoadingPhotos] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  async function loadBoard() {
+    setLoadingPhotos(true);
+    try {
+      const permission = await requestPhotoPermission();
+      if (!permission.granted) {
+        setPhotos([]);
+        return;
+      }
+
+      const next = await loadPhotoRound(12, {
+        ...settings,
+        cardsPerRound: 12,
+        targetMode: "big-or-old",
+        sessionMode: "classic",
+      });
+      setPhotos(next);
+      setKeptIds(new Set());
+    } finally {
+      setLoadingPhotos(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadBoard();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const keptPhotos = photos.filter((photo) => keptIds.has(photo.id));
+  const deletePhotosFromBoard = photos.filter((photo) => !keptIds.has(photo.id));
+  const usedMB = keptPhotos.reduce((sum, photo) => sum + photo.sizeMB, 0);
+  const overBudget = usedMB > budgetMB;
+  const deleteSavings = deletePhotosFromBoard.reduce((sum, photo) => sum + photo.sizeMB, 0);
+
+  function toggle(photo: NativePhoto) {
+    setKeptIds((current) => {
+      const next = new Set(current);
+      if (next.has(photo.id)) next.delete(photo.id);
+      else next.add(photo.id);
+      return next;
+    });
+  }
+
+  async function lockBudget() {
+    if (overBudget) {
+      Alert.alert("Over budget", `Remove ${formatMB(usedMB - budgetMB)} from your kept photos before locking this board.`);
+      return;
+    }
+
+    setBusy(true);
+    const count = await onConfirmOutcome(keptPhotos, deletePhotosFromBoard);
+    setBusy(false);
+    if (count > 0 || deletePhotosFromBoard.length === 0) void loadBoard();
+  }
+
+  if (loadingPhotos) {
+    return (
+      <Centered>
+        <ActivityIndicator color="#f97316" size="large" />
+        <Text style={styles.muted}>Building a Storage Budget board...</Text>
+      </Centered>
+    );
+  }
+
+  return (
+    <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
+      <MiniGameHeader title="Storage Budget" detail="Keep what fits" onBack={onBack} />
+      <View style={styles.dashboardHero}>
+        <View style={styles.dashboardHeroTop}>
+          <View>
+            <Text style={styles.eyebrow}>Budget</Text>
+            <Text style={styles.heroTitle}>{formatMB(usedMB)} / {formatMB(budgetMB)}</Text>
+          </View>
+          <View style={styles.healthScore}>
+            <Text style={styles.healthValue}>{keptPhotos.length}</Text>
+            <Text style={styles.healthLabel}>kept</Text>
+          </View>
+        </View>
+        <View style={styles.storageTrack}>
+          <View
+            style={[
+              styles.storageFill,
+              overBudget ? styles.storageFillDelete : styles.storageFillTrim,
+              { width: progressWidth(Math.min(1, usedMB / budgetMB)) },
+            ]}
+          />
+        </View>
+        <Text style={styles.dashboardCopy}>
+          Tap photos you want to keep. Everything outside the budget can be deleted after confirmation.
+        </Text>
+      </View>
+      <View style={styles.budgetGrid}>
+        {photos.map((photo) => (
+          <BudgetPhotoTile key={photo.id} photo={photo} kept={keptIds.has(photo.id)} onPress={() => toggle(photo)} />
+        ))}
+      </View>
+      <PrimaryButton
+        label={busy ? "Deleting..." : `Lock budget, save ${formatMB(deleteSavings)}`}
+        disabled={busy || photos.length === 0}
+        onPress={lockBudget}
+      />
+    </ScrollView>
+  );
+}
+
+function MemoryLaneScreen({
+  settings,
+  onBack,
+  onConfirmOutcome,
+}: {
+  settings: NativeSettings;
+  onBack: () => void;
+  onConfirmOutcome: (kept: NativePhoto[], deleted: NativePhoto[]) => Promise<number>;
+}) {
+  const [photos, setPhotos] = useState<NativePhoto[]>([]);
+  const [index, setIndex] = useState(0);
+  const [guess, setGuess] = useState<number | null>(null);
+  const [options, setOptions] = useState<number[]>([]);
+  const [kept, setKept] = useState<NativePhoto[]>([]);
+  const [deleted, setDeleted] = useState<NativePhoto[]>([]);
+  const [revealed, setRevealed] = useState(false);
+  const [loadingPhotos, setLoadingPhotos] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  async function loadMemories() {
+    setLoadingPhotos(true);
+    try {
+      const permission = await requestPhotoPermission();
+      if (!permission.granted) {
+        setPhotos([]);
+        return;
+      }
+
+      const next = await loadPhotoRound(8, {
+        ...settings,
+        cardsPerRound: 8,
+        targetMode: "old-only",
+        sessionMode: "classic",
+      });
+      setPhotos(next);
+      setIndex(0);
+      setGuess(null);
+      setKept([]);
+      setDeleted([]);
+      setRevealed(false);
+      setOptions(next[0] ? yearOptions(next[0].year) : []);
+    } finally {
+      setLoadingPhotos(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadMemories();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const photo = photos[index];
+  const freed = deleted.reduce((sum, item) => sum + item.sizeMB, 0);
+
+  function chooseYear(year: number) {
+    setGuess(year);
+    setRevealed(true);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }
+
+  function decide(keep: boolean) {
+    if (!photo) return;
+    if (keep) setKept((current) => [...current, photo]);
+    else setDeleted((current) => [...current, photo]);
+
+    const nextIndex = index + 1;
+    setIndex(nextIndex);
+    setGuess(null);
+    setRevealed(false);
+    setOptions(photos[nextIndex] ? yearOptions(photos[nextIndex].year) : []);
+  }
+
+  async function confirmDeletes() {
+    setBusy(true);
+    const count = await onConfirmOutcome(kept, deleted);
+    setBusy(false);
+    if (count > 0 || deleted.length === 0) void loadMemories();
+  }
+
+  if (loadingPhotos) {
+    return (
+      <Centered>
+        <ActivityIndicator color="#f97316" size="large" />
+        <Text style={styles.muted}>Finding older memories...</Text>
+      </Centered>
+    );
+  }
+
+  if (!photo) {
+    return (
+      <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
+        <MiniGameHeader title="Memory Lane" detail="Round complete" onBack={onBack} />
+        <View style={styles.dashboardHero}>
+          <Text style={styles.heroTitle}>{kept.length} kept, {deleted.length} cleared</Text>
+          <Text style={styles.dashboardCopy}>
+            Deleting cleared memories would free about {formatMB(freed)}.
+          </Text>
+          <PrimaryButton label={busy ? "Deleting..." : `Delete cleared, save ${formatMB(freed)}`} disabled={busy} onPress={confirmDeletes} />
+          <SecondaryButton label="Play another round without deleting" onPress={() => void loadMemories()} />
+        </View>
+      </ScrollView>
+    );
+  }
+
+  return (
+    <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
+      <MiniGameHeader title="Memory Lane" detail={`${index + 1}/${photos.length} memories`} onBack={onBack} />
+      <View style={styles.memoryCard}>
+        <Image source={{ uri: photo.uri }} style={styles.memoryImage} contentFit="cover" />
+        <View style={styles.photoShade} />
+        <View style={styles.choiceFooter}>
+          <Text style={styles.choiceTitle} numberOfLines={2}>{photo.title}</Text>
+          <Text style={styles.choiceMeta}>{formatMB(photo.sizeMB)}</Text>
+        </View>
+      </View>
+
+      {!revealed ? (
+        <View style={styles.dashboardHero}>
+          <Text style={styles.heroTitle}>What year was this?</Text>
+          <View style={styles.yearGrid}>
+            {options.map((year) => (
+              <Pressable key={year} onPress={() => chooseYear(year)} style={styles.yearButton}>
+                <Text style={styles.yearButtonText}>{year}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      ) : (
+        <View style={styles.dashboardHero}>
+          <Text style={styles.eyebrow}>Actually</Text>
+          <Text style={styles.heroTitle}>{photo.month} {photo.year}</Text>
+          <Text style={styles.dashboardCopy}>
+            You guessed {guess}. Now decide if this memory still earns its space.
+          </Text>
+          <View style={styles.actions}>
+            <ActionButton label="Keep" tone="keep" onPress={() => decide(true)} />
+            <ActionButton label="Clear" tone="delete" onPress={() => decide(false)} />
+          </View>
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
+function MiniGameHeader({ title, detail, onBack }: { title: string; detail: string; onBack: () => void }) {
+  return (
+    <View style={styles.miniGameHeader}>
+      <Pressable onPress={onBack} style={styles.backButton}>
+        <Text style={styles.backButtonText}>Back</Text>
+      </Pressable>
+      <View style={styles.miniGameHeaderCopy}>
+        <Text style={styles.eyebrow}>{detail}</Text>
+        <Text style={styles.heroTitle}>{title}</Text>
+      </View>
+    </View>
+  );
+}
+
+function ChoicePhoto({ photo, label, onPress }: { photo: NativePhoto; label: string; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={styles.choicePhoto}>
+      <Image source={{ uri: photo.uri }} style={styles.choiceImage} contentFit="cover" />
+      <View style={styles.choiceShade} />
+      <Text style={styles.choiceBadge}>{label}</Text>
+      <View style={styles.choiceFooter}>
+        <Text style={styles.choiceTitle} numberOfLines={2}>{photo.title}</Text>
+        <Text style={styles.choiceMeta}>{formatMB(photo.sizeMB)}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function BudgetPhotoTile({
+  photo,
+  kept,
+  onPress,
+}: {
+  photo: NativePhoto;
+  kept: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={[styles.budgetTile, kept && styles.budgetTileKept]}>
+      <Image source={{ uri: photo.uri }} style={styles.budgetImage} contentFit="cover" />
+      <View style={styles.choiceShade} />
+      <Text style={[styles.budgetStatus, kept && styles.budgetStatusKept]}>{kept ? "Keep" : "Cut"}</Text>
+      <Text style={styles.budgetSize}>{formatMB(photo.sizeMB)}</Text>
+    </Pressable>
   );
 }
 
@@ -1390,11 +2368,14 @@ function SettingsScreen({
 }
 
 function BottomNav({ screen, onChange }: { screen: Screen; onChange: (screen: Screen) => void }) {
+  const gamesActive =
+    screen === "games" || screen === "this-or-that" || screen === "storage-budget" || screen === "memory-lane";
+
   return (
     <View style={styles.bottomNav}>
       <NavButton label="Swipe" active={screen === "swipe"} onPress={() => onChange("swipe")} />
-      <NavButton label="Progress" active={screen === "stats"} onPress={() => onChange("stats")} />
-      <NavButton label="Review" active={screen === "review"} onPress={() => onChange("review")} />
+      <NavButton label="Games" active={gamesActive} onPress={() => onChange("games")} />
+      <NavButton label="Stats" active={screen === "stats"} onPress={() => onChange("stats")} />
       <NavButton label="Settings" active={screen === "settings"} onPress={() => onChange("settings")} />
     </View>
   );
@@ -1413,18 +2394,26 @@ function ActionButton({
   tone,
   onPress,
   large,
+  disabled,
 }: {
   label: string;
   tone: "keep" | "trim" | "delete";
   onPress: () => void;
   large?: boolean;
+  disabled?: boolean;
 }) {
   const toneStyle =
     tone === "keep" ? styles.actionKeep : tone === "trim" ? styles.actionTrim : styles.actionDelete;
 
   return (
-    <Pressable onPress={onPress} style={[styles.actionButton, large && styles.actionButtonLarge, toneStyle]}>
-      <Text style={[styles.actionText, large && styles.actionTextLarge]}>{label}</Text>
+    <Pressable
+      disabled={disabled}
+      onPress={onPress}
+      style={[styles.actionButton, toneStyle, large && styles.actionButtonLarge, disabled && styles.actionButtonDisabled]}
+    >
+      <Text style={[styles.actionText, large && styles.actionTextLarge, disabled && styles.actionTextDisabled]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -1432,14 +2421,20 @@ function ActionButton({
 function PrimaryButton({
   label,
   danger,
+  disabled,
   onPress,
 }: {
   label: string;
   danger?: boolean;
+  disabled?: boolean;
   onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={[styles.primaryButton, danger && styles.dangerButton]}>
+    <Pressable
+      disabled={disabled}
+      onPress={onPress}
+      style={[styles.primaryButton, danger && styles.dangerButton, disabled && styles.primaryButtonDisabled]}
+    >
       <Text style={styles.primaryButtonText}>{label}</Text>
     </Pressable>
   );
@@ -1567,14 +2562,14 @@ function Centered({ children }: { children: ReactNode }) {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: "#07111f",
+    backgroundColor: "#fff7ed",
   },
   shell: {
     flex: 1,
-    backgroundColor: "#07111f",
+    backgroundColor: "#fff7ed",
   },
   shellHighContrast: {
-    backgroundColor: "#020617",
+    backgroundColor: "#fffbeb",
   },
   content: {
     flexGrow: 1,
@@ -1590,23 +2585,30 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   heroTitle: {
-    color: "#f8fafc",
+    color: "#1f2937",
     fontSize: 28,
     fontWeight: "800",
     letterSpacing: 0,
   },
   muted: {
-    color: "#94a3b8",
+    color: "#64748b",
     fontSize: 14,
   },
   mutedSmall: {
-    color: "#94a3b8",
+    color: "#64748b",
     fontSize: 12,
   },
   centerText: {
-    color: "#cbd5e1",
+    color: "#475569",
     fontSize: 15,
     lineHeight: 22,
+    textAlign: "center",
+  },
+  insightText: {
+    color: "#c2410c",
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 20,
     textAlign: "center",
   },
   swipeHeader: {
@@ -1615,9 +2617,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 14,
     borderRadius: 22,
-    backgroundColor: "#0f1b2d",
+    backgroundColor: "#ffffff",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#243247",
+    borderColor: "#fed7aa",
     padding: 16,
   },
   swipeHeaderCopy: {
@@ -1625,7 +2627,7 @@ const styles = StyleSheet.create({
   },
   swipeTitle: {
     marginTop: 5,
-    color: "#f8fafc",
+    color: "#1f2937",
     fontSize: 18,
     fontWeight: "900",
   },
@@ -1634,7 +2636,7 @@ const styles = StyleSheet.create({
   },
   swipeSubtitle: {
     marginTop: 5,
-    color: "#94a3b8",
+    color: "#64748b",
     fontSize: 12,
     lineHeight: 17,
   },
@@ -1645,8 +2647,8 @@ const styles = StyleSheet.create({
   queuePill: {
     overflow: "hidden",
     borderRadius: 999,
-    backgroundColor: "#e0f2fe",
-    color: "#075985",
+    backgroundColor: "#ffedd5",
+    color: "#c2410c",
     paddingHorizontal: 10,
     paddingVertical: 6,
     fontSize: 12,
@@ -1656,14 +2658,24 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderRadius: 999,
     backgroundColor: "#fef3c7",
-    color: "#92400e",
+    color: "#b45309",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  trimLimitPill: {
+    overflow: "hidden",
+    borderRadius: 999,
+    backgroundColor: "#ecfdf5",
+    color: "#15803d",
     paddingHorizontal: 10,
     paddingVertical: 6,
     fontSize: 12,
     fontWeight: "900",
   },
   eyebrow: {
-    color: "#94a3b8",
+    color: "#f97316",
     fontSize: 11,
     fontWeight: "700",
     letterSpacing: 1.6,
@@ -1672,8 +2684,8 @@ const styles = StyleSheet.create({
   trimBadge: {
     overflow: "hidden",
     borderRadius: 999,
-    backgroundColor: "#172554",
-    color: "#bfdbfe",
+    backgroundColor: "#fff7ed",
+    color: "#c2410c",
     paddingHorizontal: 10,
     paddingVertical: 6,
     fontSize: 12,
@@ -1682,8 +2694,8 @@ const styles = StyleSheet.create({
   warning: {
     marginTop: 12,
     borderRadius: 14,
-    backgroundColor: "#4a2c0f",
-    color: "#ffedd5",
+    backgroundColor: "#fff7ed",
+    color: "#9a3412",
     padding: 12,
     fontSize: 12,
   },
@@ -1706,9 +2718,19 @@ const styles = StyleSheet.create({
     left: 0,
     overflow: "hidden",
     borderRadius: 24,
-    backgroundColor: "#111c2e",
+    backgroundColor: "#ffffff",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#243247",
+    borderColor: "#fed7aa",
+  },
+  swipeTint: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 24,
+  },
+  keepTint: {
+    backgroundColor: "rgba(34, 197, 94, 0.48)",
+  },
+  deleteTint: {
+    backgroundColor: "rgba(239, 68, 68, 0.48)",
   },
   stackedCard: {
     transform: [{ scale: 0.96 }],
@@ -1720,7 +2742,7 @@ const styles = StyleSheet.create({
   },
   photoShade: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(2, 6, 23, 0.22)",
+    backgroundColor: "rgba(31, 41, 55, 0.12)",
   },
   photoTop: {
     position: "absolute",
@@ -1791,25 +2813,33 @@ const styles = StyleSheet.create({
   actionButtonLarge: {
     paddingVertical: 19,
   },
+  actionButtonDisabled: {
+    backgroundColor: "#f1f5f9",
+    borderColor: "#cbd5e1",
+    opacity: 0.75,
+  },
   actionKeep: {
-    backgroundColor: "#0f2a1d",
-    borderColor: "#15803d",
+    backgroundColor: "#dcfce7",
+    borderColor: "#22c55e",
   },
   actionTrim: {
-    backgroundColor: "#10214f",
-    borderColor: "#2563eb",
+    backgroundColor: "#ffedd5",
+    borderColor: "#fb923c",
   },
   actionDelete: {
-    backgroundColor: "#351417",
-    borderColor: "#b91c1c",
+    backgroundColor: "#fee2e2",
+    borderColor: "#ef4444",
   },
   actionText: {
-    color: "#f8fafc",
+    color: "#1f2937",
     fontSize: 14,
     fontWeight: "900",
   },
   actionTextLarge: {
     fontSize: 17,
+  },
+  actionTextDisabled: {
+    color: "#94a3b8",
   },
   reviewList: {
     marginTop: 18,
@@ -1820,7 +2850,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     borderRadius: 18,
-    backgroundColor: "#1e293b",
+    backgroundColor: "#ffffff",
     padding: 10,
     marginBottom: 8,
   },
@@ -1833,7 +2863,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   reviewTitle: {
-    color: "#f8fafc",
+    color: "#1f2937",
     fontSize: 14,
     fontWeight: "800",
   },
@@ -1842,22 +2872,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     borderRadius: 18,
-    backgroundColor: "#0f1b2d",
+    backgroundColor: "#ffffff",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#243247",
+    borderColor: "#fed7aa",
     padding: 12,
   },
   actionLogDot: {
     width: 10,
     height: 10,
     borderRadius: 999,
-    backgroundColor: "#38bdf8",
+    backgroundColor: "#fb923c",
   },
   emptyPanel: {
     borderRadius: 20,
-    backgroundColor: "#0f1b2d",
+    backgroundColor: "#ffffff",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#243247",
+    borderColor: "#fed7aa",
     padding: 18,
     gap: 10,
   },
@@ -1871,16 +2901,248 @@ const styles = StyleSheet.create({
     minWidth: "30%",
     flexGrow: 1,
     borderRadius: 18,
-    backgroundColor: "#1e293b",
+    backgroundColor: "#ffffff",
     padding: 16,
   },
   miniStatValue: {
-    color: "#f8fafc",
+    color: "#1f2937",
     fontSize: 24,
     fontWeight: "900",
   },
   dashboardContent: {
     gap: 14,
+  },
+  gamesHero: {
+    borderRadius: 24,
+    backgroundColor: "#ffffff",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#fed7aa",
+    padding: 18,
+    gap: 8,
+  },
+  gameGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  primaryGameCard: {
+    width: "100%",
+    borderRadius: 24,
+    backgroundColor: "#f97316",
+    padding: 20,
+    gap: 8,
+    shadowColor: "#fb923c",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 18,
+    elevation: 6,
+  },
+  primaryGameBadge: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    backgroundColor: "rgba(255, 255, 255, 0.22)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  primaryGameBadgeText: {
+    color: "#ffffff",
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  primaryGameTitle: {
+    color: "#ffffff",
+    fontSize: 32,
+    fontWeight: "900",
+  },
+  primaryGameDetail: {
+    color: "#ffedd5",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  gameCard: {
+    minWidth: "47%",
+    flexGrow: 1,
+    borderRadius: 18,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#fed7aa",
+    padding: 15,
+    gap: 6,
+  },
+  gameCardActive: {
+    backgroundColor: "#ffedd5",
+    borderColor: "#fb923c",
+  },
+  gameTitle: {
+    color: "#1f2937",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  gameTitleActive: {
+    color: "#9a3412",
+  },
+  gameDetail: {
+    color: "#64748b",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "700",
+  },
+  gameDetailActive: {
+    color: "#9a3412",
+  },
+  miniGameHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  miniGameHeaderCopy: {
+    flex: 1,
+  },
+  backButton: {
+    borderRadius: 999,
+    backgroundColor: "#ffffff",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#fed7aa",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  backButtonText: {
+    color: "#c2410c",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  thisThatRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  choicePhoto: {
+    flex: 1,
+    aspectRatio: 0.72,
+    overflow: "hidden",
+    borderRadius: 22,
+    backgroundColor: "#ffffff",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#fed7aa",
+  },
+  choiceImage: {
+    width: "100%",
+    height: "100%",
+  },
+  choiceShade: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(31, 41, 55, 0.18)",
+  },
+  choiceBadge: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    overflow: "hidden",
+    borderRadius: 999,
+    backgroundColor: "rgba(255, 255, 255, 0.88)",
+    color: "#c2410c",
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  choiceFooter: {
+    position: "absolute",
+    left: 10,
+    right: 10,
+    bottom: 10,
+  },
+  choiceTitle: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  choiceMeta: {
+    marginTop: 3,
+    color: "#ffedd5",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  budgetGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  budgetTile: {
+    width: "31.8%",
+    aspectRatio: 1,
+    overflow: "hidden",
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
+    borderWidth: 2,
+    borderColor: "#fed7aa",
+    opacity: 0.72,
+  },
+  budgetTileKept: {
+    borderColor: "#22c55e",
+    opacity: 1,
+  },
+  budgetImage: {
+    width: "100%",
+    height: "100%",
+  },
+  budgetStatus: {
+    position: "absolute",
+    top: 6,
+    left: 6,
+    overflow: "hidden",
+    borderRadius: 999,
+    backgroundColor: "rgba(254, 226, 226, 0.92)",
+    color: "#b91c1c",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  budgetStatusKept: {
+    backgroundColor: "rgba(220, 252, 231, 0.92)",
+    color: "#15803d",
+  },
+  budgetSize: {
+    position: "absolute",
+    left: 6,
+    right: 6,
+    bottom: 6,
+    color: "#ffffff",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  memoryCard: {
+    height: 420,
+    overflow: "hidden",
+    borderRadius: 24,
+    backgroundColor: "#ffffff",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#fed7aa",
+  },
+  memoryImage: {
+    width: "100%",
+    height: "100%",
+  },
+  yearGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  yearButton: {
+    minWidth: "47%",
+    flexGrow: 1,
+    alignItems: "center",
+    borderRadius: 18,
+    backgroundColor: "#ffedd5",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#fed7aa",
+    paddingVertical: 16,
+  },
+  yearButtonText: {
+    color: "#9a3412",
+    fontSize: 22,
+    fontWeight: "900",
   },
   onboardingContent: {
     justifyContent: "center",
@@ -1891,17 +3153,95 @@ const styles = StyleSheet.create({
   },
   onboardingStep: {
     borderRadius: 18,
-    backgroundColor: "#0f1b2d",
+    backgroundColor: "#ffffff",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#243247",
+    borderColor: "#fed7aa",
     padding: 16,
     gap: 6,
   },
+  scanPanel: {
+    borderRadius: 24,
+    backgroundColor: "#ffffff",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#fed7aa",
+    padding: 18,
+    gap: 16,
+  },
+  scanHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 16,
+  },
+  scanTotal: {
+    marginTop: 3,
+    color: "#1f2937",
+    fontSize: 34,
+    fontWeight: "900",
+  },
+  scanCapacity: {
+    flexShrink: 1,
+    color: "#9a3412",
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 18,
+    textAlign: "right",
+  },
+  scanMetricGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  scanMetric: {
+    minWidth: "47%",
+    flexGrow: 1,
+    borderRadius: 16,
+    backgroundColor: "#fff7ed",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#fed7aa",
+    padding: 13,
+  },
+  scanMetricValue: {
+    color: "#1f2937",
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  storageBars: {
+    gap: 13,
+  },
+  storageBarBlock: {
+    gap: 7,
+  },
+  storageTrack: {
+    height: 13,
+    overflow: "hidden",
+    borderRadius: 999,
+    backgroundColor: "#ffedd5",
+  },
+  storageFill: {
+    minWidth: 4,
+    height: "100%",
+    borderRadius: 999,
+  },
+  storageFillNow: {
+    backgroundColor: "#fb923c",
+  },
+  storageFillTrim: {
+    backgroundColor: "#22c55e",
+  },
+  storageFillDelete: {
+    backgroundColor: "#ef4444",
+  },
+  scanFootnote: {
+    color: "#64748b",
+    fontSize: 12,
+    lineHeight: 18,
+  },
   dashboardHero: {
     borderRadius: 24,
-    backgroundColor: "#0f1b2d",
+    backgroundColor: "#ffffff",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#243247",
+    borderColor: "#fed7aa",
     padding: 18,
     gap: 16,
   },
@@ -1915,23 +3255,23 @@ const styles = StyleSheet.create({
     minWidth: 74,
     alignItems: "center",
     borderRadius: 20,
-    backgroundColor: "#e0f2fe",
+    backgroundColor: "#ffedd5",
     paddingVertical: 10,
     paddingHorizontal: 12,
   },
   healthValue: {
-    color: "#075985",
+    color: "#c2410c",
     fontSize: 27,
     fontWeight: "900",
   },
   healthLabel: {
-    color: "#0369a1",
+    color: "#ea580c",
     fontSize: 11,
     fontWeight: "800",
     textTransform: "uppercase",
   },
   dashboardCopy: {
-    color: "#cbd5e1",
+    color: "#475569",
     fontSize: 14,
     lineHeight: 21,
   },
@@ -1944,7 +3284,7 @@ const styles = StyleSheet.create({
     minWidth: 92,
   },
   levelTitle: {
-    color: "#f8fafc",
+    color: "#1f2937",
     fontSize: 18,
     fontWeight: "900",
   },
@@ -1961,19 +3301,19 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: "30%",
     borderRadius: 18,
-    backgroundColor: "#111c2e",
+    backgroundColor: "#ffffff",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#243247",
+    borderColor: "#fed7aa",
     padding: 14,
     gap: 5,
   },
   quickActionLabel: {
-    color: "#f8fafc",
+    color: "#1f2937",
     fontSize: 14,
     fontWeight: "900",
   },
   quickActionDetail: {
-    color: "#94a3b8",
+    color: "#64748b",
     fontSize: 11,
     fontWeight: "700",
   },
@@ -1985,12 +3325,12 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   sectionTitle: {
-    color: "#f8fafc",
+    color: "#1f2937",
     fontSize: 18,
     fontWeight: "900",
   },
   sectionDetail: {
-    color: "#94a3b8",
+    color: "#f97316",
     fontSize: 12,
     fontWeight: "700",
   },
@@ -1998,26 +3338,51 @@ const styles = StyleSheet.create({
     height: 8,
     overflow: "hidden",
     borderRadius: 999,
-    backgroundColor: "#233048",
+    backgroundColor: "#ffedd5",
   },
   progressFill: {
     height: "100%",
     borderRadius: 999,
-    backgroundColor: "#38bdf8",
+    backgroundColor: "#f97316",
   },
   progressTrim: {
-    backgroundColor: "#60a5fa",
+    backgroundColor: "#fb923c",
   },
   progressDelete: {
     backgroundColor: "#f87171",
   },
   challengeCard: {
     borderRadius: 20,
-    backgroundColor: "#0f1b2d",
+    backgroundColor: "#ffffff",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#243247",
+    borderColor: "#fed7aa",
     padding: 16,
     gap: 11,
+  },
+  streakCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 20,
+    backgroundColor: "#ffffff",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#fed7aa",
+    padding: 16,
+    gap: 14,
+  },
+  streakValue: {
+    color: "#f97316",
+    fontSize: 44,
+    fontWeight: "900",
+    lineHeight: 48,
+  },
+  streakDivider: {
+    alignSelf: "stretch",
+    width: StyleSheet.hairlineWidth,
+    backgroundColor: "#fed7aa",
+  },
+  streakCopy: {
+    flex: 1,
+    gap: 5,
   },
   challengeHeader: {
     flexDirection: "row",
@@ -2027,20 +3392,20 @@ const styles = StyleSheet.create({
   },
   challengeTitle: {
     flex: 1,
-    color: "#f8fafc",
+    color: "#1f2937",
     fontSize: 14,
     fontWeight: "900",
   },
   challengeValue: {
-    color: "#bae6fd",
+    color: "#ea580c",
     fontSize: 16,
     fontWeight: "900",
   },
   impactPanel: {
     borderRadius: 20,
-    backgroundColor: "#0f1b2d",
+    backgroundColor: "#ffffff",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#243247",
+    borderColor: "#fed7aa",
     padding: 16,
     gap: 15,
   },
@@ -2048,7 +3413,7 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   impactValue: {
-    color: "#f8fafc",
+    color: "#1f2937",
     fontSize: 30,
     fontWeight: "900",
   },
@@ -2061,12 +3426,12 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   impactLabel: {
-    color: "#cbd5e1",
+    color: "#475569",
     fontSize: 13,
     fontWeight: "800",
   },
   impactAmount: {
-    color: "#f8fafc",
+    color: "#1f2937",
     fontSize: 13,
     fontWeight: "900",
   },
@@ -2079,13 +3444,13 @@ const styles = StyleSheet.create({
     minWidth: "47%",
     flexGrow: 1,
     borderRadius: 18,
-    backgroundColor: "#111c2e",
+    backgroundColor: "#ffffff",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#243247",
+    borderColor: "#fed7aa",
     padding: 15,
   },
   metricValue: {
-    color: "#f8fafc",
+    color: "#1f2937",
     fontSize: 23,
     fontWeight: "900",
   },
@@ -2096,9 +3461,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 8,
     borderRadius: 20,
-    backgroundColor: "#0f1b2d",
+    backgroundColor: "#ffffff",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#243247",
+    borderColor: "#fed7aa",
     padding: 14,
   },
   activityDay: {
@@ -2112,20 +3477,20 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     overflow: "hidden",
     borderRadius: 999,
-    backgroundColor: "#17243a",
+    backgroundColor: "#ffedd5",
   },
   activityBar: {
     width: "100%",
     borderRadius: 999,
-    backgroundColor: "#38bdf8",
+    backgroundColor: "#fb923c",
   },
   activityLabel: {
-    color: "#94a3b8",
+    color: "#64748b",
     fontSize: 10,
     fontWeight: "800",
   },
   activityValue: {
-    color: "#f8fafc",
+    color: "#1f2937",
     fontSize: 11,
     fontWeight: "900",
   },
@@ -2138,40 +3503,40 @@ const styles = StyleSheet.create({
     minWidth: "47%",
     flexGrow: 1,
     borderRadius: 18,
-    backgroundColor: "#111827",
+    backgroundColor: "#ffffff",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#243247",
+    borderColor: "#fed7aa",
     padding: 14,
     gap: 9,
-    opacity: 0.78,
   },
   achievementUnlocked: {
-    backgroundColor: "#102a1d",
-    borderColor: "#166534",
-    opacity: 1,
+    backgroundColor: "#ecfdf5",
+    borderColor: "#86efac",
   },
   achievementStatus: {
     alignSelf: "flex-start",
     borderRadius: 999,
-    backgroundColor: "#233048",
+    backgroundColor: "#ffedd5",
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
   achievementStatusText: {
-    color: "#cbd5e1",
+    color: "#c2410c",
     fontSize: 10,
     fontWeight: "900",
     textTransform: "uppercase",
   },
   achievementTitle: {
-    color: "#f8fafc",
+    color: "#1f2937",
     fontSize: 14,
     fontWeight: "900",
   },
   settingCard: {
     marginTop: 12,
     borderRadius: 18,
-    backgroundColor: "#1e293b",
+    backgroundColor: "#ffffff",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#fed7aa",
     padding: 16,
     flexDirection: "row",
     alignItems: "center",
@@ -2187,37 +3552,39 @@ const styles = StyleSheet.create({
     height: 32,
     justifyContent: "center",
     borderRadius: 999,
-    backgroundColor: "#334155",
+    backgroundColor: "#fed7aa",
     padding: 4,
   },
   toggleTrackActive: {
-    backgroundColor: "#2563eb",
+    backgroundColor: "#fb923c",
   },
   toggleKnob: {
     width: 24,
     height: 24,
     borderRadius: 999,
-    backgroundColor: "#e2e8f0",
+    backgroundColor: "#fff7ed",
   },
   toggleKnobActive: {
     transform: [{ translateX: 22 }],
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#ffffff",
   },
   settingCardVertical: {
     marginTop: 12,
     borderRadius: 18,
-    backgroundColor: "#1e293b",
+    backgroundColor: "#ffffff",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#fed7aa",
     padding: 16,
     gap: 12,
   },
   settingLabel: {
-    color: "#cbd5e1",
+    color: "#9a3412",
     fontSize: 13,
     fontWeight: "700",
   },
   settingValue: {
     marginTop: 4,
-    color: "#f8fafc",
+    color: "#1f2937",
     fontSize: 20,
     fontWeight: "900",
   },
@@ -2231,10 +3598,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 14,
-    backgroundColor: "#334155",
+    backgroundColor: "#ffedd5",
   },
   stepperText: {
-    color: "#f8fafc",
+    color: "#c2410c",
     fontSize: 22,
     fontWeight: "900",
   },
@@ -2248,34 +3615,41 @@ const styles = StyleSheet.create({
     minWidth: "30%",
     alignItems: "center",
     borderRadius: 14,
-    backgroundColor: "#334155",
+    backgroundColor: "#fff7ed",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#fed7aa",
     paddingVertical: 10,
     paddingHorizontal: 8,
   },
   segmentActive: {
-    backgroundColor: "#2563eb",
+    backgroundColor: "#fb923c",
+    borderColor: "#fb923c",
   },
   segmentText: {
-    color: "#cbd5e1",
+    color: "#9a3412",
     fontSize: 12,
     fontWeight: "800",
   },
   segmentTextActive: {
-    color: "#f8fafc",
+    color: "#ffffff",
   },
   primaryButton: {
     width: "100%",
     alignItems: "center",
     borderRadius: 18,
-    backgroundColor: "#2563eb",
+    backgroundColor: "#f97316",
     paddingVertical: 15,
     paddingHorizontal: 18,
+  },
+  primaryButtonDisabled: {
+    backgroundColor: "#fdba74",
+    opacity: 0.72,
   },
   dangerButton: {
     backgroundColor: "#dc2626",
   },
   primaryButtonText: {
-    color: "#f8fafc",
+    color: "#ffffff",
     fontSize: 15,
     fontWeight: "900",
   },
@@ -2284,12 +3658,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: "#fed7aa",
+    backgroundColor: "#ffffff",
     paddingVertical: 14,
     paddingHorizontal: 18,
   },
   secondaryButtonText: {
-    color: "#cbd5e1",
+    color: "#c2410c",
     fontSize: 14,
     fontWeight: "800",
   },
@@ -2301,10 +3676,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     borderRadius: 22,
-    backgroundColor: "rgba(15, 23, 42, 0.94)",
+    backgroundColor: "rgba(255, 255, 255, 0.96)",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#334155",
+    borderColor: "#fed7aa",
     padding: 8,
+    shadowColor: "#fb923c",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.14,
+    shadowRadius: 18,
+    elevation: 6,
   },
   navButton: {
     flex: 1,
@@ -2313,14 +3693,14 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
   },
   navButtonActive: {
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#fb923c",
   },
   navText: {
-    color: "#94a3b8",
+    color: "#9a3412",
     fontSize: 12,
     fontWeight: "900",
   },
   navTextActive: {
-    color: "#0f172a",
+    color: "#ffffff",
   },
 });

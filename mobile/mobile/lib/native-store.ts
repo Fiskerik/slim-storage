@@ -37,6 +37,11 @@ export type NativeDailyStats = {
   sessions: number;
 };
 
+export type NativeSeenPhoto = {
+  photoId: string;
+  lastSeenAt: string;
+};
+
 export type NativeStats = {
   reviewed: number;
   kept: number;
@@ -51,6 +56,7 @@ export type NativeStats = {
   shareCount: number;
   dailyActivity: Record<string, NativeDailyStats>;
   actionLog: NativeActionLogEntry[];
+  recentSeenPhotos: NativeSeenPhoto[];
   settings: NativeSettings;
 };
 
@@ -101,6 +107,7 @@ export const DEFAULT_NATIVE_STATS: NativeStats = {
   shareCount: 0,
   dailyActivity: {},
   actionLog: [],
+  recentSeenPhotos: [],
   settings: DEFAULT_NATIVE_SETTINGS,
 };
 
@@ -174,6 +181,19 @@ function normalizeActionLog(value: unknown): NativeActionLogEntry[] {
     .slice(0, 60);
 }
 
+function normalizeSeenPhotos(value: unknown): NativeSeenPhoto[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((item): item is Partial<NativeSeenPhoto> => item !== null && typeof item === "object")
+    .map((item) => ({
+      photoId: String(item.photoId ?? ""),
+      lastSeenAt: String(item.lastSeenAt ?? new Date().toISOString()),
+    }))
+    .filter((item) => item.photoId.length > 0 && !Number.isNaN(Date.parse(item.lastSeenAt)))
+    .slice(0, 500);
+}
+
 function normalizeStats(value: unknown): NativeStats {
   const raw = value && typeof value === "object" ? (value as Partial<NativeStats>) : {};
   const rawSettings =
@@ -198,6 +218,7 @@ function normalizeStats(value: unknown): NativeStats {
     shareCount: Math.max(0, safeNumber(raw.shareCount)),
     dailyActivity: normalizeDailyActivity(raw.dailyActivity),
     actionLog: normalizeActionLog(raw.actionLog),
+    recentSeenPhotos: normalizeSeenPhotos(raw.recentSeenPhotos),
     settings: {
       ...DEFAULT_NATIVE_SETTINGS,
       ...rawSettings,

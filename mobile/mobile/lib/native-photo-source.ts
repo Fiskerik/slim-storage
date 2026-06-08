@@ -23,11 +23,39 @@ export type NativePhotoPermission = {
   canAskAgain: boolean;
 };
 
+export type NativePhotoRoundOptions = {
+  avoidIds?: string[];
+};
+
+export type NativeLibraryScanProgress = {
+  scanned: number;
+  total?: number;
+};
+
+export type NativeLibraryScan = {
+  assetCount: number;
+  localAssetCount: number;
+  unknownSizeCount: number;
+  totalSizeMB: number;
+  deviceCapacityMB: number | null;
+  freeSpaceMB: number | null;
+  trimSavingsMB: number;
+  duplicateDeleteSavingsMB: number;
+  mistakeDeleteSavingsMB: number;
+  deleteSavingsMB: number;
+  duplicateRemovalCount: number;
+  mistakeCount: number;
+  screenshotCount: number;
+  scannedAt: string;
+};
+
 type PhotoMetadataCache = {
   version: 1;
   updatedAt: number;
   photos: NativePhoto[];
 };
+
+type MediaAlbum = Awaited<ReturnType<typeof MediaLibrary.getAlbumsAsync>>[number];
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const CACHE_FILE = "trimswipe-native-photo-cache-v1.json";
@@ -56,6 +84,20 @@ function ageYears(creationTime: number): number {
 function assetSizeMB(asset: MediaLibrary.Asset): number {
   const fileSize = (asset as MediaLibrary.Asset & { fileSize?: number }).fileSize;
   return typeof fileSize === "number" && fileSize > 0 ? +(fileSize / (1024 * 1024)).toFixed(2) : 0;
+}
+
+function estimatedAssetSizeMB(asset: MediaLibrary.Asset): number {
+  const measured = assetSizeMB(asset);
+  if (measured > 0) return measured;
+
+  const width = asset.width || 0;
+  const height = asset.height || 0;
+  if (width <= 0 || height <= 0) return 0;
+
+  const filename = asset.filename?.toLowerCase() ?? "";
+  const megapixels = (width * height) / 1_000_000;
+  const multiplier = filename.endsWith(".heic") || filename.endsWith(".heif") ? 0.22 : 0.34;
+  return +Math.max(0.35, Math.min(25, megapixels * multiplier)).toFixed(2);
 }
 
 function duplicateKey(asset: MediaLibrary.Asset): string {
@@ -119,7 +161,13 @@ function assetLooksLikeMistake(asset: MediaLibrary.Asset): boolean {
   const width = asset.width || 0;
   const height = asset.height || 0;
   const ratio = width > 0 && height > 0 ? Math.max(width, height) / Math.max(1, Math.min(width, height)) : 1;
-  return ratio > 2.2 || assetSizeMB(asset) < 0.35 || filename.includes("blur") || filename.includes("dark");
+  const measuredSizeMB = assetSizeMB(asset);
+  return (
+    ratio > 2.2 ||
+    (measuredSizeMB > 0 && measuredSizeMB < 0.35) ||
+    filename.includes("blur") ||
+    filename.includes("dark")
+  );
 }
 
 function matchesAssetSettings(
@@ -341,23 +389,67 @@ async function assetToPhoto(
   };
 }
 
+function usefulSmartAlbumScore(album: MediaAlbum): number {
+  const title = String((album as MediaAlbum & { title?: string }).title ?? "").toLowerCase();
+  if (title.includes("screenshot") || title.includes("screen shot")) return 10;
+  if (title.includes("duplicate") || title.includes("similar")) return 9;
+  if (title.includes("burst")) return 8;
+  if (title.includes("selfie")) return 6;
+  if (title.includes("panorama") || title.includes("slo") || title.includes("time-lapse")) return 4;
+  return 0;
+}
+
+async function fetchSmartAlbumAssets(first: number): Promise<MediaLibrary.Asset[]> {
+  try {
+    const albums = await MediaLibrary.getAlbumsAsync({ includeSmartAlbums: true });
+    const usefulAlbums = albums
+      .map((album) => ({ album, score: usefulSmartAlbumScore(album) }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 6);
+
+    const pages = await Promise.all(
+      usefulAlbums.map((item) =>
+        MediaLibrary.getAssetsAsync({
+          album: item.album,
+          first: Math.min(80, first),
+          mediaType: "photo",
+          sortBy: [[MediaLibrary.SortBy.creationTime, true]],
+        }),
+      ),
+    );
+
+    return pages.flatMap((page) => page.assets);
+  } catch (error) {
+    console.log("[NativePhotoSource] Could not read smart albums", { error });
+    return [];
+  }
+}
+
 async function fetchCandidateAssets(
   count: number,
   settings: NativeSettings,
 ): Promise<MediaLibrary.Asset[]> {
   const first = Math.min(250, Math.max(80, count * 8));
+  const smartAlbumsPromise = fetchSmartAlbumAssets(first);
 
   if (settings.targetMode === "balanced") {
-    const result = await MediaLibrary.getAssetsAsync({
-      first,
-      mediaType: "photo",
-      sortBy: [[MediaLibrary.SortBy.creationTime, true]],
-    });
-    return result.assets;
+    const [result, smartAlbums] = await Promise.all([
+      MediaLibrary.getAssetsAsync({
+        first,
+        mediaType: "photo",
+        sortBy: [[MediaLibrary.SortBy.creationTime, true]],
+      }),
+      smartAlbumsPromise,
+    ]);
+
+    const byId = new Map<string, MediaLibrary.Asset>();
+    [...result.assets, ...smartAlbums].forEach((asset) => byId.set(asset.id, asset));
+    return [...byId.values()];
   }
 
   const cutoff = Date.now() - settings.minAgeYears * 365.25 * DAY_MS;
-  const [recent, older] = await Promise.all([
+  const [recent, older, smartAlbums] = await Promise.all([
     MediaLibrary.getAssetsAsync({
       first,
       mediaType: "photo",
@@ -369,11 +461,122 @@ async function fetchCandidateAssets(
       createdBefore: cutoff,
       sortBy: [[MediaLibrary.SortBy.creationTime, true]],
     }),
+    smartAlbumsPromise,
   ]);
 
   const byId = new Map<string, MediaLibrary.Asset>();
-  [...recent.assets, ...older.assets].forEach((asset) => byId.set(asset.id, asset));
+  [...recent.assets, ...older.assets, ...smartAlbums].forEach((asset) => byId.set(asset.id, asset));
   return [...byId.values()];
+}
+
+async function readDeviceStorageMB(): Promise<{ total: number | null; free: number | null }> {
+  const fileSystem = FileSystem as typeof FileSystem & {
+    getTotalDiskCapacityAsync?: () => Promise<number>;
+    getFreeDiskStorageAsync?: () => Promise<number>;
+  };
+
+  const [totalResult, freeResult] = await Promise.allSettled([
+    fileSystem.getTotalDiskCapacityAsync?.() ?? Promise.resolve(null),
+    fileSystem.getFreeDiskStorageAsync?.() ?? Promise.resolve(null),
+  ]);
+
+  const total = totalResult.status === "fulfilled" && typeof totalResult.value === "number"
+    ? +(totalResult.value / (1024 * 1024)).toFixed(2)
+    : null;
+  const free = freeResult.status === "fulfilled" && typeof freeResult.value === "number"
+    ? +(freeResult.value / (1024 * 1024)).toFixed(2)
+    : null;
+
+  return { total, free };
+}
+
+async function fetchAllPhotoAssets(
+  onProgress?: (progress: NativeLibraryScanProgress) => void,
+): Promise<MediaLibrary.Asset[]> {
+  const assets: MediaLibrary.Asset[] = [];
+  let after: string | undefined;
+  let total: number | undefined;
+
+  do {
+    const page = await MediaLibrary.getAssetsAsync({
+      after,
+      first: 500,
+      mediaType: "photo",
+      sortBy: [[MediaLibrary.SortBy.creationTime, true]],
+    });
+
+    assets.push(...page.assets);
+    after = page.hasNextPage ? page.endCursor : undefined;
+    total = typeof (page as typeof page & { totalCount?: number }).totalCount === "number"
+      ? (page as typeof page & { totalCount?: number }).totalCount
+      : total;
+    onProgress?.({ scanned: assets.length, total });
+  } while (after);
+
+  return assets;
+}
+
+export async function scanPhotoLibrary(
+  onProgress?: (progress: NativeLibraryScanProgress) => void,
+): Promise<NativeLibraryScan> {
+  const [assets, storage] = await Promise.all([fetchAllPhotoAssets(onProgress), readDeviceStorageMB()]);
+  const groups = new Map<string, Array<{ id: string; sizeMB: number }>>();
+  const summaries = assets.map((asset) => {
+    const measuredSizeMB = assetSizeMB(asset);
+    const sizeMB = estimatedAssetSizeMB(asset);
+    const key = duplicateKey(asset);
+    const summary = {
+      id: asset.id,
+      key,
+      sizeMB,
+      measured: measuredSizeMB > 0,
+      mistake: assetLooksLikeMistake(asset),
+      screenshot: assetLooksLikeScreenshot(asset),
+    };
+    groups.set(key, [...(groups.get(key) ?? []), { id: asset.id, sizeMB }]);
+    return summary;
+  });
+
+  const duplicateRemovalIds = new Set<string>();
+  let duplicateDeleteSavingsMB = 0;
+  let duplicateRemovalCount = 0;
+
+  groups.forEach((items) => {
+    if (items.length < 2) return;
+    const removable = [...items].sort((a, b) => b.sizeMB - a.sizeMB).slice(1);
+    duplicateRemovalCount += removable.length;
+    removable.forEach((item) => {
+      duplicateRemovalIds.add(item.id);
+      duplicateDeleteSavingsMB += item.sizeMB;
+    });
+  });
+
+  const totalSizeMB = summaries.reduce((sum, item) => sum + item.sizeMB, 0);
+  const trimSavingsMB = summaries.reduce(
+    (sum, item) => sum + estimateTrimSavings({ sizeMB: item.sizeMB, hasGPS: false }),
+    0,
+  );
+  const mistakeDeleteSavingsMB = summaries
+    .filter((item) => item.mistake && !duplicateRemovalIds.has(item.id))
+    .reduce((sum, item) => sum + item.sizeMB, 0);
+  const deleteSavingsMB = duplicateDeleteSavingsMB + mistakeDeleteSavingsMB;
+
+  return {
+    assetCount: assets.length,
+    localAssetCount: summaries.filter((item) => item.measured).length,
+    unknownSizeCount: summaries.filter((item) => !item.measured).length,
+    totalSizeMB: +totalSizeMB.toFixed(2),
+    deviceCapacityMB: storage.total,
+    freeSpaceMB: storage.free,
+    trimSavingsMB: +trimSavingsMB.toFixed(2),
+    duplicateDeleteSavingsMB: +duplicateDeleteSavingsMB.toFixed(2),
+    mistakeDeleteSavingsMB: +mistakeDeleteSavingsMB.toFixed(2),
+    deleteSavingsMB: +deleteSavingsMB.toFixed(2),
+    duplicateRemovalCount,
+    mistakeCount: summaries.filter((item) => item.mistake).length,
+    screenshotCount: summaries.filter((item) => item.screenshot).length,
+    scannedAt: new Date().toISOString(),
+  };
 }
 
 function chooseAssets(
@@ -402,9 +605,13 @@ export async function requestPhotoPermission(): Promise<NativePhotoPermission> {
 export async function loadPhotoRound(
   count: number,
   settings: NativeSettings,
+  options: NativePhotoRoundOptions = {},
 ): Promise<NativePhoto[]> {
   const cache = await readCache();
-  const cachedTargeted = shuffle(cache.photos.filter((photo) => matchesPhotoSettings(photo, settings)))
+  const avoidIds = new Set(options.avoidIds ?? []);
+  const cachedTargeted = shuffle(
+    cache.photos.filter((photo) => matchesPhotoSettings(photo, settings) && !avoidIds.has(photo.id)),
+  )
     .sort((a, b) => scorePhoto(b, settings) - scorePhoto(a, settings))
     .slice(0, count);
 
@@ -416,7 +623,7 @@ export async function loadPhotoRound(
   const duplicateLookup = buildDuplicateLookup(assets);
   const cachedIds = new Set(cachedTargeted.map((photo) => photo.id));
   const selected = chooseAssets(
-    assets.filter((asset) => !cachedIds.has(asset.id)),
+    assets.filter((asset) => !cachedIds.has(asset.id) && !avoidIds.has(asset.id)),
     count - cachedTargeted.length,
     settings,
     duplicateLookup,
@@ -428,11 +635,14 @@ export async function loadPhotoRound(
   if (combined.length >= count || settings.targetMode === "balanced") return combined.slice(0, count);
 
   const usedIds = new Set(combined.map((photo) => photo.id));
-  const fallback = shuffle(cache.photos.filter((photo) => !usedIds.has(photo.id))).slice(
+  const fallback = shuffle(cache.photos.filter((photo) => !usedIds.has(photo.id) && !avoidIds.has(photo.id))).slice(
     0,
     count - combined.length,
   );
-  return [...combined, ...fallback].slice(0, count);
+  const next = [...combined, ...fallback].slice(0, count);
+  if (next.length > 0) return next;
+
+  return shuffle(cache.photos.filter((photo) => matchesPhotoSettings(photo, settings))).slice(0, count);
 }
 
 export async function deletePhotos(ids: string[]): Promise<{ deleted: number }> {
