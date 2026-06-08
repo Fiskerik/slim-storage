@@ -11,6 +11,7 @@ import {
   PanResponder,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -29,12 +30,15 @@ import {
   EMPTY_DAILY_STATS,
   loadNativeStats,
   saveNativeStats,
+  type NativeActionLogEntry,
+  type NativeActionType,
   type NativeDailyStats,
+  type NativeSessionMode,
   type NativeSettings,
   type NativeStats,
 } from "../lib/native-store";
 
-type Screen = "swipe" | "stats" | "settings";
+type Screen = "swipe" | "stats" | "review" | "settings";
 type Action = "keep" | "trim" | "delete";
 
 type SessionRecap = {
@@ -56,6 +60,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DAILY_REVIEW_TARGET = 10;
 const WEEKLY_SAVINGS_TARGET_MB = 500;
 const FOUR_K_VIDEO_MB_PER_MINUTE = 375;
+const TIME_ATTACK_SECONDS = 60;
 
 function formatMB(value: number): string {
   return value >= 1024 ? `${(value / 1024).toFixed(2)} GB` : `${value.toFixed(1)} MB`;
@@ -73,10 +78,28 @@ function roundSettings(settings: NativeSettings): NativeSettings {
 
 function targetLabel(settings: NativeSettings): string {
   if (settings.targetMode === "balanced") return "Balanced";
+  if (settings.targetMode === "big-only") return `${settings.minSizeMB}+ MB only`;
+  if (settings.targetMode === "old-only") return `${settings.minAgeYears}+ year old photos`;
   if (settings.targetMode === "old-and-large") {
     return `${settings.minAgeYears}+ yrs and ${settings.minSizeMB}+ MB`;
   }
+  if (settings.targetMode === "similar") return "Similar photos";
+  if (settings.targetMode === "screenshots") return "Screenshots";
+  if (settings.targetMode === "icloud") return "iCloud-heavy";
+  if (settings.targetMode === "mistakes") return "Likely mistakes";
   return `${settings.minSizeMB}+ MB or ${settings.minAgeYears}+ yrs`;
+}
+
+function sessionModeLabel(mode: NativeSessionMode): string {
+  if (mode === "endless") return "Endless";
+  if (mode === "time-attack") return "Time attack";
+  return "Classic";
+}
+
+function actionVerb(action: NativeActionType): string {
+  if (action === "trim") return "Trimmed";
+  if (action === "delete") return "Deleted";
+  return "Kept";
 }
 
 function dateKey(date = new Date()): string {
@@ -170,17 +193,47 @@ function levelInfo(stats: NativeStats): { level: number; title: string; progress
   return { level, title, progress, next: `${Math.ceil(25 - (points % 25))} pts to level ${level + 1}` };
 }
 
+function createActionLogEntry(photo: NativePhoto, action: Action, mbFreed: number): NativeActionLogEntry {
+  return {
+    id: `${Date.now()}-${photo.id}`,
+    photoId: photo.id,
+    title: photo.title,
+    action,
+    mbFreed,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function appendActionLog(stats: NativeStats, entry: NativeActionLogEntry): NativeStats {
+  return {
+    ...stats,
+    actionLog: [entry, ...stats.actionLog.filter((item) => item.id !== entry.id)].slice(0, 60),
+  };
+}
+
+function progressShareText(stats: NativeStats): string {
+  const week = sumDays(stats, 7);
+  return [
+    `I reclaimed ${formatMB(stats.mbFreed)} with TrimSwipe.`,
+    `${stats.reviewed} photos reviewed, ${stats.trimmed} trimmed, ${stats.deleted} deleted.`,
+    `This week: ${formatMB(week.mbFreed)} saved.`,
+  ].join("\n");
+}
+
 export function NativeTrimSwipeApp() {
   const [screen, setScreen] = useState<Screen>("swipe");
   const [stats, setStats] = useState<NativeStats>(DEFAULT_NATIVE_STATS);
   const [queue, setQueue] = useState<NativePhoto[]>([]);
   const [loading, setLoading] = useState(true);
+  const [statsLoaded, setStatsLoaded] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [permissionLimited, setPermissionLimited] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recap, setRecap] = useState<SessionRecap | null>(null);
   const [pendingDeletes, setPendingDeletes] = useState<NativePhoto[]>([]);
   const [trimmingCount, setTrimmingCount] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
   const pendingDeletesRef = useRef<NativePhoto[]>([]);
 
@@ -193,6 +246,7 @@ export function NativeTrimSwipeApp() {
     loadNativeStats().then((loaded) => {
       if (cancelled) return;
       setStats(loaded);
+      setStatsLoaded(true);
     });
     return () => {
       cancelled = true;
@@ -207,11 +261,25 @@ export function NativeTrimSwipeApp() {
     });
   }
 
+  function completeOnboarding() {
+    commitStats((current) => ({ ...current, onboardingComplete: true }));
+  }
+
+  async function shareProgress() {
+    try {
+      await Share.share({ message: progressShareText(stats) });
+      commitStats((current) => ({ ...current, shareCount: current.shareCount + 1 }));
+    } catch (error) {
+      console.log("[NativeTrimSwipe] Share failed", { error });
+    }
+  }
+
   async function loadRound() {
     setLoading(true);
     setError(null);
     setRecap(null);
     setPendingDeletes([]);
+    setTimeLeft(settings.sessionMode === "time-attack" ? TIME_ATTACK_SECONDS : 0);
     pendingDeletesRef.current = [];
     sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
 
@@ -245,9 +313,26 @@ export function NativeTrimSwipeApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stats.startedAt]);
 
-  function finishIfNeeded(rest: NativePhoto[]) {
-    if (rest.length > 0) return;
+  useEffect(() => {
+    if (settings.sessionMode !== "time-attack" || loading || recap || pendingDeletes.length > 0) return undefined;
+    if (timeLeft <= 0) return undefined;
 
+    const timer = setInterval(() => {
+      setTimeLeft((current) => Math.max(0, current - 1));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [loading, pendingDeletes.length, recap, settings.sessionMode, timeLeft]);
+
+  useEffect(() => {
+    if (settings.sessionMode !== "time-attack" || timeLeft !== 0 || loading || recap) return;
+    if (queue.length === 0) return;
+    setQueue([]);
+    finishSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, queue.length, recap, settings.sessionMode, timeLeft]);
+
+  function finishSession() {
     commitStats((current) =>
       withDailyActivity(
         {
@@ -262,7 +347,17 @@ export function NativeTrimSwipeApp() {
       return;
     }
 
+    if (settings.sessionMode === "endless") {
+      void loadRound();
+      return;
+    }
+
     setRecap({ ...sessionRef.current });
+  }
+
+  function finishIfNeeded(rest: NativePhoto[]) {
+    if (rest.length > 0) return;
+    finishSession();
   }
 
   function advance() {
@@ -280,13 +375,16 @@ export function NativeTrimSwipeApp() {
       session.kept += 1;
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       commitStats((current) =>
-        withDailyActivity(
-          {
-            ...current,
-            reviewed: current.reviewed + 1,
-            kept: current.kept + 1,
-          },
-          { reviewed: 1, kept: 1 },
+        appendActionLog(
+          withDailyActivity(
+            {
+              ...current,
+              reviewed: current.reviewed + 1,
+              kept: current.kept + 1,
+            },
+            { reviewed: 1, kept: 1 },
+          ),
+          createActionLogEntry(photo, "keep", 0),
         ),
       );
       advance();
@@ -300,15 +398,18 @@ export function NativeTrimSwipeApp() {
       setPendingDeletes(pendingDeletesRef.current);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       commitStats((current) =>
-        withDailyActivity(
-          {
-            ...current,
-            reviewed: current.reviewed + 1,
-            deleted: current.deleted + 1,
-            mbFreed: +(current.mbFreed + photo.sizeMB).toFixed(2),
-            deleteMbFreed: +(current.deleteMbFreed + photo.sizeMB).toFixed(2),
-          },
-          { reviewed: 1, deleted: 1, mbFreed: photo.sizeMB, deleteMbFreed: photo.sizeMB },
+        appendActionLog(
+          withDailyActivity(
+            {
+              ...current,
+              reviewed: current.reviewed + 1,
+              deleted: current.deleted + 1,
+              mbFreed: +(current.mbFreed + photo.sizeMB).toFixed(2),
+              deleteMbFreed: +(current.deleteMbFreed + photo.sizeMB).toFixed(2),
+            },
+            { reviewed: 1, deleted: 1, mbFreed: photo.sizeMB, deleteMbFreed: photo.sizeMB },
+          ),
+          createActionLogEntry(photo, "delete", photo.sizeMB),
         ),
       );
       advance();
@@ -320,15 +421,18 @@ export function NativeTrimSwipeApp() {
     session.freed += estimated;
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     commitStats((current) =>
-      withDailyActivity(
-        {
-          ...current,
-          reviewed: current.reviewed + 1,
-          trimmed: current.trimmed + 1,
-          mbFreed: +(current.mbFreed + estimated).toFixed(2),
-          trimMbFreed: +(current.trimMbFreed + estimated).toFixed(2),
-        },
-        { reviewed: 1, trimmed: 1, mbFreed: estimated, trimMbFreed: estimated },
+      appendActionLog(
+        withDailyActivity(
+          {
+            ...current,
+            reviewed: current.reviewed + 1,
+            trimmed: current.trimmed + 1,
+            mbFreed: +(current.mbFreed + estimated).toFixed(2),
+            trimMbFreed: +(current.trimMbFreed + estimated).toFixed(2),
+          },
+          { reviewed: 1, trimmed: 1, mbFreed: estimated, trimMbFreed: estimated },
+        ),
+        createActionLogEntry(photo, "trim", estimated),
       ),
     );
     setTrimmingCount((count) => count + 1);
@@ -387,11 +491,66 @@ export function NativeTrimSwipeApp() {
     }));
   }
 
+  async function bulkTrimPhotos(photos: NativePhoto[]) {
+    const candidates = photos.filter((photo) => !photo.isCloudAsset);
+    if (candidates.length === 0) {
+      Alert.alert("Nothing local to trim", "This deck only has iCloud-only or unavailable photos.");
+      return;
+    }
+
+    setBulkBusy(true);
+    setTrimmingCount((count) => count + candidates.length);
+
+    const estimated = candidates.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0);
+    sessionRef.current.trimmed += candidates.length;
+    sessionRef.current.freed += estimated;
+    commitStats((current) => {
+      const next = withDailyActivity(
+        {
+          ...current,
+          reviewed: current.reviewed + candidates.length,
+          trimmed: current.trimmed + candidates.length,
+          mbFreed: +(current.mbFreed + estimated).toFixed(2),
+          trimMbFreed: +(current.trimMbFreed + estimated).toFixed(2),
+        },
+        { reviewed: candidates.length, trimmed: candidates.length, mbFreed: estimated, trimMbFreed: estimated },
+      );
+      return candidates.reduce(
+        (statsSoFar, photo) => appendActionLog(statsSoFar, createActionLogEntry(photo, "trim", estimateTrimSavings(photo))),
+        next,
+      );
+    });
+
+    setQueue((current) => {
+      const trimmedIds = new Set(candidates.map((photo) => photo.id));
+      const rest = current.filter((photo) => !trimmedIds.has(photo.id));
+      finishIfNeeded(rest);
+      return rest;
+    });
+
+    await Promise.all(candidates.map((photo) => trimPhoto(photo, settings.trimQuality)));
+    setTrimmingCount((count) => Math.max(0, count - candidates.length));
+    setBulkBusy(false);
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar style="light" />
-      <View style={styles.shell}>
-        {screen === "swipe" ? (
+      <View style={[styles.shell, settings.highContrast && styles.shellHighContrast]}>
+        {!statsLoaded ? (
+          <Centered>
+            <ActivityIndicator color="#f8fafc" size="large" />
+            <Text style={styles.muted}>Preparing TrimSwipe...</Text>
+          </Centered>
+        ) : !stats.onboardingComplete ? (
+          <OnboardingScreen
+            onDone={completeOnboarding}
+            onOpenSettings={() => {
+              completeOnboarding();
+              setScreen("settings");
+            }}
+          />
+        ) : screen === "swipe" ? (
           <SwipeScreen
             top={top}
             next={next}
@@ -404,11 +563,14 @@ export function NativeTrimSwipeApp() {
             recap={recap}
             pendingDeletes={pendingDeletes}
             trimmingCount={trimmingCount}
+            timeLeft={timeLeft}
+            largeControls={settings.largeText}
             onAction={handleAction}
             onReload={loadRound}
             onOpenSettings={() => Linking.openSettings()}
             onConfirmDeletes={confirmDeletes}
             onUndoDeletes={undoPendingDeletes}
+            onShare={shareProgress}
           />
         ) : screen === "stats" ? (
           <StatsScreen
@@ -418,11 +580,23 @@ export function NativeTrimSwipeApp() {
               void loadRound();
             }}
             onOpenSettings={() => setScreen("settings")}
+            onShare={shareProgress}
+          />
+        ) : screen === "review" ? (
+          <ReviewScreen
+            queue={queue}
+            actionLog={stats.actionLog}
+            busy={bulkBusy}
+            onBulkTrim={() => void bulkTrimPhotos(queue)}
+            onStartRound={() => {
+              setScreen("swipe");
+              void loadRound();
+            }}
           />
         ) : (
           <SettingsScreen settings={settings} onChange={updateSettings} onReload={loadRound} />
         )}
-        <BottomNav screen={screen} onChange={setScreen} />
+        {statsLoaded && stats.onboardingComplete ? <BottomNav screen={screen} onChange={setScreen} /> : null}
       </View>
     </SafeAreaView>
   );
@@ -440,11 +614,14 @@ function SwipeScreen({
   recap,
   pendingDeletes,
   trimmingCount,
+  timeLeft,
+  largeControls,
   onAction,
   onReload,
   onOpenSettings,
   onConfirmDeletes,
   onUndoDeletes,
+  onShare,
 }: {
   top?: NativePhoto;
   next?: NativePhoto;
@@ -457,11 +634,14 @@ function SwipeScreen({
   recap: SessionRecap | null;
   pendingDeletes: NativePhoto[];
   trimmingCount: number;
+  timeLeft: number;
+  largeControls: boolean;
   onAction: (photo: NativePhoto, action: Action) => void;
   onReload: () => void;
   onOpenSettings: () => void;
   onConfirmDeletes: (photos: NativePhoto[]) => void;
   onUndoDeletes: () => void;
+  onShare: () => void;
 }) {
   if (loading) {
     return (
@@ -496,7 +676,7 @@ function SwipeScreen({
   }
 
   if (recap) {
-    return <Recap recap={recap} onNext={onReload} />;
+    return <Recap recap={recap} onNext={onReload} onShare={onShare} />;
   }
 
   if (error && !top) {
@@ -514,11 +694,16 @@ function SwipeScreen({
       <View style={styles.swipeHeader}>
         <View style={styles.swipeHeaderCopy}>
           <Text style={styles.eyebrow}>Current focus</Text>
-          <Text style={styles.swipeTitle}>{targetLabel(settings)}</Text>
-          <Text style={styles.swipeSubtitle}>A cleaner set of photos, one quick decision at a time.</Text>
+          <Text style={[styles.swipeTitle, largeControls && styles.swipeTitleLarge]}>
+            {targetLabel(settings)}
+          </Text>
+          <Text style={styles.swipeSubtitle}>
+            {sessionModeLabel(settings.sessionMode)} mode. A cleaner set of photos, one quick decision at a time.
+          </Text>
         </View>
         <View style={styles.swipeStatusColumn}>
           <Text style={styles.queuePill}>{queueCount} left</Text>
+          {settings.sessionMode === "time-attack" ? <Text style={styles.timerPill}>{timeLeft}s</Text> : null}
           {trimmingCount > 0 ? <Text style={styles.trimBadge}>Trimming {trimmingCount}</Text> : null}
         </View>
       </View>
@@ -530,9 +715,9 @@ function SwipeScreen({
         {top ? <SwipeablePhotoCard photo={top} onAction={(action) => onAction(top, action)} /> : null}
       </View>
       <View style={styles.actions}>
-        <ActionButton label="Keep" tone="keep" onPress={() => top && onAction(top, "keep")} />
-        <ActionButton label="Trim" tone="trim" onPress={() => top && onAction(top, "trim")} />
-        <ActionButton label="Delete" tone="delete" onPress={() => top && onAction(top, "delete")} />
+        <ActionButton label="Keep" tone="keep" large={largeControls} onPress={() => top && onAction(top, "keep")} />
+        <ActionButton label="Trim" tone="trim" large={largeControls} onPress={() => top && onAction(top, "trim")} />
+        <ActionButton label="Delete" tone="delete" large={largeControls} onPress={() => top && onAction(top, "delete")} />
       </View>
     </View>
   );
@@ -667,20 +852,28 @@ function DeleteReview({
   );
 }
 
-function Recap({ recap, onNext }: { recap: SessionRecap; onNext: () => void }) {
+function Recap({ recap, onNext, onShare }: { recap: SessionRecap; onNext: () => void; onShare: () => void }) {
   const total = recap.kept + recap.trimmed + recap.deleted;
+  const insight =
+    recap.deleted > recap.trimmed
+      ? "Deletes did the heavy lifting this round."
+      : recap.trimmed > 0
+        ? "Trims quietly reclaimed space without losing memories."
+        : "A light pass still keeps the camera roll intentional.";
   return (
     <Centered>
       <Text style={styles.heroTitle}>Set complete</Text>
       <Text style={styles.centerText}>
         You reviewed {total} photos and freed about {formatMB(recap.freed)}.
       </Text>
+      <Text style={styles.insightText}>{insight}</Text>
       <View style={styles.statGrid}>
         <MiniStat label="Kept" value={recap.kept} />
         <MiniStat label="Trimmed" value={recap.trimmed} />
         <MiniStat label="Deleted" value={recap.deleted} />
       </View>
       <PrimaryButton label="New set" onPress={onNext} />
+      <SecondaryButton label="Share progress" onPress={onShare} />
     </Centered>
   );
 }
@@ -689,10 +882,12 @@ function StatsScreen({
   stats,
   onStartRound,
   onOpenSettings,
+  onShare,
 }: {
   stats: NativeStats;
   onStartRound: () => void;
   onOpenSettings: () => void;
+  onShare: () => void;
 }) {
   const today = dailyFor(stats, dateKey());
   const week = sumDays(stats, 7);
@@ -758,7 +953,8 @@ function StatsScreen({
 
       <View style={styles.quickActions}>
         <QuickActionButton label="Start round" detail={targetLabel(stats.settings)} onPress={onStartRound} />
-        <QuickActionButton label="Tune focus" detail="Big, old, or balanced" onPress={onOpenSettings} />
+        <QuickActionButton label="Tune focus" detail="Smart filters and modes" onPress={onOpenSettings} />
+        <QuickActionButton label="Share" detail={`${stats.shareCount} shared`} onPress={onShare} />
       </View>
 
       <SectionTitle title="Challenges" detail={streak > 0 ? `${streak}-day streak` : "Build your first streak"} />
@@ -960,6 +1156,144 @@ function AchievementGrid({ achievements }: { achievements: Achievement[] }) {
   );
 }
 
+function OnboardingScreen({ onDone, onOpenSettings }: { onDone: () => void; onOpenSettings: () => void }) {
+  return (
+    <ScrollView contentContainerStyle={[styles.content, styles.onboardingContent]}>
+      <View style={styles.dashboardHero}>
+        <Text style={styles.eyebrow}>Welcome</Text>
+        <Text style={styles.heroTitle}>Clean your camera roll in quick rounds.</Text>
+        <Text style={styles.dashboardCopy}>
+          Swipe left to keep, up to trim, and right to delete. TrimSwipe starts with big, old, or suspicious photos so
+          every round feels useful.
+        </Text>
+      </View>
+      <View style={styles.onboardingSteps}>
+        <OnboardingStep title="Smart focus" detail="Choose big, old, similar, screenshot, iCloud, or mistake-focused decks." />
+        <OnboardingStep title="Progress loops" detail="Daily and weekly challenges turn cleanup into a light habit." />
+        <OnboardingStep title="Review before delete" detail="Deletes are confirmed before they move to Recently Deleted." />
+      </View>
+      <PrimaryButton label="Start swiping" onPress={onDone} />
+      <SecondaryButton label="Tune settings first" onPress={onOpenSettings} />
+    </ScrollView>
+  );
+}
+
+function OnboardingStep({ title, detail }: { title: string; detail: string }) {
+  return (
+    <View style={styles.onboardingStep}>
+      <Text style={styles.challengeTitle}>{title}</Text>
+      <Text style={styles.muted}>{detail}</Text>
+    </View>
+  );
+}
+
+function ReviewScreen({
+  queue,
+  actionLog,
+  busy,
+  onBulkTrim,
+  onStartRound,
+}: {
+  queue: NativePhoto[];
+  actionLog: NativeActionLogEntry[];
+  busy: boolean;
+  onBulkTrim: () => void;
+  onStartRound: () => void;
+}) {
+  const trimCandidates = queue.filter((photo) => !photo.isCloudAsset);
+  const trimSavings = trimCandidates.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0);
+
+  return (
+    <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
+      <View style={styles.dashboardHero}>
+        <View style={styles.dashboardHeroTop}>
+          <View>
+            <Text style={styles.eyebrow}>Review queue</Text>
+            <Text style={styles.heroTitle}>Batch tools</Text>
+          </View>
+          <View style={styles.healthScore}>
+            <Text style={styles.healthValue}>{queue.length}</Text>
+            <Text style={styles.healthLabel}>left</Text>
+          </View>
+        </View>
+        <Text style={styles.dashboardCopy}>
+          Trim all local photos in the current deck, then keep swiping the rest. Deletes still require confirmation.
+        </Text>
+        <PrimaryButton
+          label={busy ? "Trimming..." : `Trim ${trimCandidates.length} photos, save ~${formatMB(trimSavings)}`}
+          onPress={onBulkTrim}
+        />
+      </View>
+
+      <SectionTitle title="Current deck" detail={`${queue.length} remaining`} />
+      {queue.length > 0 ? (
+        queue.slice(0, 8).map((photo) => <QueuePhotoRow key={photo.id} photo={photo} />)
+      ) : (
+        <EmptyPanel title="No active deck" detail="Start a new round to fill the review queue." actionLabel="Start round" onAction={onStartRound} />
+      )}
+
+      <SectionTitle title="Recent actions" detail={`${actionLog.length} saved locally`} />
+      {actionLog.length > 0 ? (
+        actionLog.slice(0, 12).map((entry) => <ActionLogRow key={entry.id} entry={entry} />)
+      ) : (
+        <EmptyPanel title="No actions yet" detail="Your keep, trim, and delete history will appear here." />
+      )}
+    </ScrollView>
+  );
+}
+
+function QueuePhotoRow({ photo }: { photo: NativePhoto }) {
+  return (
+    <View style={styles.reviewRow}>
+      <Image source={{ uri: photo.uri }} style={styles.reviewThumb} contentFit="cover" />
+      <View style={styles.reviewCopy}>
+        <Text style={styles.reviewTitle} numberOfLines={1}>
+          {photo.title}
+        </Text>
+        <Text style={styles.mutedSmall}>
+          {formatMB(photo.sizeMB)} - trim ~{formatMB(estimateTrimSavings(photo))}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function ActionLogRow({ entry }: { entry: NativeActionLogEntry }) {
+  return (
+    <View style={styles.actionLogRow}>
+      <View style={styles.actionLogDot} />
+      <View style={styles.reviewCopy}>
+        <Text style={styles.reviewTitle} numberOfLines={1}>
+          {actionVerb(entry.action)} {entry.title}
+        </Text>
+        <Text style={styles.mutedSmall}>
+          {entry.mbFreed > 0 ? `${formatMB(entry.mbFreed)} saved` : "No storage change"} - {entry.createdAt.slice(0, 10)}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function EmptyPanel({
+  title,
+  detail,
+  actionLabel,
+  onAction,
+}: {
+  title: string;
+  detail: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <View style={styles.emptyPanel}>
+      <Text style={styles.challengeTitle}>{title}</Text>
+      <Text style={styles.muted}>{detail}</Text>
+      {actionLabel && onAction ? <SecondaryButton label={actionLabel} onPress={onAction} /> : null}
+    </View>
+  );
+}
+
 function SettingsScreen({
   settings,
   onChange,
@@ -982,11 +1316,27 @@ function SettingsScreen({
         onChange={(cardsPerRound) => onChange({ cardsPerRound })}
       />
       <Segmented
+        label="Session mode"
+        value={settings.sessionMode}
+        options={[
+          ["classic", "Classic"],
+          ["endless", "Endless"],
+          ["time-attack", "60 sec"],
+        ]}
+        onChange={(sessionMode) => onChange({ sessionMode })}
+      />
+      <Segmented
         label="Swipe focus"
         value={settings.targetMode}
         options={[
           ["big-or-old", "Big or old"],
+          ["big-only", "Big"],
+          ["old-only", "Old"],
           ["old-and-large", "Old + large"],
+          ["similar", "Similar"],
+          ["screenshots", "Screens"],
+          ["mistakes", "Mistakes"],
+          ["icloud", "iCloud"],
           ["balanced", "Balanced"],
         ]}
         onChange={(targetMode) => onChange({ targetMode })}
@@ -1022,6 +1372,18 @@ function SettingsScreen({
         step={1}
         onChange={(quality) => onChange({ trimQuality: quality / 100 })}
       />
+      <BooleanSetting
+        label="Larger controls"
+        detail="Roomier buttons and key text for easier one-handed use."
+        value={settings.largeText}
+        onChange={(largeText) => onChange({ largeText })}
+      />
+      <BooleanSetting
+        label="High contrast"
+        detail="Deepens the app background and panel borders."
+        value={settings.highContrast}
+        onChange={(highContrast) => onChange({ highContrast })}
+      />
       <PrimaryButton label="Reload with these settings" onPress={onReload} />
     </ScrollView>
   );
@@ -1032,6 +1394,7 @@ function BottomNav({ screen, onChange }: { screen: Screen; onChange: (screen: Sc
     <View style={styles.bottomNav}>
       <NavButton label="Swipe" active={screen === "swipe"} onPress={() => onChange("swipe")} />
       <NavButton label="Progress" active={screen === "stats"} onPress={() => onChange("stats")} />
+      <NavButton label="Review" active={screen === "review"} onPress={() => onChange("review")} />
       <NavButton label="Settings" active={screen === "settings"} onPress={() => onChange("settings")} />
     </View>
   );
@@ -1049,17 +1412,19 @@ function ActionButton({
   label,
   tone,
   onPress,
+  large,
 }: {
   label: string;
   tone: "keep" | "trim" | "delete";
   onPress: () => void;
+  large?: boolean;
 }) {
   const toneStyle =
     tone === "keep" ? styles.actionKeep : tone === "trim" ? styles.actionTrim : styles.actionDelete;
 
   return (
-    <Pressable onPress={onPress} style={[styles.actionButton, toneStyle]}>
-      <Text style={styles.actionText}>{label}</Text>
+    <Pressable onPress={onPress} style={[styles.actionButton, large && styles.actionButtonLarge, toneStyle]}>
+      <Text style={[styles.actionText, large && styles.actionTextLarge]}>{label}</Text>
     </Pressable>
   );
 }
@@ -1140,6 +1505,30 @@ function SettingStepper({
   );
 }
 
+function BooleanSetting({
+  label,
+  detail,
+  value,
+  onChange,
+}: {
+  label: string;
+  detail: string;
+  value: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <Pressable onPress={() => onChange(!value)} style={styles.settingCard}>
+      <View style={styles.booleanCopy}>
+        <Text style={styles.settingLabel}>{label}</Text>
+        <Text style={styles.mutedSmall}>{detail}</Text>
+      </View>
+      <View style={[styles.toggleTrack, value && styles.toggleTrackActive]}>
+        <View style={[styles.toggleKnob, value && styles.toggleKnobActive]} />
+      </View>
+    </Pressable>
+  );
+}
+
 function Segmented<T extends string>({
   label,
   value,
@@ -1183,6 +1572,9 @@ const styles = StyleSheet.create({
   shell: {
     flex: 1,
     backgroundColor: "#07111f",
+  },
+  shellHighContrast: {
+    backgroundColor: "#020617",
   },
   content: {
     flexGrow: 1,
@@ -1237,6 +1629,9 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "900",
   },
+  swipeTitleLarge: {
+    fontSize: 22,
+  },
   swipeSubtitle: {
     marginTop: 5,
     color: "#94a3b8",
@@ -1252,6 +1647,16 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: "#e0f2fe",
     color: "#075985",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  timerPill: {
+    overflow: "hidden",
+    borderRadius: 999,
+    backgroundColor: "#fef3c7",
+    color: "#92400e",
     paddingHorizontal: 10,
     paddingVertical: 6,
     fontSize: 12,
@@ -1383,6 +1788,9 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     borderWidth: 1,
   },
+  actionButtonLarge: {
+    paddingVertical: 19,
+  },
   actionKeep: {
     backgroundColor: "#0f2a1d",
     borderColor: "#15803d",
@@ -1399,6 +1807,9 @@ const styles = StyleSheet.create({
     color: "#f8fafc",
     fontSize: 14,
     fontWeight: "900",
+  },
+  actionTextLarge: {
+    fontSize: 17,
   },
   reviewList: {
     marginTop: 18,
@@ -1426,6 +1837,30 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "800",
   },
+  actionLogRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 18,
+    backgroundColor: "#0f1b2d",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#243247",
+    padding: 12,
+  },
+  actionLogDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: "#38bdf8",
+  },
+  emptyPanel: {
+    borderRadius: 20,
+    backgroundColor: "#0f1b2d",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#243247",
+    padding: 18,
+    gap: 10,
+  },
   statGrid: {
     width: "100%",
     flexDirection: "row",
@@ -1446,6 +1881,21 @@ const styles = StyleSheet.create({
   },
   dashboardContent: {
     gap: 14,
+  },
+  onboardingContent: {
+    justifyContent: "center",
+    gap: 14,
+  },
+  onboardingSteps: {
+    gap: 10,
+  },
+  onboardingStep: {
+    borderRadius: 18,
+    backgroundColor: "#0f1b2d",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#243247",
+    padding: 16,
+    gap: 6,
   },
   dashboardHero: {
     borderRadius: 24,
@@ -1504,10 +1954,12 @@ const styles = StyleSheet.create({
   },
   quickActions: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 10,
   },
   quickAction: {
     flex: 1,
+    minWidth: "30%",
     borderRadius: 18,
     backgroundColor: "#111c2e",
     borderWidth: StyleSheet.hairlineWidth,
@@ -1726,6 +2178,31 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 14,
   },
+  booleanCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  toggleTrack: {
+    width: 54,
+    height: 32,
+    justifyContent: "center",
+    borderRadius: 999,
+    backgroundColor: "#334155",
+    padding: 4,
+  },
+  toggleTrackActive: {
+    backgroundColor: "#2563eb",
+  },
+  toggleKnob: {
+    width: 24,
+    height: 24,
+    borderRadius: 999,
+    backgroundColor: "#e2e8f0",
+  },
+  toggleKnobActive: {
+    transform: [{ translateX: 22 }],
+    backgroundColor: "#f8fafc",
+  },
   settingCardVertical: {
     marginTop: 12,
     borderRadius: 18,
@@ -1763,10 +2240,12 @@ const styles = StyleSheet.create({
   },
   segmented: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
   },
   segment: {
     flex: 1,
+    minWidth: "30%",
     alignItems: "center",
     borderRadius: 14,
     backgroundColor: "#334155",

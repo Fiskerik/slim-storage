@@ -71,36 +71,118 @@ function buildDuplicateLookup(assets: MediaLibrary.Asset[]): Set<string> {
   return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key));
 }
 
-function matchesSettings(
-  photo: Pick<NativePhoto, "creationTime" | "sizeMB">,
+function includesReason(photo: Pick<NativePhoto, "cleanupReasons" | "title">, reason: string): boolean {
+  const title = photo.title.toLowerCase();
+  return (
+    photo.cleanupReasons.some((item) => item.toLowerCase() === reason.toLowerCase()) ||
+    title.includes(reason.toLowerCase())
+  );
+}
+
+function matchesPhotoSettings(
+  photo: Pick<NativePhoto, "creationTime" | "sizeMB" | "cleanupReasons" | "title" | "isCloudAsset">,
   settings: NativeSettings,
 ): boolean {
   if (settings.targetMode === "balanced") return true;
 
   const isLarge = photo.sizeMB >= settings.minSizeMB;
   const isOld = ageYears(photo.creationTime) >= settings.minAgeYears;
-  return settings.targetMode === "old-and-large" ? isLarge && isOld : isLarge || isOld;
+
+  switch (settings.targetMode) {
+    case "big-only":
+      return isLarge;
+    case "old-only":
+      return isOld;
+    case "old-and-large":
+      return isLarge && isOld;
+    case "similar":
+      return includesReason(photo, "Similar");
+    case "screenshots":
+      return includesReason(photo, "Screenshot");
+    case "icloud":
+      return photo.isCloudAsset;
+    case "mistakes":
+      return includesReason(photo, "Mistake?") || includesReason(photo, "Blurry") || includesReason(photo, "Dark");
+    case "big-or-old":
+    default:
+      return isLarge || isOld;
+  }
+}
+
+function assetLooksLikeScreenshot(asset: MediaLibrary.Asset): boolean {
+  const filename = asset.filename?.toLowerCase() ?? "";
+  return filename.includes("screenshot") || filename.includes("screen shot");
+}
+
+function assetLooksLikeMistake(asset: MediaLibrary.Asset): boolean {
+  const filename = asset.filename?.toLowerCase() ?? "";
+  const width = asset.width || 0;
+  const height = asset.height || 0;
+  const ratio = width > 0 && height > 0 ? Math.max(width, height) / Math.max(1, Math.min(width, height)) : 1;
+  return ratio > 2.2 || assetSizeMB(asset) < 0.35 || filename.includes("blur") || filename.includes("dark");
+}
+
+function matchesAssetSettings(
+  asset: MediaLibrary.Asset,
+  settings: NativeSettings,
+  duplicateLookup: Set<string>,
+): boolean {
+  if (settings.targetMode === "balanced") return true;
+
+  const isLarge = assetSizeMB(asset) >= settings.minSizeMB;
+  const isOld = ageYears(asset.creationTime) >= settings.minAgeYears;
+
+  switch (settings.targetMode) {
+    case "big-only":
+      return isLarge;
+    case "old-only":
+      return isOld;
+    case "old-and-large":
+      return isLarge && isOld;
+    case "similar":
+      return duplicateLookup.has(duplicateKey(asset));
+    case "screenshots":
+      return assetLooksLikeScreenshot(asset);
+    case "icloud":
+      return assetSizeMB(asset) === 0;
+    case "mistakes":
+      return assetLooksLikeMistake(asset);
+    case "big-or-old":
+    default:
+      return isLarge || isOld;
+  }
 }
 
 function scorePhoto(
-  photo: Pick<NativePhoto, "creationTime" | "sizeMB">,
+  photo: Pick<NativePhoto, "creationTime" | "sizeMB" | "cleanupReasons" | "title" | "isCloudAsset">,
   settings: NativeSettings,
 ): number {
   const sizeScore = settings.minSizeMB > 0 ? photo.sizeMB / settings.minSizeMB : 0;
   const ageScore = settings.minAgeYears > 0 ? ageYears(photo.creationTime) / settings.minAgeYears : 0;
   const isLarge = photo.sizeMB >= settings.minSizeMB;
   const isOld = ageYears(photo.creationTime) >= settings.minAgeYears;
+  const modeMatch = matchesPhotoSettings(photo, settings) ? 3 : 0;
   return (
     Math.min(sizeScore, 4) +
     Math.min(ageScore, 4) +
     (isLarge ? 2 : 0) +
     (isOld ? 2 : 0) +
-    (isLarge && isOld ? 3 : 0)
+    (isLarge && isOld ? 3 : 0) +
+    modeMatch
   );
 }
 
 function scoreAsset(asset: MediaLibrary.Asset, settings: NativeSettings): number {
-  return scorePhoto({ creationTime: asset.creationTime, sizeMB: assetSizeMB(asset) }, settings);
+  return scorePhoto(
+    {
+      creationTime: asset.creationTime,
+      sizeMB: assetSizeMB(asset),
+      cleanupReasons: [],
+      title: asset.filename ?? "",
+      isCloudAsset: assetSizeMB(asset) === 0,
+    },
+    settings,
+  );
 }
 
 function classifyAsset(
@@ -118,6 +200,7 @@ function classifyAsset(
   if (ageYears(asset.creationTime) >= 5) reasons.add("Old");
   if (sizeMB >= 4) reasons.add("Large");
   if (duplicateLookup.has(duplicateKey(asset))) reasons.add("Similar");
+  if (assetLooksLikeScreenshot(asset)) reasons.add("Screenshot");
   if (filename.includes("blur")) reasons.add("Blurry");
   if (filename.includes("dark") || filename.includes("night")) reasons.add("Dark");
   if (ratio > 2.2 || sizeMB < 0.35 || filename.includes("pocket")) reasons.add("Mistake?");
@@ -297,10 +380,9 @@ function chooseAssets(
   assets: MediaLibrary.Asset[],
   count: number,
   settings: NativeSettings,
+  duplicateLookup: Set<string>,
 ): MediaLibrary.Asset[] {
-  const targeted = assets.filter((asset) =>
-    matchesSettings({ creationTime: asset.creationTime, sizeMB: assetSizeMB(asset) }, settings),
-  );
+  const targeted = assets.filter((asset) => matchesAssetSettings(asset, settings, duplicateLookup));
   const pool = settings.targetMode === "balanced" ? assets : targeted.length > 0 ? targeted : assets;
 
   return shuffle(pool)
@@ -322,7 +404,7 @@ export async function loadPhotoRound(
   settings: NativeSettings,
 ): Promise<NativePhoto[]> {
   const cache = await readCache();
-  const cachedTargeted = shuffle(cache.photos.filter((photo) => matchesSettings(photo, settings)))
+  const cachedTargeted = shuffle(cache.photos.filter((photo) => matchesPhotoSettings(photo, settings)))
     .sort((a, b) => scorePhoto(b, settings) - scorePhoto(a, settings))
     .slice(0, count);
 
@@ -331,13 +413,14 @@ export async function loadPhotoRound(
   }
 
   const assets = await fetchCandidateAssets(count, settings);
+  const duplicateLookup = buildDuplicateLookup(assets);
   const cachedIds = new Set(cachedTargeted.map((photo) => photo.id));
   const selected = chooseAssets(
     assets.filter((asset) => !cachedIds.has(asset.id)),
     count - cachedTargeted.length,
     settings,
+    duplicateLookup,
   );
-  const duplicateLookup = buildDuplicateLookup(assets);
   const fresh = await mapWithConcurrency(selected, 3, (asset) => assetToPhoto(asset, duplicateLookup));
   await upsertCache(fresh);
 

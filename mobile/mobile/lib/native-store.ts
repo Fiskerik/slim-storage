@@ -1,13 +1,29 @@
 import * as FileSystem from "expo-file-system/legacy";
 
-export type NativeTargetMode = "balanced" | "big-or-old" | "old-and-large";
+export type NativeTargetMode =
+  | "balanced"
+  | "big-or-old"
+  | "old-and-large"
+  | "big-only"
+  | "old-only"
+  | "similar"
+  | "screenshots"
+  | "icloud"
+  | "mistakes";
+
+export type NativeSessionMode = "classic" | "endless" | "time-attack";
+
+export type NativeActionType = "keep" | "trim" | "delete";
 
 export type NativeSettings = {
   cardsPerRound: number;
   targetMode: NativeTargetMode;
+  sessionMode: NativeSessionMode;
   minSizeMB: number;
   minAgeYears: number;
   trimQuality: number;
+  largeText: boolean;
+  highContrast: boolean;
 };
 
 export type NativeDailyStats = {
@@ -31,8 +47,20 @@ export type NativeStats = {
   deleteMbFreed: number;
   sessions: number;
   startedAt: string;
+  onboardingComplete: boolean;
+  shareCount: number;
   dailyActivity: Record<string, NativeDailyStats>;
+  actionLog: NativeActionLogEntry[];
   settings: NativeSettings;
+};
+
+export type NativeActionLogEntry = {
+  id: string;
+  photoId: string;
+  title: string;
+  action: NativeActionType;
+  mbFreed: number;
+  createdAt: string;
 };
 
 const STATS_FILE = "trimswipe-native-stats-v1.json";
@@ -40,9 +68,12 @@ const STATS_FILE = "trimswipe-native-stats-v1.json";
 export const DEFAULT_NATIVE_SETTINGS: NativeSettings = {
   cardsPerRound: 10,
   targetMode: "big-or-old",
+  sessionMode: "classic",
   minSizeMB: 8,
   minAgeYears: 4,
   trimQuality: 0.9,
+  largeText: false,
+  highContrast: false,
 };
 
 export const EMPTY_DAILY_STATS: NativeDailyStats = {
@@ -66,7 +97,10 @@ export const DEFAULT_NATIVE_STATS: NativeStats = {
   deleteMbFreed: 0,
   sessions: 0,
   startedAt: new Date().toISOString().slice(0, 10),
+  onboardingComplete: false,
+  shareCount: 0,
   dailyActivity: {},
+  actionLog: [],
   settings: DEFAULT_NATIVE_SETTINGS,
 };
 
@@ -103,6 +137,43 @@ function normalizeDailyActivity(value: unknown): Record<string, NativeDailyStats
   );
 }
 
+function normalizeTargetMode(value: unknown): NativeTargetMode {
+  const modes: NativeTargetMode[] = [
+    "balanced",
+    "big-or-old",
+    "old-and-large",
+    "big-only",
+    "old-only",
+    "similar",
+    "screenshots",
+    "icloud",
+    "mistakes",
+  ];
+  return modes.includes(value as NativeTargetMode) ? (value as NativeTargetMode) : "big-or-old";
+}
+
+function normalizeSessionMode(value: unknown): NativeSessionMode {
+  const modes: NativeSessionMode[] = ["classic", "endless", "time-attack"];
+  return modes.includes(value as NativeSessionMode) ? (value as NativeSessionMode) : "classic";
+}
+
+function normalizeActionLog(value: unknown): NativeActionLogEntry[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((item): item is Partial<NativeActionLogEntry> => item !== null && typeof item === "object")
+    .map((item) => ({
+      id: String(item.id ?? `${Date.now()}-${Math.random()}`),
+      photoId: String(item.photoId ?? ""),
+      title: String(item.title ?? "Photo"),
+      action: item.action === "trim" || item.action === "delete" || item.action === "keep" ? item.action : "keep",
+      mbFreed: Math.max(0, safeNumber(item.mbFreed)),
+      createdAt: String(item.createdAt ?? new Date().toISOString()),
+    }))
+    .filter((item) => item.photoId.length > 0)
+    .slice(0, 60);
+}
+
 function normalizeStats(value: unknown): NativeStats {
   const raw = value && typeof value === "object" ? (value as Partial<NativeStats>) : {};
   const rawSettings =
@@ -123,14 +194,21 @@ function normalizeStats(value: unknown): NativeStats {
     deleteMbFreed,
     sessions: Math.max(0, safeNumber(raw.sessions)),
     startedAt: String(raw.startedAt ?? DEFAULT_NATIVE_STATS.startedAt),
+    onboardingComplete: raw.onboardingComplete === undefined ? safeNumber(raw.reviewed) > 0 : Boolean(raw.onboardingComplete),
+    shareCount: Math.max(0, safeNumber(raw.shareCount)),
     dailyActivity: normalizeDailyActivity(raw.dailyActivity),
+    actionLog: normalizeActionLog(raw.actionLog),
     settings: {
       ...DEFAULT_NATIVE_SETTINGS,
       ...rawSettings,
+      targetMode: normalizeTargetMode(rawSettings.targetMode),
+      sessionMode: normalizeSessionMode(rawSettings.sessionMode),
       cardsPerRound: Math.min(30, Math.max(5, safeNumber(rawSettings.cardsPerRound, 10))),
       minSizeMB: Math.min(50, Math.max(1, safeNumber(rawSettings.minSizeMB, 8))),
       minAgeYears: Math.min(30, Math.max(1, safeNumber(rawSettings.minAgeYears, 4))),
       trimQuality: Math.min(0.98, Math.max(0.65, safeNumber(rawSettings.trimQuality, 0.9))),
+      largeText: Boolean(rawSettings.largeText),
+      highContrast: Boolean(rawSettings.highContrast),
     },
   };
 }
