@@ -27,11 +27,11 @@
     "expo-linking": "~55.0.15",
     "expo-media-library": "~55.0.17",
     "expo-router": "~55.0.16",
-    "expo-splash-screen": "~55.0.20",
+    "expo-splash-screen": "~55.0.21",
     "expo-status-bar": "~55.0.6",
     "expo-symbols": "~55.0.8",
-    "expo-system-ui": "~55.0.17",
-    "expo-web-browser": "~55.0.15",
+    "expo-system-ui": "~55.0.18",
+    "expo-web-browser": "~55.0.16",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "react-native": "0.83.6",
@@ -47,7 +47,7 @@
   "devDependencies": {
     "@types/react": "~19.2.10",
     "eslint": "^9.25.0",
-    "eslint-config-expo": "~55.0.0",
+    "eslint-config-expo": "~55.0.1",
     "typescript": "~5.9.2"
   },
   "private": true
