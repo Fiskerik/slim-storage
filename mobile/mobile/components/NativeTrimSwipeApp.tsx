@@ -26,8 +26,10 @@ import {
 } from "../lib/native-photo-source";
 import {
   DEFAULT_NATIVE_STATS,
+  EMPTY_DAILY_STATS,
   loadNativeStats,
   saveNativeStats,
+  type NativeDailyStats,
   type NativeSettings,
   type NativeStats,
 } from "../lib/native-store";
@@ -42,7 +44,18 @@ type SessionRecap = {
   freed: number;
 };
 
+type Achievement = {
+  title: string;
+  detail: string;
+  progress: number;
+  unlocked: boolean;
+};
+
 const SWIPE_THRESHOLD = 110;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DAILY_REVIEW_TARGET = 10;
+const WEEKLY_SAVINGS_TARGET_MB = 500;
+const FOUR_K_VIDEO_MB_PER_MINUTE = 375;
 
 function formatMB(value: number): string {
   return value >= 1024 ? `${(value / 1024).toFixed(2)} GB` : `${value.toFixed(1)} MB`;
@@ -64,6 +77,97 @@ function targetLabel(settings: NativeSettings): string {
     return `${settings.minAgeYears}+ yrs and ${settings.minSizeMB}+ MB`;
   }
   return `${settings.minSizeMB}+ MB or ${settings.minAgeYears}+ yrs`;
+}
+
+function dateKey(date = new Date()): string {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60 * 1000);
+  return local.toISOString().slice(0, 10);
+}
+
+function addDays(date: Date, days: number): Date {
+  return new Date(date.getTime() + days * DAY_MS);
+}
+
+function clampProgress(value: number, target: number): number {
+  if (target <= 0) return 0;
+  return Math.max(0, Math.min(1, value / target));
+}
+
+function percentValue(value: number): `${number}%` {
+  return `${Math.max(0, Math.min(100, Math.round(value)))}%` as `${number}%`;
+}
+
+function progressWidth(progress: number): `${number}%` {
+  return percentValue(clampProgress(progress, 1) * 100);
+}
+
+function mergeDailyStats(
+  current: NativeDailyStats,
+  patch: Partial<NativeDailyStats>,
+): NativeDailyStats {
+  return {
+    reviewed: Math.max(0, current.reviewed + (patch.reviewed ?? 0)),
+    kept: Math.max(0, current.kept + (patch.kept ?? 0)),
+    trimmed: Math.max(0, current.trimmed + (patch.trimmed ?? 0)),
+    deleted: Math.max(0, current.deleted + (patch.deleted ?? 0)),
+    mbFreed: Math.max(0, +(current.mbFreed + (patch.mbFreed ?? 0)).toFixed(2)),
+    trimMbFreed: Math.max(0, +(current.trimMbFreed + (patch.trimMbFreed ?? 0)).toFixed(2)),
+    deleteMbFreed: Math.max(0, +(current.deleteMbFreed + (patch.deleteMbFreed ?? 0)).toFixed(2)),
+    sessions: Math.max(0, current.sessions + (patch.sessions ?? 0)),
+  };
+}
+
+function withDailyActivity(stats: NativeStats, patch: Partial<NativeDailyStats>): NativeStats {
+  const today = dateKey();
+  const current = stats.dailyActivity[today] ?? EMPTY_DAILY_STATS;
+  return {
+    ...stats,
+    dailyActivity: {
+      ...stats.dailyActivity,
+      [today]: mergeDailyStats(current, patch),
+    },
+  };
+}
+
+function dailyFor(stats: NativeStats, key: string): NativeDailyStats {
+  return stats.dailyActivity[key] ?? EMPTY_DAILY_STATS;
+}
+
+function sumDays(stats: NativeStats, days: number): NativeDailyStats {
+  const today = new Date();
+  return Array.from({ length: days }, (_, index) => dateKey(addDays(today, -index))).reduce(
+    (total, key) => mergeDailyStats(total, dailyFor(stats, key)),
+    EMPTY_DAILY_STATS,
+  );
+}
+
+function currentStreak(stats: NativeStats): number {
+  let streak = 0;
+  let cursor = new Date();
+
+  while (dailyFor(stats, dateKey(cursor)).reviewed > 0) {
+    streak += 1;
+    cursor = addDays(cursor, -1);
+  }
+
+  return streak;
+}
+
+function storageHealthScore(stats: NativeStats, week: NativeDailyStats, streak: number): number {
+  const base = 42;
+  const reviewScore = Math.min(24, stats.reviewed * 0.8);
+  const savingsScore = Math.min(24, stats.mbFreed / 60);
+  const momentumScore = Math.min(10, week.reviewed * 0.8 + streak * 2);
+  return Math.round(Math.min(100, base + reviewScore + savingsScore + momentumScore));
+}
+
+function levelInfo(stats: NativeStats): { level: number; title: string; progress: number; next: string } {
+  const points = stats.reviewed + stats.mbFreed / 25 + stats.trimmed * 0.6 + stats.deleted * 0.8;
+  const level = Math.max(1, Math.floor(points / 25) + 1);
+  const progress = (points % 25) / 25;
+  const titles = ["Fresh Start", "Space Saver", "Camera Roll Pro", "Storage Guardian"];
+  const title = titles[Math.min(titles.length - 1, Math.floor((level - 1) / 3))];
+  return { level, title, progress, next: `${Math.ceil(25 - (points % 25))} pts to level ${level + 1}` };
 }
 
 export function NativeTrimSwipeApp() {
@@ -144,10 +248,15 @@ export function NativeTrimSwipeApp() {
   function finishIfNeeded(rest: NativePhoto[]) {
     if (rest.length > 0) return;
 
-    commitStats((current) => ({
-      ...current,
-      sessions: current.sessions + 1,
-    }));
+    commitStats((current) =>
+      withDailyActivity(
+        {
+          ...current,
+          sessions: current.sessions + 1,
+        },
+        { sessions: 1 },
+      ),
+    );
 
     if (pendingDeletesRef.current.length > 0) {
       return;
@@ -170,11 +279,16 @@ export function NativeTrimSwipeApp() {
     if (action === "keep") {
       session.kept += 1;
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      commitStats((current) => ({
-        ...current,
-        reviewed: current.reviewed + 1,
-        kept: current.kept + 1,
-      }));
+      commitStats((current) =>
+        withDailyActivity(
+          {
+            ...current,
+            reviewed: current.reviewed + 1,
+            kept: current.kept + 1,
+          },
+          { reviewed: 1, kept: 1 },
+        ),
+      );
       advance();
       return;
     }
@@ -185,12 +299,18 @@ export function NativeTrimSwipeApp() {
       pendingDeletesRef.current = [...pendingDeletesRef.current, photo];
       setPendingDeletes(pendingDeletesRef.current);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      commitStats((current) => ({
-        ...current,
-        reviewed: current.reviewed + 1,
-        deleted: current.deleted + 1,
-        mbFreed: +(current.mbFreed + photo.sizeMB).toFixed(2),
-      }));
+      commitStats((current) =>
+        withDailyActivity(
+          {
+            ...current,
+            reviewed: current.reviewed + 1,
+            deleted: current.deleted + 1,
+            mbFreed: +(current.mbFreed + photo.sizeMB).toFixed(2),
+            deleteMbFreed: +(current.deleteMbFreed + photo.sizeMB).toFixed(2),
+          },
+          { reviewed: 1, deleted: 1, mbFreed: photo.sizeMB, deleteMbFreed: photo.sizeMB },
+        ),
+      );
       advance();
       return;
     }
@@ -199,12 +319,18 @@ export function NativeTrimSwipeApp() {
     session.trimmed += 1;
     session.freed += estimated;
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    commitStats((current) => ({
-      ...current,
-      reviewed: current.reviewed + 1,
-      trimmed: current.trimmed + 1,
-      mbFreed: +(current.mbFreed + estimated).toFixed(2),
-    }));
+    commitStats((current) =>
+      withDailyActivity(
+        {
+          ...current,
+          reviewed: current.reviewed + 1,
+          trimmed: current.trimmed + 1,
+          mbFreed: +(current.mbFreed + estimated).toFixed(2),
+          trimMbFreed: +(current.trimMbFreed + estimated).toFixed(2),
+        },
+        { reviewed: 1, trimmed: 1, mbFreed: estimated, trimMbFreed: estimated },
+      ),
+    );
     setTrimmingCount((count) => count + 1);
     void trimPhoto(photo, settings.trimQuality)
       .then((result) => {
@@ -239,11 +365,18 @@ export function NativeTrimSwipeApp() {
       0,
       sessionRef.current.freed - photos.reduce((sum, photo) => sum + photo.sizeMB, 0),
     );
-    commitStats((current) => ({
-      ...current,
-      deleted: Math.max(0, current.deleted - photos.length),
-      mbFreed: Math.max(0, current.mbFreed - photos.reduce((sum, photo) => sum + photo.sizeMB, 0)),
-    }));
+    const restoredMB = photos.reduce((sum, photo) => sum + photo.sizeMB, 0);
+    commitStats((current) =>
+      withDailyActivity(
+        {
+          ...current,
+          deleted: Math.max(0, current.deleted - photos.length),
+          mbFreed: Math.max(0, +(current.mbFreed - restoredMB).toFixed(2)),
+          deleteMbFreed: Math.max(0, +(current.deleteMbFreed - restoredMB).toFixed(2)),
+        },
+        { deleted: -photos.length, mbFreed: -restoredMB, deleteMbFreed: -restoredMB },
+      ),
+    );
     setRecap({ ...sessionRef.current });
   }
 
@@ -278,7 +411,14 @@ export function NativeTrimSwipeApp() {
             onUndoDeletes={undoPendingDeletes}
           />
         ) : screen === "stats" ? (
-          <StatsScreen stats={stats} />
+          <StatsScreen
+            stats={stats}
+            onStartRound={() => {
+              setScreen("swipe");
+              void loadRound();
+            }}
+            onOpenSettings={() => setScreen("settings")}
+          />
         ) : (
           <SettingsScreen settings={settings} onChange={updateSettings} onReload={loadRound} />
         )}
@@ -371,12 +511,16 @@ function SwipeScreen({
 
   return (
     <View style={styles.content}>
-      <View style={styles.headerRow}>
-        <View>
-          <Text style={styles.eyebrow}>{queueCount} left</Text>
-          <Text style={styles.focusText}>{targetLabel(settings)}</Text>
+      <View style={styles.swipeHeader}>
+        <View style={styles.swipeHeaderCopy}>
+          <Text style={styles.eyebrow}>Current focus</Text>
+          <Text style={styles.swipeTitle}>{targetLabel(settings)}</Text>
+          <Text style={styles.swipeSubtitle}>A cleaner set of photos, one quick decision at a time.</Text>
         </View>
-        {trimmingCount > 0 ? <Text style={styles.trimBadge}>Trimming {trimmingCount}</Text> : null}
+        <View style={styles.swipeStatusColumn}>
+          <Text style={styles.queuePill}>{queueCount} left</Text>
+          {trimmingCount > 0 ? <Text style={styles.trimBadge}>Trimming {trimmingCount}</Text> : null}
+        </View>
       </View>
       {permissionLimited ? (
         <Text style={styles.warning}>Limited photo access is enabled. Some photos may be hidden.</Text>
@@ -541,23 +685,278 @@ function Recap({ recap, onNext }: { recap: SessionRecap; onNext: () => void }) {
   );
 }
 
-function StatsScreen({ stats }: { stats: NativeStats }) {
+function StatsScreen({
+  stats,
+  onStartRound,
+  onOpenSettings,
+}: {
+  stats: NativeStats;
+  onStartRound: () => void;
+  onOpenSettings: () => void;
+}) {
+  const today = dailyFor(stats, dateKey());
+  const week = sumDays(stats, 7);
+  const streak = currentStreak(stats);
+  const health = storageHealthScore(stats, week, streak);
+  const level = levelInfo(stats);
+  const videoText =
+    stats.mbFreed > 0
+      ? `Equivalent to about ${Math.max(1, Math.round(stats.mbFreed / FOUR_K_VIDEO_MB_PER_MINUTE))} min of 4K video.`
+      : "Start with one focused round and this will become your cleanup story.";
+  const achievements: Achievement[] = [
+    {
+      title: "Daily rhythm",
+      detail: `${today.reviewed}/${DAILY_REVIEW_TARGET} photos reviewed today`,
+      progress: clampProgress(today.reviewed, DAILY_REVIEW_TARGET),
+      unlocked: today.reviewed >= DAILY_REVIEW_TARGET,
+    },
+    {
+      title: "Weekly saver",
+      detail: `${formatMB(week.mbFreed)} / ${formatMB(WEEKLY_SAVINGS_TARGET_MB)} this week`,
+      progress: clampProgress(week.mbFreed, WEEKLY_SAVINGS_TARGET_MB),
+      unlocked: week.mbFreed >= WEEKLY_SAVINGS_TARGET_MB,
+    },
+    {
+      title: "Metadata master",
+      detail: `${stats.trimmed}/50 trims completed`,
+      progress: clampProgress(stats.trimmed, 50),
+      unlocked: stats.trimmed >= 50,
+    },
+    {
+      title: "Heavy hitter",
+      detail: `${formatMB(stats.mbFreed)} / 1.00 GB reclaimed`,
+      progress: clampProgress(stats.mbFreed, 1024),
+      unlocked: stats.mbFreed >= 1024,
+    },
+  ];
+
   return (
-    <ScrollView contentContainerStyle={styles.content}>
-      <Text style={styles.heroTitle}>Your cleanup</Text>
-      <Text style={styles.muted}>Since {stats.startedAt}</Text>
-      <View style={styles.bigStat}>
-        <Text style={styles.bigStatValue}>{formatMB(stats.mbFreed)}</Text>
-        <Text style={styles.muted}>Estimated storage freed</Text>
+    <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
+      <View style={styles.dashboardHero}>
+        <View style={styles.dashboardHeroTop}>
+          <View>
+            <Text style={styles.eyebrow}>Progress</Text>
+            <Text style={styles.heroTitle}>Storage health</Text>
+          </View>
+          <View style={styles.healthScore}>
+            <Text style={styles.healthValue}>{health}</Text>
+            <Text style={styles.healthLabel}>score</Text>
+          </View>
+        </View>
+        <Text style={styles.dashboardCopy}>{videoText}</Text>
+        <View style={styles.levelRow}>
+          <View style={styles.levelCopy}>
+            <Text style={styles.levelTitle}>Level {level.level}</Text>
+            <Text style={styles.mutedSmall}>{level.title}</Text>
+          </View>
+          <View style={styles.levelProgress}>
+            <ProgressBar progress={level.progress} />
+            <Text style={styles.mutedSmall}>{level.next}</Text>
+          </View>
+        </View>
       </View>
-      <View style={styles.statGrid}>
-        <MiniStat label="Reviewed" value={stats.reviewed} />
-        <MiniStat label="Kept" value={stats.kept} />
-        <MiniStat label="Trimmed" value={stats.trimmed} />
-        <MiniStat label="Deleted" value={stats.deleted} />
-        <MiniStat label="Sessions" value={stats.sessions} />
+
+      <View style={styles.quickActions}>
+        <QuickActionButton label="Start round" detail={targetLabel(stats.settings)} onPress={onStartRound} />
+        <QuickActionButton label="Tune focus" detail="Big, old, or balanced" onPress={onOpenSettings} />
       </View>
+
+      <SectionTitle title="Challenges" detail={streak > 0 ? `${streak}-day streak` : "Build your first streak"} />
+      <ChallengeCard
+        title="Clean 10 photos today"
+        value={`${today.reviewed}/${DAILY_REVIEW_TARGET}`}
+        detail={`${today.trimmed + today.deleted} cleaned, ${formatMB(today.mbFreed)} reclaimed`}
+        progress={clampProgress(today.reviewed, DAILY_REVIEW_TARGET)}
+      />
+      <ChallengeCard
+        title="Save 500 MB this week"
+        value={formatMB(week.mbFreed)}
+        detail={`${week.reviewed} reviewed across the last 7 days`}
+        progress={clampProgress(week.mbFreed, WEEKLY_SAVINGS_TARGET_MB)}
+      />
+
+      <SectionTitle title="Impact" detail="What actually freed space" />
+      <ImpactBreakdown trimMB={stats.trimMbFreed} deleteMB={stats.deleteMbFreed} />
+      <View style={styles.metricGrid}>
+        <MetricCard label="Reviewed" value={String(stats.reviewed)} />
+        <MetricCard label="Trimmed" value={String(stats.trimmed)} />
+        <MetricCard label="Deleted" value={String(stats.deleted)} />
+        <MetricCard label="Sessions" value={String(stats.sessions)} />
+      </View>
+
+      <SectionTitle title="Recent activity" detail="Last 7 days" />
+      <ActivityBars stats={stats} />
+
+      <SectionTitle title="Badges" detail="Simple milestones to chase" />
+      <AchievementGrid achievements={achievements} />
     </ScrollView>
+  );
+}
+
+function SectionTitle({ title, detail }: { title: string; detail?: string }) {
+  return (
+    <View style={styles.sectionTitleRow}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      {detail ? <Text style={styles.sectionDetail}>{detail}</Text> : null}
+    </View>
+  );
+}
+
+function QuickActionButton({
+  label,
+  detail,
+  onPress,
+}: {
+  label: string;
+  detail: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={styles.quickAction}>
+      <Text style={styles.quickActionLabel}>{label}</Text>
+      <Text style={styles.quickActionDetail} numberOfLines={1}>
+        {detail}
+      </Text>
+    </Pressable>
+  );
+}
+
+function ProgressBar({ progress }: { progress: number }) {
+  return (
+    <View style={styles.progressTrack}>
+      <View style={[styles.progressFill, { width: progressWidth(progress) }]} />
+    </View>
+  );
+}
+
+function ChallengeCard({
+  title,
+  value,
+  detail,
+  progress,
+}: {
+  title: string;
+  value: string;
+  detail: string;
+  progress: number;
+}) {
+  return (
+    <View style={styles.challengeCard}>
+      <View style={styles.challengeHeader}>
+        <Text style={styles.challengeTitle}>{title}</Text>
+        <Text style={styles.challengeValue}>{value}</Text>
+      </View>
+      <ProgressBar progress={progress} />
+      <Text style={styles.mutedSmall}>{detail}</Text>
+    </View>
+  );
+}
+
+function ImpactBreakdown({ trimMB, deleteMB }: { trimMB: number; deleteMB: number }) {
+  const total = trimMB + deleteMB;
+  const trimProgress = total > 0 ? trimMB / total : 0;
+  const deleteProgress = total > 0 ? deleteMB / total : 0;
+
+  return (
+    <View style={styles.impactPanel}>
+      <View style={styles.impactHeader}>
+        <Text style={styles.impactValue}>{formatMB(total)}</Text>
+        <Text style={styles.mutedSmall}>Total estimated reclaimed</Text>
+      </View>
+      <ImpactRow label="Trim" value={formatMB(trimMB)} progress={trimProgress} tone="trim" />
+      <ImpactRow label="Delete" value={formatMB(deleteMB)} progress={deleteProgress} tone="delete" />
+    </View>
+  );
+}
+
+function ImpactRow({
+  label,
+  value,
+  progress,
+  tone,
+}: {
+  label: string;
+  value: string;
+  progress: number;
+  tone: "trim" | "delete";
+}) {
+  return (
+    <View style={styles.impactRow}>
+      <View style={styles.impactLabelRow}>
+        <Text style={styles.impactLabel}>{label}</Text>
+        <Text style={styles.impactAmount}>{value}</Text>
+      </View>
+      <View style={styles.progressTrack}>
+        <View
+          style={[
+            styles.progressFill,
+            tone === "trim" ? styles.progressTrim : styles.progressDelete,
+            { width: progressWidth(progress) },
+          ]}
+        />
+      </View>
+    </View>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.metricCard}>
+      <Text style={styles.metricValue}>{value}</Text>
+      <Text style={styles.mutedSmall}>{label}</Text>
+    </View>
+  );
+}
+
+function ActivityBars({ stats }: { stats: NativeStats }) {
+  const days = Array.from({ length: 7 }, (_, index) => {
+    const date = addDays(new Date(), index - 6);
+    const key = dateKey(date);
+    return {
+      key,
+      label: date.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 3),
+      stats: dailyFor(stats, key),
+    };
+  });
+  const maxReviewed = Math.max(1, ...days.map((day) => day.stats.reviewed));
+
+  return (
+    <View style={styles.activityPanel}>
+      {days.map((day) => (
+        <View key={day.key} style={styles.activityDay}>
+          <View style={styles.activityBarTrack}>
+            <View
+              style={[
+                styles.activityBar,
+                { height: percentValue(Math.max(8, (day.stats.reviewed / maxReviewed) * 100)) },
+              ]}
+            />
+          </View>
+          <Text style={styles.activityLabel}>{day.label}</Text>
+          <Text style={styles.activityValue}>{day.stats.reviewed}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function AchievementGrid({ achievements }: { achievements: Achievement[] }) {
+  return (
+    <View style={styles.achievementGrid}>
+      {achievements.map((achievement) => (
+        <View
+          key={achievement.title}
+          style={[styles.achievementCard, achievement.unlocked && styles.achievementUnlocked]}
+        >
+          <View style={styles.achievementStatus}>
+            <Text style={styles.achievementStatusText}>{achievement.unlocked ? "Done" : "Next"}</Text>
+          </View>
+          <Text style={styles.achievementTitle}>{achievement.title}</Text>
+          <Text style={styles.mutedSmall}>{achievement.detail}</Text>
+          <ProgressBar progress={achievement.progress} />
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -632,7 +1031,7 @@ function BottomNav({ screen, onChange }: { screen: Screen; onChange: (screen: Sc
   return (
     <View style={styles.bottomNav}>
       <NavButton label="Swipe" active={screen === "swipe"} onPress={() => onChange("swipe")} />
-      <NavButton label="Stats" active={screen === "stats"} onPress={() => onChange("stats")} />
+      <NavButton label="Progress" active={screen === "stats"} onPress={() => onChange("stats")} />
       <NavButton label="Settings" active={screen === "settings"} onPress={() => onChange("settings")} />
     </View>
   );
@@ -779,11 +1178,11 @@ function Centered({ children }: { children: ReactNode }) {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: "#0f172a",
+    backgroundColor: "#07111f",
   },
   shell: {
     flex: 1,
-    backgroundColor: "#0f172a",
+    backgroundColor: "#07111f",
   },
   content: {
     flexGrow: 1,
@@ -818,11 +1217,45 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     textAlign: "center",
   },
-  headerRow: {
+  swipeHeader: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
-    gap: 12,
+    gap: 14,
+    borderRadius: 22,
+    backgroundColor: "#0f1b2d",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#243247",
+    padding: 16,
+  },
+  swipeHeaderCopy: {
+    flex: 1,
+  },
+  swipeTitle: {
+    marginTop: 5,
+    color: "#f8fafc",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  swipeSubtitle: {
+    marginTop: 5,
+    color: "#94a3b8",
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  swipeStatusColumn: {
+    alignItems: "flex-end",
+    gap: 8,
+  },
+  queuePill: {
+    overflow: "hidden",
+    borderRadius: 999,
+    backgroundColor: "#e0f2fe",
+    color: "#075985",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 12,
+    fontWeight: "900",
   },
   eyebrow: {
     color: "#94a3b8",
@@ -831,17 +1264,11 @@ const styles = StyleSheet.create({
     letterSpacing: 1.6,
     textTransform: "uppercase",
   },
-  focusText: {
-    marginTop: 4,
-    color: "#f8fafc",
-    fontSize: 14,
-    fontWeight: "700",
-  },
   trimBadge: {
     overflow: "hidden",
     borderRadius: 999,
-    backgroundColor: "#334155",
-    color: "#f8fafc",
+    backgroundColor: "#172554",
+    color: "#bfdbfe",
     paddingHorizontal: 10,
     paddingVertical: 6,
     fontSize: 12,
@@ -850,14 +1277,14 @@ const styles = StyleSheet.create({
   warning: {
     marginTop: 12,
     borderRadius: 14,
-    backgroundColor: "#78350f",
+    backgroundColor: "#4a2c0f",
     color: "#ffedd5",
     padding: 12,
     fontSize: 12,
   },
   deck: {
     marginTop: 18,
-    height: 500,
+    height: 492,
   },
   animatedCard: {
     position: "absolute",
@@ -873,10 +1300,10 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     overflow: "hidden",
-    borderRadius: 28,
-    backgroundColor: "#1e293b",
+    borderRadius: 24,
+    backgroundColor: "#111c2e",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#334155",
+    borderColor: "#243247",
   },
   stackedCard: {
     transform: [{ scale: 0.96 }],
@@ -952,21 +1379,21 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 18,
+    borderRadius: 17,
     paddingVertical: 15,
     borderWidth: 1,
   },
   actionKeep: {
-    backgroundColor: "#14532d",
-    borderColor: "#22c55e",
+    backgroundColor: "#0f2a1d",
+    borderColor: "#15803d",
   },
   actionTrim: {
-    backgroundColor: "#2563eb",
-    borderColor: "#60a5fa",
+    backgroundColor: "#10214f",
+    borderColor: "#2563eb",
   },
   actionDelete: {
-    backgroundColor: "#7f1d1d",
-    borderColor: "#ef4444",
+    backgroundColor: "#351417",
+    borderColor: "#b91c1c",
   },
   actionText: {
     color: "#f8fafc",
@@ -1017,16 +1444,276 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: "900",
   },
-  bigStat: {
-    marginTop: 18,
-    marginBottom: 14,
-    borderRadius: 24,
-    backgroundColor: "#1e293b",
-    padding: 22,
+  dashboardContent: {
+    gap: 14,
   },
-  bigStatValue: {
+  dashboardHero: {
+    borderRadius: 24,
+    backgroundColor: "#0f1b2d",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#243247",
+    padding: 18,
+    gap: 16,
+  },
+  dashboardHeroTop: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 16,
+  },
+  healthScore: {
+    minWidth: 74,
+    alignItems: "center",
+    borderRadius: 20,
+    backgroundColor: "#e0f2fe",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  healthValue: {
+    color: "#075985",
+    fontSize: 27,
+    fontWeight: "900",
+  },
+  healthLabel: {
+    color: "#0369a1",
+    fontSize: 11,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  dashboardCopy: {
+    color: "#cbd5e1",
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  levelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  levelCopy: {
+    minWidth: 92,
+  },
+  levelTitle: {
     color: "#f8fafc",
-    fontSize: 36,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  levelProgress: {
+    flex: 1,
+    gap: 7,
+  },
+  quickActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  quickAction: {
+    flex: 1,
+    borderRadius: 18,
+    backgroundColor: "#111c2e",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#243247",
+    padding: 14,
+    gap: 5,
+  },
+  quickActionLabel: {
+    color: "#f8fafc",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  quickActionDetail: {
+    color: "#94a3b8",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  sectionTitleRow: {
+    marginTop: 5,
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  sectionTitle: {
+    color: "#f8fafc",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  sectionDetail: {
+    color: "#94a3b8",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  progressTrack: {
+    height: 8,
+    overflow: "hidden",
+    borderRadius: 999,
+    backgroundColor: "#233048",
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: "#38bdf8",
+  },
+  progressTrim: {
+    backgroundColor: "#60a5fa",
+  },
+  progressDelete: {
+    backgroundColor: "#f87171",
+  },
+  challengeCard: {
+    borderRadius: 20,
+    backgroundColor: "#0f1b2d",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#243247",
+    padding: 16,
+    gap: 11,
+  },
+  challengeHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  challengeTitle: {
+    flex: 1,
+    color: "#f8fafc",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  challengeValue: {
+    color: "#bae6fd",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  impactPanel: {
+    borderRadius: 20,
+    backgroundColor: "#0f1b2d",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#243247",
+    padding: 16,
+    gap: 15,
+  },
+  impactHeader: {
+    gap: 3,
+  },
+  impactValue: {
+    color: "#f8fafc",
+    fontSize: 30,
+    fontWeight: "900",
+  },
+  impactRow: {
+    gap: 8,
+  },
+  impactLabelRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  impactLabel: {
+    color: "#cbd5e1",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  impactAmount: {
+    color: "#f8fafc",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  metricGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  metricCard: {
+    minWidth: "47%",
+    flexGrow: 1,
+    borderRadius: 18,
+    backgroundColor: "#111c2e",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#243247",
+    padding: 15,
+  },
+  metricValue: {
+    color: "#f8fafc",
+    fontSize: 23,
+    fontWeight: "900",
+  },
+  activityPanel: {
+    height: 148,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 8,
+    borderRadius: 20,
+    backgroundColor: "#0f1b2d",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#243247",
+    padding: 14,
+  },
+  activityDay: {
+    flex: 1,
+    alignItems: "center",
+    gap: 7,
+  },
+  activityBarTrack: {
+    width: "100%",
+    height: 78,
+    justifyContent: "flex-end",
+    overflow: "hidden",
+    borderRadius: 999,
+    backgroundColor: "#17243a",
+  },
+  activityBar: {
+    width: "100%",
+    borderRadius: 999,
+    backgroundColor: "#38bdf8",
+  },
+  activityLabel: {
+    color: "#94a3b8",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  activityValue: {
+    color: "#f8fafc",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  achievementGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  achievementCard: {
+    minWidth: "47%",
+    flexGrow: 1,
+    borderRadius: 18,
+    backgroundColor: "#111827",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#243247",
+    padding: 14,
+    gap: 9,
+    opacity: 0.78,
+  },
+  achievementUnlocked: {
+    backgroundColor: "#102a1d",
+    borderColor: "#166534",
+    opacity: 1,
+  },
+  achievementStatus: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    backgroundColor: "#233048",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  achievementStatusText: {
+    color: "#cbd5e1",
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  achievementTitle: {
+    color: "#f8fafc",
+    fontSize: 14,
     fontWeight: "900",
   },
   settingCard: {
