@@ -384,7 +384,7 @@ function normalizeCachedPhotos(photos: unknown): PhotoDTO[] {
 }
 
 async function readPhotoMetadataCache(): Promise<PhotoMetadataCache> {
-  if (photoMetadataCacheMemory !== undefined) return photoMetadataCacheMemory;
+  if (photoMetadataCacheMemory != null) return photoMetadataCacheMemory;
 
   const uri = metadataCacheUri();
   if (!uri) {

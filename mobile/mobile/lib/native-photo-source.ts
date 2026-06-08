@@ -284,7 +284,7 @@ function isNativePhoto(value: unknown): value is NativePhoto {
 }
 
 async function readCache(): Promise<PhotoMetadataCache> {
-  if (memoryCache !== undefined) return memoryCache;
+  if (memoryCache != null) return memoryCache;
 
   const uri = cacheUri();
   if (!uri) {
