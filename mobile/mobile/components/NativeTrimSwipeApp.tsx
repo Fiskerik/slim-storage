@@ -1559,7 +1559,9 @@ function OnboardingScreen({
 }
 
 function ScanResults({ scan }: { scan: NativeLibraryScan }) {
-  const capacityMB = scan.deviceCapacityMB ?? Math.max(1, scan.totalSizeMB);
+  const capacityMB = scan.deviceCapacityMB && scan.deviceCapacityMB > 0
+    ? scan.deviceCapacityMB
+    : Math.max(1, scan.totalSizeMB);
   const afterTrimMB = Math.max(0, scan.totalSizeMB - scan.trimSavingsMB);
   const afterDeleteMB = Math.max(0, scan.totalSizeMB - scan.deleteSavingsMB);
   const capacityLabel = scan.deviceCapacityMB
