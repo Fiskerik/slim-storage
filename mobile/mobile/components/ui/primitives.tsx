@@ -394,12 +394,13 @@ export function BeforeAfterSlider({
         pointerEvents="none"
         style={{
           position: "absolute",
-          top: 0,
-          left: Animated.subtract(splitX, new Animated.Value(18)) as unknown as number,
-          height,
+          top: height / 2 - 18,
+          left: 0,
           width: 36,
+          height: 36,
           alignItems: "center",
           justifyContent: "center",
+          transform: [{ translateX: Animated.subtract(splitX, 18) }],
         }}
       >
         <View style={styles.sliderHandle}>
