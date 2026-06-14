@@ -161,27 +161,28 @@ function SlideHero({ width }: { width: number }) {
 }
 
 function SlideBeforeAfter({ width }: { width: number }) {
-  const before = useRef(new Animated.Value(0)).current;
+  const [num, setNum] = useState(12.4);
   useEffect(() => {
-    Animated.loop(
+    const anim = new Animated.Value(0);
+    const id = anim.addListener((s) => setNum(12.4 - 3.5 * s.value));
+    const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(before, { toValue: 1, duration: 2200, easing: Easing.out(Easing.quad), useNativeDriver: false }),
+        Animated.timing(anim, { toValue: 1, duration: 2200, easing: Easing.out(Easing.quad), useNativeDriver: false }),
         Animated.delay(500),
-        Animated.timing(before, { toValue: 0, duration: 600, useNativeDriver: false }),
+        Animated.timing(anim, { toValue: 0, duration: 600, useNativeDriver: false }),
       ]),
-    ).start();
-  }, [before]);
-  const num = before.interpolate({ inputRange: [0, 1], outputRange: [12.4, 8.9] });
+    );
+    loop.start();
+    return () => {
+      anim.removeListener(id);
+      loop.stop();
+    };
+  }, []);
   return (
     <View style={[styles.slide, { width }]}>
       <ProgressRing progress={0.7} size={180} thickness={14}>
-        <View style={{ alignItems: "center" }}>
-          <Animated.Text style={styles.bigGB}>
-            {/* RN can't directly interpolate text — bind via listener pattern */}
-            <BeforeAfterNumber anim={num} />
-          </Animated.Text>
-          <Text style={styles.bigGBLabel}>GB used</Text>
-        </View>
+        <Text style={styles.bigGB}>{num.toFixed(1)}</Text>
+        <Text style={styles.bigGBLabel}>GB used</Text>
       </ProgressRing>
       <Text style={[styles.slideTitle, { marginTop: spacing.xxl }]}>Reclaim real space</Text>
       <Text style={styles.slideBody}>
@@ -189,15 +190,6 @@ function SlideBeforeAfter({ width }: { width: number }) {
       </Text>
     </View>
   );
-}
-
-function BeforeAfterNumber({ anim }: { anim: Animated.AnimatedInterpolation<number> }) {
-  const [value, setValue] = useState("12.4");
-  useEffect(() => {
-    const id = anim.addListener((s) => setValue(s.value.toFixed(1)));
-    return () => anim.removeListener(id);
-  }, [anim]);
-  return <>{value}</>;
 }
 
 function SlideGestures({ width }: { width: number }) {
