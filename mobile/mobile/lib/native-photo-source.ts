@@ -586,11 +586,89 @@ function chooseAssets(
   duplicateLookup: Set<string>,
 ): MediaLibrary.Asset[] {
   const targeted = assets.filter((asset) => matchesAssetSettings(asset, settings, duplicateLookup));
-  const pool = settings.targetMode === "balanced" ? assets : targeted.length > 0 ? targeted : assets;
+  const fallback = assets.filter((asset) => !targeted.some((target) => target.id === asset.id));
+  const pool = settings.targetMode === "balanced" ? assets : [...targeted, ...fallback];
 
   return shuffle(pool)
     .sort((a, b) => scoreAsset(b, settings) - scoreAsset(a, settings))
     .slice(0, count);
+}
+
+function relatedPairScore(a: MediaLibrary.Asset, b: MediaLibrary.Asset): number {
+  const gapMs = Math.abs(a.creationTime - b.creationTime);
+  const sameDuplicateKey = duplicateKey(a) === duplicateKey(b);
+  const sameDimensions = a.width === b.width && a.height === b.height;
+  const sizeGap = Math.abs(estimatedAssetSizeMB(a) - estimatedAssetSizeMB(b));
+
+  let score = 0;
+  if (sameDuplicateKey) score += 120;
+  if (gapMs <= 3_000) score += 90;
+  else if (gapMs <= 60_000) score += 70;
+  else if (gapMs <= 10 * 60_000) score += 45;
+  else if (gapMs <= 60 * 60_000) score += 20;
+  if (sameDimensions) score += 16;
+  if (sizeGap <= 0.35) score += 8;
+  return score - gapMs / (60 * 60_000);
+}
+
+export async function loadRelatedPhotoPairs(
+  pairCount: number,
+  settings: NativeSettings,
+): Promise<Array<[NativePhoto, NativePhoto]>> {
+  const requestedPairs = Math.max(1, pairCount);
+  const page = await MediaLibrary.getAssetsAsync({
+    first: Math.min(500, Math.max(160, requestedPairs * 36)),
+    mediaType: "photo",
+    sortBy: [[MediaLibrary.SortBy.creationTime, true]],
+  });
+  const smartAlbums = await fetchSmartAlbumAssets(Math.min(160, requestedPairs * 24));
+  const byId = new Map<string, MediaLibrary.Asset>();
+  [...page.assets, ...smartAlbums].forEach((asset) => byId.set(asset.id, asset));
+  const assets = [...byId.values()].sort((a, b) => b.creationTime - a.creationTime);
+
+  const candidates: Array<{ a: MediaLibrary.Asset; b: MediaLibrary.Asset; score: number }> = [];
+  for (let i = 0; i < assets.length; i += 1) {
+    for (let j = i + 1; j < Math.min(assets.length, i + 12); j += 1) {
+      const gapMs = Math.abs(assets[i].creationTime - assets[j].creationTime);
+      if (gapMs > 6 * 60 * 60_000 && duplicateKey(assets[i]) !== duplicateKey(assets[j])) continue;
+      const score = relatedPairScore(assets[i], assets[j]);
+      if (score > 0) candidates.push({ a: assets[i], b: assets[j], score });
+    }
+  }
+
+  const selectedAssets: Array<[MediaLibrary.Asset, MediaLibrary.Asset]> = [];
+  const used = new Set<string>();
+  candidates
+    .sort((a, b) => b.score - a.score)
+    .forEach(({ a, b }) => {
+      if (selectedAssets.length >= requestedPairs) return;
+      if (used.has(a.id) || used.has(b.id)) return;
+      selectedAssets.push([a, b]);
+      used.add(a.id);
+      used.add(b.id);
+    });
+
+  if (selectedAssets.length < requestedPairs) {
+    const fallback = chooseAssets(
+      assets.filter((asset) => !used.has(asset.id)),
+      (requestedPairs - selectedAssets.length) * 2,
+      { ...settings, targetMode: "balanced" },
+      buildDuplicateLookup(assets),
+    );
+    for (let i = 0; i + 1 < fallback.length && selectedAssets.length < requestedPairs; i += 2) {
+      selectedAssets.push([fallback[i], fallback[i + 1]]);
+    }
+  }
+
+  const duplicateLookup = buildDuplicateLookup(assets);
+  const flattened = selectedAssets.flat();
+  const photos = await mapWithConcurrency(flattened, 3, (asset) => assetToPhoto(asset, duplicateLookup));
+  await upsertCache(photos);
+
+  const photoById = new Map(photos.map((photo) => [photo.id, photo]));
+  return selectedAssets
+    .map(([a, b]) => [photoById.get(a.id), photoById.get(b.id)] as const)
+    .filter((pair): pair is [NativePhoto, NativePhoto] => Boolean(pair[0] && pair[1]));
 }
 
 export async function requestPhotoPermission(): Promise<NativePhotoPermission> {
@@ -640,7 +718,19 @@ export async function loadPhotoRound(
     count - combined.length,
   );
   const next = [...combined, ...fallback].slice(0, count);
-  if (next.length > 0) return next;
+  if (next.length >= count) return next;
+
+  const nextIds = new Set(next.map((photo) => photo.id));
+  const broadAssets = chooseAssets(
+    assets.filter((asset) => !nextIds.has(asset.id) && !avoidIds.has(asset.id)),
+    count - next.length,
+    { ...settings, targetMode: "balanced" },
+    duplicateLookup,
+  );
+  const broadFresh = await mapWithConcurrency(broadAssets, 3, (asset) => assetToPhoto(asset, duplicateLookup));
+  await upsertCache(broadFresh);
+  const toppedUp = [...next, ...broadFresh].slice(0, count);
+  if (toppedUp.length > 0) return toppedUp;
 
   return shuffle(cache.photos.filter((photo) => matchesPhotoSettings(photo, settings))).slice(0, count);
 }

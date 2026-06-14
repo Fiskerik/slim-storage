@@ -21,6 +21,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   deletePhotos,
   estimateTrimSavings,
+  loadRelatedPhotoPairs,
   loadPhotoRound,
   requestPhotoPermission,
   scanPhotoLibrary,
@@ -718,7 +719,19 @@ export function NativeTrimSwipeApp() {
     kept: NativePhoto[];
     deleted: NativePhoto[];
   }): Promise<number> {
-    if (deleted.length === 0) return 0;
+    if (deleted.length === 0) {
+      if (kept.length > 0) {
+        commitStats((current) => {
+          const next = withDailyActivity(
+            { ...current, reviewed: current.reviewed + kept.length, kept: current.kept + kept.length },
+            { reviewed: kept.length, kept: kept.length },
+          );
+          const withCooldown = withRecentlySeenPhotos(next, kept);
+          return kept.reduce((sf, photo) => appendActionLog(sf, createActionLogEntry(photo, "keep", 0)), withCooldown);
+        });
+      }
+      return kept.length;
+    }
     return new Promise((resolve) => {
       Alert.alert(title, detail, [
         { text: "Cancel", style: "cancel", onPress: () => resolve(0) },
@@ -739,16 +752,185 @@ export function NativeTrimSwipeApp() {
                   { ...current, reviewed: current.reviewed + keptPhotos.length + deletedPhotos.length, kept: current.kept + keptPhotos.length, deleted: current.deleted + deletedPhotos.length, mbFreed: +(current.mbFreed + freed).toFixed(2), deleteMbFreed: +(current.deleteMbFreed + freed).toFixed(2) },
                   { reviewed: keptPhotos.length + deletedPhotos.length, kept: keptPhotos.length, deleted: deletedPhotos.length, mbFreed: freed, deleteMbFreed: freed },
                 );
+                const withCooldown = withRecentlySeenPhotos(next, [...keptPhotos, ...deletedPhotos]);
                 return [...keptPhotos, ...deletedPhotos].reduce((sf, photo) => {
                   const action: Action = deletedPhotos.some((d) => d.id === photo.id) ? "delete" : "keep";
                   return appendActionLog(sf, createActionLogEntry(photo, action, action === "delete" ? photo.sizeMB : 0));
-                }, next);
+                }, withCooldown);
               });
             }
             resolve(result.deleted);
           },
         },
       ]);
+    });
+  }
+
+  async function confirmThisOrThatOutcome(
+    kept: NativePhoto[],
+    losers: NativePhoto[],
+    action: "delete" | "trim",
+  ): Promise<number> {
+    if (action === "delete") {
+      return confirmGameOutcome({
+        title: "Delete the unpicked photos?",
+        detail: `This will move ${losers.length} photo${losers.length === 1 ? "" : "s"} to Recently Deleted and free about ${formatMB(losers.reduce((sum, photo) => sum + photo.sizeMB, 0))}.`,
+        kept,
+        deleted: losers,
+      });
+    }
+
+    const available = Math.max(0, FREE_DAILY_TRIM_LIMIT - dailyFor(stats, dateKey()).trimmed);
+    const candidates = losers.filter((photo) => !photo.isCloudAsset).slice(0, available);
+    if (candidates.length < losers.length) {
+      Alert.alert(
+        "Not enough trims available",
+        `You have ${available}/${FREE_DAILY_TRIM_LIMIT} free trims left today. Cloud-only photos also cannot be trimmed until downloaded.`,
+      );
+      return 0;
+    }
+
+    return new Promise((resolve) => {
+      Alert.alert("Trim the unpicked photos?", `This keeps smaller copies and saves about ${formatMB(candidates.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0))}.`, [
+        { text: "Cancel", style: "cancel", onPress: () => resolve(0) },
+        {
+          text: "Trim",
+          onPress: async () => {
+            const estimated = candidates.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0);
+            setTrimmingCount((count) => count + candidates.length);
+            const results = await Promise.all(candidates.map((photo) => trimPhoto(photo, settings.trimQuality)));
+            setTrimmingCount((count) => Math.max(0, count - candidates.length));
+            const trimmed = candidates.filter((_, index) => results[index]?.trimmed);
+            const trimmedIds = new Set(trimmed.map((photo) => photo.id));
+            const actualSavings = candidates.reduce(
+              (sum, photo, index) =>
+                results[index]?.trimmed ? sum + (results[index]?.savedMB ?? estimateTrimSavings(photo)) : sum,
+              0,
+            );
+            const reviewed = [...kept, ...trimmed];
+            if (reviewed.length > 0) {
+              commitStats((current) => {
+                const next = withDailyActivity(
+                  {
+                    ...current,
+                    reviewed: current.reviewed + reviewed.length,
+                    kept: current.kept + kept.length,
+                    trimmed: current.trimmed + trimmed.length,
+                    mbFreed: +(current.mbFreed + actualSavings).toFixed(2),
+                    trimMbFreed: +(current.trimMbFreed + actualSavings).toFixed(2),
+                  },
+                  {
+                    reviewed: reviewed.length,
+                    kept: kept.length,
+                    trimmed: trimmed.length,
+                    mbFreed: actualSavings,
+                    trimMbFreed: actualSavings,
+                  },
+                );
+                const withCooldown = withRecentlySeenPhotos(next, reviewed);
+                return reviewed.reduce((sf, photo) => {
+                  const isTrimmed = trimmedIds.has(photo.id);
+                  return appendActionLog(
+                    sf,
+                    createActionLogEntry(photo, isTrimmed ? "trim" : "keep", isTrimmed ? estimateTrimSavings(photo) : 0),
+                  );
+                }, withCooldown);
+              });
+            }
+            if (trimmed.length !== candidates.length) {
+              Alert.alert("Trim incomplete", `${trimmed.length}/${candidates.length} photos were trimmed.`);
+            }
+            console.log("[NativeTrimSwipe] This-or-That trim result", {
+              requested: candidates.length,
+              trimmed: trimmed.length,
+              estimated,
+            });
+            resolve(trimmed.length);
+          },
+        },
+      ]);
+    });
+  }
+
+  async function confirmStorageBudgetOutcome(
+    kept: NativePhoto[],
+    deleted: NativePhoto[],
+    toTrim: NativePhoto[],
+  ): Promise<number> {
+    const deleteSavings = deleted.reduce((sum, photo) => sum + photo.sizeMB, 0);
+    const trimSavings = toTrim.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0);
+    if (kept.length + deleted.length + toTrim.length === 0) return 0;
+
+    return new Promise((resolve) => {
+      Alert.alert(
+        "Apply your budget choices?",
+        `Delete ${deleted.length} and trim ${toTrim.length} photo${deleted.length + toTrim.length === 1 ? "" : "s"} for about ${formatMB(deleteSavings + trimSavings)} saved.`,
+        [
+          { text: "Cancel", style: "cancel", onPress: () => resolve(0) },
+          {
+            text: "Apply",
+            onPress: async () => {
+              const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
+              const deletedPhotos = deleted.slice(0, deleteResult.deleted);
+              setTrimmingCount((count) => count + toTrim.length);
+              const trimResults = await Promise.all(toTrim.map((photo) => trimPhoto(photo, settings.trimQuality)));
+              setTrimmingCount((count) => Math.max(0, count - toTrim.length));
+              const trimmedPhotos = toTrim.filter((_, index) => trimResults[index]?.trimmed);
+              const trimmedIds = new Set(trimmedPhotos.map((photo) => photo.id));
+              const actualTrimSavings = toTrim.reduce(
+                (sum, photo, index) =>
+                  trimResults[index]?.trimmed ? sum + (trimResults[index]?.savedMB ?? estimateTrimSavings(photo)) : sum,
+                0,
+              );
+              const actualDeleteSavings = deletedPhotos.reduce((sum, photo) => sum + photo.sizeMB, 0);
+              const reviewed = [...kept, ...deletedPhotos, ...trimmedPhotos];
+              const reviewedForCooldown = [...kept, ...deleted, ...toTrim];
+
+              commitStats((current) => {
+                const next = withDailyActivity(
+                  {
+                    ...current,
+                    reviewed: current.reviewed + reviewed.length,
+                    kept: current.kept + kept.length,
+                    deleted: current.deleted + deletedPhotos.length,
+                    trimmed: current.trimmed + trimmedPhotos.length,
+                    mbFreed: +(current.mbFreed + actualDeleteSavings + actualTrimSavings).toFixed(2),
+                    deleteMbFreed: +(current.deleteMbFreed + actualDeleteSavings).toFixed(2),
+                    trimMbFreed: +(current.trimMbFreed + actualTrimSavings).toFixed(2),
+                  },
+                  {
+                    reviewed: reviewed.length,
+                    kept: kept.length,
+                    deleted: deletedPhotos.length,
+                    trimmed: trimmedPhotos.length,
+                    mbFreed: actualDeleteSavings + actualTrimSavings,
+                    deleteMbFreed: actualDeleteSavings,
+                    trimMbFreed: actualTrimSavings,
+                  },
+                );
+                const withCooldown = withRecentlySeenPhotos(next, reviewedForCooldown);
+                return reviewed.reduce((sf, photo) => {
+                  const action: Action = deletedPhotos.some((item) => item.id === photo.id)
+                    ? "delete"
+                    : trimmedIds.has(photo.id)
+                      ? "trim"
+                      : "keep";
+                  const mbFreed = action === "delete" ? photo.sizeMB : action === "trim" ? estimateTrimSavings(photo) : 0;
+                  return appendActionLog(sf, createActionLogEntry(photo, action, mbFreed));
+                }, withCooldown);
+              });
+
+              if (deleteResult.deleted !== deleted.length || trimmedPhotos.length !== toTrim.length) {
+                Alert.alert(
+                  "Budget partly applied",
+                  `${deleteResult.deleted}/${deleted.length} deleted and ${trimmedPhotos.length}/${toTrim.length} trimmed.`,
+                );
+              }
+              resolve(deletedPhotos.length + trimmedPhotos.length + kept.length);
+            },
+          },
+        ],
+      );
     });
   }
 
@@ -808,38 +990,20 @@ export function NativeTrimSwipeApp() {
           <ThisOrThatScreen
             settings={settings}
             onBack={() => setScreen("games")}
-            onConfirmOutcome={(kept, deleted) =>
-              confirmGameOutcome({
-                title: "Delete the unpicked photos?",
-                detail: `This will move ${deleted.length} photo${deleted.length === 1 ? "" : "s"} to Recently Deleted and free about ${formatMB(deleted.reduce((sum, photo) => sum + photo.sizeMB, 0))}.`,
-                kept,
-                deleted,
-              })
-            }
+            onConfirmOutcome={confirmThisOrThatOutcome}
           />
         ) : screen === "storage-budget" ? (
           <StorageBudgetScreen
             settings={settings}
             trimsRemaining={trimsRemainingToday}
+            avoidIds={recentSelectionIds(stats)}
             onBack={() => setScreen("games")}
-            onConfirmOutcome={(kept, deleted, toTrim) =>
-              confirmGameOutcome({
-                title: "Apply your budget choices?",
-                detail: `Delete ${deleted.length} photo${deleted.length === 1 ? "" : "s"} and free about ${formatMB(deleted.reduce((sum, photo) => sum + photo.sizeMB, 0))}.`,
-                kept,
-                deleted,
-              }).then(async (count) => {
-                // Also trim the trim-candidates if any
-                if (toTrim && toTrim.length > 0) {
-                  await Promise.all(toTrim.map((photo) => trimPhoto(photo, settings.trimQuality)));
-                }
-                return count;
-              })
-            }
+            onConfirmOutcome={confirmStorageBudgetOutcome}
           />
         ) : screen === "memory-lane" ? (
           <MemoryLaneScreen
             settings={settings}
+            avoidIds={recentSelectionIds(stats)}
             onBack={() => setScreen("games")}
             onConfirmOutcome={(kept, deleted) =>
               confirmGameOutcome({
@@ -1425,10 +1589,10 @@ function GamesScreen({ settings, queue, actionLog, busy, trimsRemaining, onStart
         <Text style={styles.primaryGameDetail}>Keep, trim, or delete one photo at a time.</Text>
       </Pressable>
       <View style={styles.gameGrid}>
-        <GameModeCard title="This or That" detail="Pick one keeper from two similar photos." active={false} onPress={onOpenThisOrThat} />
-        <GameModeCard title="Storage Budget" detail="Keep photos under a 50 MB budget." active={false} onPress={onOpenStorageBudget} />
-        <GameModeCard title="Speed Round" detail="60 seconds, save what you can." active={settings.sessionMode === "time-attack"} onPress={() => onStartGame({ sessionMode: "time-attack" })} />
-        <GameModeCard title="Memory Lane" detail="Older photos first, decide what stays." active={settings.targetMode === "old-only"} onPress={onOpenMemoryLane} />
+        <GameModeCard icon="A/B" title="This or That" detail="Pick one keeper from two similar photos." active={false} onPress={onOpenThisOrThat} />
+        <GameModeCard icon="MB" title="Storage Budget" detail="Keep photos under a 50 MB budget." active={false} onPress={onOpenStorageBudget} />
+        <GameModeCard icon="60" title="Speed Round" detail="60 seconds, save what you can." active={settings.sessionMode === "time-attack"} onPress={() => onStartGame({ sessionMode: "time-attack" })} />
+        <GameModeCard icon="YR" title="Memory Lane" detail="Older photos first, decide what stays." active={settings.targetMode === "old-only"} onPress={onOpenMemoryLane} />
       </View>
       <View style={styles.dashboardHero}>
         <View style={styles.dashboardHeroTop}>
@@ -1453,11 +1617,16 @@ function GamesScreen({ settings, queue, actionLog, busy, trimsRemaining, onStart
   );
 }
 
-function GameModeCard({ title, detail, active, onPress }: { title: string; detail: string; active: boolean; onPress: () => void }) {
+function GameModeCard({ icon, title, detail, active, onPress }: { icon: string; title: string; detail: string; active: boolean; onPress: () => void }) {
   return (
     <Pressable onPress={onPress} style={[styles.gameCard, active && styles.gameCardActive]}>
-      <Text style={[styles.gameTitle, active && styles.gameTitleActive]}>{title}</Text>
-      <Text style={[styles.gameDetail, active && styles.gameDetailActive]}>{detail}</Text>
+      <View style={[styles.gameIcon, active && styles.gameIconActive]}>
+        <Text style={[styles.gameIconText, active && styles.gameIconTextActive]}>{icon}</Text>
+      </View>
+      <View style={styles.gameCopy}>
+        <Text style={[styles.gameTitle, active && styles.gameTitleActive]}>{title}</Text>
+        <Text style={[styles.gameDetail, active && styles.gameDetailActive]}>{detail}</Text>
+      </View>
     </Pressable>
   );
 }
@@ -1466,9 +1635,9 @@ function GameModeCard({ title, detail, active, onPress }: { title: string; detai
 
 function ThisOrThatScreen({ settings, onBack, onConfirmOutcome }: {
   settings: NativeSettings; onBack: () => void;
-  onConfirmOutcome: (kept: NativePhoto[], deleted: NativePhoto[]) => Promise<number>;
+  onConfirmOutcome: (kept: NativePhoto[], deleted: NativePhoto[], action: "delete" | "trim") => Promise<number>;
 }) {
-  const [pairs, setPairs] = useState<Array<[NativePhoto, NativePhoto]>>([]);
+  const [pairs, setPairs] = useState<[NativePhoto, NativePhoto][]>([]);
   const [index, setIndex] = useState(0);
   const [kept, setKept] = useState<NativePhoto[]>([]);
   const [deleted, setDeleted] = useState<NativePhoto[]>([]);
@@ -1480,9 +1649,12 @@ function ThisOrThatScreen({ settings, onBack, onConfirmOutcome }: {
     try {
       const permission = await requestPhotoPermission();
       if (!permission.granted) { setPairs([]); return; }
-      const photos = await loadPhotoRound(12, { ...settings, cardsPerRound: 12, targetMode: "similar", sessionMode: "classic" });
-      const nextPairs: Array<[NativePhoto, NativePhoto]> = [];
-      for (let i = 0; i + 1 < photos.length; i += 2) nextPairs.push([photos[i], photos[i + 1]]);
+      const nextPairs = await loadRelatedPhotoPairs(6, {
+        ...settings,
+        cardsPerRound: 12,
+        targetMode: "similar",
+        sessionMode: "classic",
+      });
       setPairs(nextPairs);
       setIndex(0); setKept([]); setDeleted([]);
     } finally { setLoadingPairs(false); }
@@ -1502,9 +1674,9 @@ function ThisOrThatScreen({ settings, onBack, onConfirmOutcome }: {
     setIndex((current) => current + 1);
   }
 
-  async function confirmDeletes() {
+  async function confirmOutcome(action: "delete" | "trim") {
     setBusy(true);
-    const count = await onConfirmOutcome(kept, deleted);
+    const count = await onConfirmOutcome(kept, deleted, action);
     setBusy(false);
     if (count > 0 || deleted.length === 0) void loadPairs();
   }
@@ -1517,8 +1689,9 @@ function ThisOrThatScreen({ settings, onBack, onConfirmOutcome }: {
         <MiniGameHeader title="This or That" detail="Round complete" onBack={onBack} />
         <View style={styles.dashboardHero}>
           <Text style={styles.heroTitle}>{deleted.length} photos ready</Text>
-          <Text style={styles.dashboardCopy}>You picked {kept.length} keepers. Deleting the other choices would free about {formatMB(freed)}.</Text>
-          <PrimaryButton label={busy ? "Deleting..." : `Delete losers, save ${formatMB(freed)}`} disabled={busy} onPress={confirmDeletes} />
+          <Text style={styles.dashboardCopy}>You picked {kept.length} keepers. Delete the other choices for maximum savings, or trim them to keep smaller copies.</Text>
+          <PrimaryButton label={busy ? "Applying..." : `Delete losers, save ${formatMB(freed)}`} disabled={busy} onPress={() => confirmOutcome("delete")} />
+          <SecondaryButton label={`Trim losers instead, save ~${formatMB(deleted.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0))}`} onPress={() => confirmOutcome("trim")} />
           <SecondaryButton label="Play another round without deleting" onPress={() => void loadPairs()} />
         </View>
       </ScrollView>
@@ -1543,8 +1716,8 @@ function ThisOrThatScreen({ settings, onBack, onConfirmOutcome }: {
 
 // ─── Storage Budget (FIX 3) ───────────────────────────────────────────────────
 
-function StorageBudgetScreen({ settings, trimsRemaining, onBack, onConfirmOutcome }: {
-  settings: NativeSettings; trimsRemaining: number; onBack: () => void;
+function StorageBudgetScreen({ settings, trimsRemaining, avoidIds, onBack, onConfirmOutcome }: {
+  settings: NativeSettings; trimsRemaining: number; avoidIds: string[]; onBack: () => void;
   onConfirmOutcome: (kept: NativePhoto[], deleted: NativePhoto[], toTrim: NativePhoto[]) => Promise<number>;
 }) {
   const [photos, setPhotos] = useState<NativePhoto[]>([]);
@@ -1559,7 +1732,11 @@ function StorageBudgetScreen({ settings, trimsRemaining, onBack, onConfirmOutcom
       const permission = await requestPhotoPermission();
       if (!permission.granted) { setPhotos([]); return; }
       // Fetch a larger batch and pick photos until we have a pool totaling ~BUDGET_TARGET_POOL_MB
-      const batch = await loadPhotoRound(24, { ...settings, cardsPerRound: 24, targetMode: "big-or-old", sessionMode: "classic" });
+      const batch = await loadPhotoRound(
+        24,
+        { ...settings, cardsPerRound: 24, targetMode: "big-or-old", sessionMode: "classic" },
+        { avoidIds },
+      );
       // Sort by size desc, accumulate until we hit target pool size
       const sorted = [...batch].sort((a, b) => b.sizeMB - a.sizeMB);
       const pool: NativePhoto[] = [];
@@ -1652,8 +1829,8 @@ function StorageBudgetScreen({ settings, trimsRemaining, onBack, onConfirmOutcom
 
 // ─── Memory Lane (FIX 4) ──────────────────────────────────────────────────────
 
-function MemoryLaneScreen({ settings, onBack, onConfirmOutcome }: {
-  settings: NativeSettings; onBack: () => void;
+function MemoryLaneScreen({ settings, avoidIds, onBack, onConfirmOutcome }: {
+  settings: NativeSettings; avoidIds: string[]; onBack: () => void;
   onConfirmOutcome: (kept: NativePhoto[], deleted: NativePhoto[]) => Promise<number>;
 }) {
   const [photos, setPhotos] = useState<NativePhoto[]>([]);
@@ -1674,7 +1851,11 @@ function MemoryLaneScreen({ settings, onBack, onConfirmOutcome }: {
     try {
       const permission = await requestPhotoPermission();
       if (!permission.granted) { setPhotos([]); return; }
-      const next = await loadPhotoRound(8, { ...settings, cardsPerRound: 8, targetMode: "old-only", sessionMode: "classic" });
+      const next = await loadPhotoRound(
+        8,
+        { ...settings, cardsPerRound: 8, targetMode: "old-only", sessionMode: "classic" },
+        { avoidIds },
+      );
       setPhotos(next);
       setIndex(0); setGuess(null); setKept([]); setDeleted([]); setRevealed(false);
       setOptions(next[0] ? yearOptions(next[0].year) : []);
@@ -1966,7 +2147,7 @@ function BooleanSetting({ label, detail, value, onChange }: { label: string; det
   );
 }
 
-function Segmented<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: Array<[T, string]>; onChange: (value: T) => void }) {
+function Segmented<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: [T, string][]; onChange: (value: T) => void }) {
   return (
     <View style={styles.settingCardVertical}>
       <Text style={styles.settingLabel}>{label}</Text>
@@ -2135,8 +2316,13 @@ const styles = StyleSheet.create({
   primaryGameBadgeText: { color: "#ffffff", fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
   primaryGameTitle: { color: "#ffffff", fontSize: 32, fontWeight: "900" },
   primaryGameDetail: { color: "#ffedd5", fontSize: 14, fontWeight: "800" },
-  gameCard: { minWidth: "47%", flexGrow: 1, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#fed7aa", padding: 15, gap: 6 },
+  gameCard: { width: "48%", minHeight: 134, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#fed7aa", padding: 14, gap: 10 },
   gameCardActive: { backgroundColor: "#ffedd5", borderColor: "#fb923c" },
+  gameIcon: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa" },
+  gameIconActive: { backgroundColor: "#fb923c", borderColor: "#fb923c" },
+  gameIconText: { color: "#c2410c", fontSize: 13, fontWeight: "900" },
+  gameIconTextActive: { color: "#ffffff" },
+  gameCopy: { gap: 4 },
   gameTitle: { color: "#1f2937", fontSize: 15, fontWeight: "900" },
   gameTitleActive: { color: "#9a3412" },
   gameDetail: { color: "#64748b", fontSize: 12, lineHeight: 17, fontWeight: "700" },
