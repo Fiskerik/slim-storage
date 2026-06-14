@@ -1,16 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Animated,
-  Easing,
+  Dimensions,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
-  Dimensions,
 } from "react-native";
-import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
