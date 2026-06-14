@@ -614,7 +614,7 @@ function relatedPairScore(a: MediaLibrary.Asset, b: MediaLibrary.Asset): number 
 export async function loadRelatedPhotoPairs(
   pairCount: number,
   settings: NativeSettings,
-): Promise<Array<[NativePhoto, NativePhoto]>> {
+): Promise<[NativePhoto, NativePhoto][]> {
   const requestedPairs = Math.max(1, pairCount);
   const page = await MediaLibrary.getAssetsAsync({
     first: Math.min(500, Math.max(160, requestedPairs * 36)),
@@ -626,7 +626,7 @@ export async function loadRelatedPhotoPairs(
   [...page.assets, ...smartAlbums].forEach((asset) => byId.set(asset.id, asset));
   const assets = [...byId.values()].sort((a, b) => b.creationTime - a.creationTime);
 
-  const candidates: Array<{ a: MediaLibrary.Asset; b: MediaLibrary.Asset; score: number }> = [];
+  const candidates: { a: MediaLibrary.Asset; b: MediaLibrary.Asset; score: number }[] = [];
   for (let i = 0; i < assets.length; i += 1) {
     for (let j = i + 1; j < Math.min(assets.length, i + 12); j += 1) {
       const gapMs = Math.abs(assets[i].creationTime - assets[j].creationTime);
@@ -636,7 +636,7 @@ export async function loadRelatedPhotoPairs(
     }
   }
 
-  const selectedAssets: Array<[MediaLibrary.Asset, MediaLibrary.Asset]> = [];
+  const selectedAssets: [MediaLibrary.Asset, MediaLibrary.Asset][] = [];
   const used = new Set<string>();
   candidates
     .sort((a, b) => b.score - a.score)
@@ -710,7 +710,7 @@ export async function loadPhotoRound(
   await upsertCache(fresh);
 
   const combined = [...cachedTargeted, ...fresh];
-  if (combined.length >= count || settings.targetMode === "balanced") return combined.slice(0, count);
+  if (combined.length >= count) return combined.slice(0, count);
 
   const usedIds = new Set(combined.map((photo) => photo.id));
   const fallback = shuffle(cache.photos.filter((photo) => !usedIds.has(photo.id) && !avoidIds.has(photo.id))).slice(
@@ -730,9 +730,20 @@ export async function loadPhotoRound(
   const broadFresh = await mapWithConcurrency(broadAssets, 3, (asset) => assetToPhoto(asset, duplicateLookup));
   await upsertCache(broadFresh);
   const toppedUp = [...next, ...broadFresh].slice(0, count);
-  if (toppedUp.length > 0) return toppedUp;
+  if (toppedUp.length >= count) return toppedUp;
 
-  return shuffle(cache.photos.filter((photo) => matchesPhotoSettings(photo, settings))).slice(0, count);
+  const relaxedCache = shuffle(cache.photos.filter((photo) => !new Set(toppedUp.map((item) => item.id)).has(photo.id)));
+  if (relaxedCache.length > 0) return [...toppedUp, ...relaxedCache].slice(0, count);
+
+  const relaxedAssets = chooseAssets(
+    assets.filter((asset) => !new Set(toppedUp.map((item) => item.id)).has(asset.id)),
+    count - toppedUp.length,
+    { ...settings, targetMode: "balanced" },
+    duplicateLookup,
+  );
+  const relaxedFresh = await mapWithConcurrency(relaxedAssets, 3, (asset) => assetToPhoto(asset, duplicateLookup));
+  await upsertCache(relaxedFresh);
+  return [...toppedUp, ...relaxedFresh].slice(0, count);
 }
 
 export async function deletePhotos(ids: string[]): Promise<{ deleted: number }> {
