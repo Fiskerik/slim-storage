@@ -44,8 +44,20 @@ import {
   type NativeStats,
   type NativeTargetMode,
 } from "../lib/native-store";
+import { HomeDashboard } from "./HomeDashboard";
+import { StatsDashboard } from "./StatsDashboard";
+import { OnboardingCarousel } from "./OnboardingCarousel";
+import { TrimScreen } from "./TrimScreen";
 
-type Screen = "games" | "swipe" | "this-or-that" | "storage-budget" | "memory-lane" | "stats" | "settings";
+type Screen =
+  | "games"
+  | "swipe"
+  | "this-or-that"
+  | "storage-budget"
+  | "memory-lane"
+  | "stats"
+  | "trim"
+  | "settings";
 type Action = "keep" | "trim" | "delete";
 
 type SessionRecap = {
