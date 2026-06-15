@@ -805,7 +805,7 @@ export function NativeTrimSwipeApp() {
       finishIfNeeded(rest);
       return rest;
     });
-    await Promise.all(candidates.map((photo) => trimPhoto(photo, settings.trimQuality)));
+    await commitTrims(candidates, settings.trimQuality).then((rs) => candidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
     setTrimmingCount((count) => Math.max(0, count - candidates.length));
     setBulkBusy(false);
   }
@@ -834,7 +834,7 @@ export function NativeTrimSwipeApp() {
             const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
             const deletedPhotos = deleted.slice(0, deleteResult.deleted);
             setTrimmingCount((count) => count + trimCandidates.length);
-            const results = await Promise.all(trimCandidates.map((photo) => trimPhoto(photo, settings.trimQuality)));
+            const results = await commitTrims(trimCandidates, settings.trimQuality).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
             setTrimmingCount((count) => Math.max(0, count - trimCandidates.length));
             const trimmed = trimCandidates.filter((_, index) => results[index]?.trimmed);
             const trimmedIds = new Set(trimmed.map((photo) => photo.id));
@@ -919,7 +919,7 @@ export function NativeTrimSwipeApp() {
               const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
               const deletedPhotos = deleted.slice(0, deleteResult.deleted);
               setTrimmingCount((count) => count + toTrim.length);
-              const trimResults = await Promise.all(toTrim.map((photo) => trimPhoto(photo, settings.trimQuality)));
+              const trimResults = await commitTrims(toTrim, settings.trimQuality).then((rs) => toTrim.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
               setTrimmingCount((count) => Math.max(0, count - toTrim.length));
               const trimmedPhotos = toTrim.filter((_, index) => trimResults[index]?.trimmed);
               const trimmedIds = new Set(trimmedPhotos.map((photo) => photo.id));
@@ -1000,7 +1000,7 @@ export function NativeTrimSwipeApp() {
               const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
               const deletedPhotos = deleted.slice(0, deleteResult.deleted);
               setTrimmingCount((count) => count + toTrim.length);
-              const trimResults = await Promise.all(toTrim.map((photo) => trimPhoto(photo, settings.trimQuality)));
+              const trimResults = await commitTrims(toTrim, settings.trimQuality).then((rs) => toTrim.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
               setTrimmingCount((count) => Math.max(0, count - toTrim.length));
               const trimmedPhotos = toTrim.filter((_, index) => trimResults[index]?.trimmed);
               const trimmedIds = new Set(trimmedPhotos.map((photo) => photo.id));
