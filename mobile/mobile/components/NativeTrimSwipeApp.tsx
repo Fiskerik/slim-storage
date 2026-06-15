@@ -1132,6 +1132,7 @@ export function NativeTrimSwipeApp() {
             settings={settings}
             recap={recap}
             pendingDeletes={pendingDeletes}
+            pendingTrims={pendingTrims}
             trimmingCount={trimmingCount}
             timeLeft={timeLeft}
             largeControls={settings.largeText}
@@ -1140,8 +1141,8 @@ export function NativeTrimSwipeApp() {
             onAction={handleAction}
             onReload={loadRound}
             onOpenSettings={() => Linking.openSettings()}
-            onConfirmDeletes={confirmDeletes}
-            onUndoDeletes={undoPendingDeletes}
+            onConfirmActions={confirmActions}
+            onCancelPending={cancelPendingActions}
             onShare={shareProgress}
           />
         ) : screen === "stats" ? (
