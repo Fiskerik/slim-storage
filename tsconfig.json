@@ -8,6 +8,7 @@
       "ES2020"
     ],
     "allowJs": false,
+    
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
@@ -20,9 +21,7 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "paths": {
-      "@/*": [
-        "src/*"
-      ]
+      "@/*": ["./src/*"]
     },
     "types": [
       "vite/client",
