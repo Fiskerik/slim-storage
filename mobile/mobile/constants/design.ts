@@ -76,24 +76,24 @@ export const type = {
 
 export const shadow = {
   card: {
-    shadowColor: "#9a3412",
-    shadowOpacity: 0.08,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
-  },
-  soft: {
-    shadowColor: "#9a3412",
+    shadowColor: "#1c1917",
     shadowOpacity: 0.05,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
     elevation: 2,
   },
+  soft: {
+    shadowColor: "#1c1917",
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 1,
+  },
   press: {
-    shadowColor: "#9a3412",
-    shadowOpacity: 0.18,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
+    shadowColor: "#f97316",
+    shadowOpacity: 0.22,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 12 },
     elevation: 6,
   },
 } as const;
