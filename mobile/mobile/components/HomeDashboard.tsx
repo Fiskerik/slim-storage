@@ -47,13 +47,19 @@ export type HomeDashboardProps = {
   potentialMB: number;
   scanBusy: boolean;
   scanInProgressText?: string;
+  tokens: number;
+  isPro: boolean;
+  adBusy?: boolean;
   onStartSwipe: () => void;
   onOpenTrim: () => void;
   onOpenGames: () => void;
+  onOpenShop: () => void;
+  onWatchAd: () => void;
   onQuickScan: () => void;
   onPickCategory: (key: Category["key"]) => void;
   onShare: () => void;
 };
+
 
 const CAT_DEFS: { key: Category["key"]; label: string; icon: keyof typeof Ionicons.glyphMap; match: (p: NativePhoto) => boolean; estPerPhoto?: number }[] = [
   { key: "large", label: "Large", icon: "albums-outline", match: (p) => p.sizeMB >= 4 },
