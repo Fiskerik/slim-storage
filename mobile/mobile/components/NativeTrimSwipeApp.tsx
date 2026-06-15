@@ -48,6 +48,10 @@ import { HomeDashboard } from "./HomeDashboard";
 import { StatsDashboard } from "./StatsDashboard";
 import { OnboardingCarousel } from "./OnboardingCarousel";
 import { TrimScreen } from "./TrimScreen";
+import { ShopScreen } from "./ShopScreen";
+import { subscribeTokens, spendTokens, REWARDED_AD_TOKENS } from "../lib/tokens";
+import { checkProStatus } from "../lib/purchases";
+import { showRewardedAd, initAds } from "../lib/ads";
 
 type Screen =
   | "games"
@@ -57,7 +61,9 @@ type Screen =
   | "memory-lane"
   | "stats"
   | "trim"
+  | "shop"
   | "settings";
+
 type Action = "keep" | "trim" | "delete";
 
 type SessionRecap = {
