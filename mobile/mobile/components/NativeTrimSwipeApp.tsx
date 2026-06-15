@@ -2423,11 +2423,13 @@ function BottomNav({ screen, onChange }: { screen: Screen; onChange: (screen: Sc
     <View style={styles.bottomNav}>
       <NavButton label="Swipe" active={screen === "swipe"} onPress={() => onChange("swipe")} />
       <NavButton label="Home" active={gamesActive} onPress={() => onChange("games")} />
+      <NavButton label="Shop" active={screen === "shop"} onPress={() => onChange("shop")} />
       <NavButton label="Stats" active={screen === "stats"} onPress={() => onChange("stats")} />
       <NavButton label="Settings" active={screen === "settings"} onPress={() => onChange("settings")} />
     </View>
   );
 }
+
 
 function NavButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
