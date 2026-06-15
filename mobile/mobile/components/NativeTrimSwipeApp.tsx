@@ -1221,17 +1221,19 @@ export function NativeTrimSwipeApp() {
 
 function SwipeScreen({
   top, next, queueCount, loading, error, permissionDenied, permissionLimited,
-  settings, recap, pendingDeletes, trimmingCount, timeLeft, largeControls,
+  settings, recap, pendingDeletes, pendingTrims, trimmingCount, timeLeft, largeControls,
   trimsRemaining, trimLimit, onAction, onReload, onOpenSettings,
-  onConfirmDeletes, onUndoDeletes, onShare,
+  onConfirmActions, onCancelPending, onShare,
 }: {
   top?: NativePhoto; next?: NativePhoto; queueCount: number; loading: boolean;
   error: string | null; permissionDenied: boolean; permissionLimited: boolean;
   settings: NativeSettings; recap: SessionRecap | null; pendingDeletes: NativePhoto[];
+  pendingTrims: NativePhoto[];
   trimmingCount: number; timeLeft: number; largeControls: boolean; trimsRemaining: number;
   trimLimit: number; onAction: (photo: NativePhoto, action: Action) => void;
   onReload: () => void; onOpenSettings: () => void;
-  onConfirmDeletes: (photos: NativePhoto[]) => void; onUndoDeletes: () => void;
+  onConfirmActions: (deletes: NativePhoto[], trims: NativePhoto[]) => Promise<void> | void;
+  onCancelPending: () => void;
   onShare: () => void;
 }) {
   if (loading) {
@@ -1252,8 +1254,15 @@ function SwipeScreen({
       </Centered>
     );
   }
-  if (pendingDeletes.length > 0 && !top) {
-    return <DeleteReview photos={pendingDeletes} onConfirm={() => onConfirmDeletes(pendingDeletes)} onCancel={onUndoDeletes} />;
+  if ((pendingDeletes.length > 0 || pendingTrims.length > 0) && !top) {
+    return (
+      <ConfirmActionsReview
+        deletes={pendingDeletes}
+        trims={pendingTrims}
+        onConfirm={(d, t) => onConfirmActions(d, t)}
+        onCancel={onCancelPending}
+      />
+    );
   }
   if (recap) {
     return <Recap recap={recap} onNext={onReload} onShare={onShare} />;
