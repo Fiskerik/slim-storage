@@ -4,6 +4,7 @@ const config: ExpoConfig = {
   name: "Trimswipe",
   slug: "slim-storage",
   version: "1.0.4",
+  icon: "./assets/images/icon-glassy-scissors-1024.png",
   orientation: "portrait",
   scheme: "trimswipe",
   userInterfaceStyle: "automatic",
