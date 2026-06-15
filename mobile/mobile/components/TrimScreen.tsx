@@ -140,12 +140,12 @@ export function TrimScreen({
     setBusy(true);
     setError(null);
     try {
-      const result = await trimPhoto(photo, preset.quality);
+      const result = await trimPhoto(photo, effectiveQuality);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       const saved = result.savedMB ?? estSaved;
       if (result.trimmed) {
         onTrimmed(photo, saved);
-        setTrimmedUri(photo.uri);
+        setJustTrimmed(true);
       } else {
         setError(result.error ?? "Could not trim this photo.");
       }
