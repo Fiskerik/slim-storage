@@ -2,13 +2,13 @@ import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
@@ -190,7 +190,7 @@ export function TrimScreen({
           </View>
         ) : (
           <View style={{ width, height }}>
-            <Image source={{ uri: photo.uri }} style={{ width, height }} contentFit="cover" transition={120} />
+            <Image source={{ uri: photo.uri }} style={{ width, height }} resizeMode="cover" />
             {justTrimmed ? (
               <View style={styles.trimmedBadge}>
                 <Ionicons name="checkmark-circle" size={14} color={colors.white} />

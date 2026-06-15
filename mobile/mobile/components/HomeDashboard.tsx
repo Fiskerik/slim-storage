@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Easing,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
@@ -226,7 +226,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                           zIndex: heroThumbs.length - i,
                         },
                       ]}
-                      contentFit="cover"
+                      resizeMode="cover"
                     />
                   ))
                 )}
@@ -421,7 +421,7 @@ function CategoryCard({ category, onPress }: { category: Category; onPress: () =
       <Animated.View style={[styles.catCard, { transform: [{ scale }] }]}>
         <View style={styles.catThumbWrap}>
           {category.thumb ? (
-            <Image source={{ uri: category.thumb }} style={styles.catThumb} contentFit="cover" />
+            <Image source={{ uri: category.thumb }} style={styles.catThumb} resizeMode="cover" />
           ) : (
             <View style={[styles.catThumb, styles.catThumbEmpty]}>
               <Ionicons name={category.icon} size={28} color={colors.primary} />

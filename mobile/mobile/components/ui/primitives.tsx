@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import {
   Animated,
   Easing,
+  Image,
   PanResponder,
   Pressable,
   StyleSheet,
@@ -12,7 +13,6 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
-import { Image } from "expo-image";
 import { colors, radius, shadow, spacing, type, motion } from "../../constants/design";
 
 // ─── Card ────────────────────────────────────────────────────────────────────
@@ -368,7 +368,7 @@ export function BeforeAfterSlider({
         backgroundColor: colors.cardSoft,
       }}
     >
-      <Image source={{ uri: afterUri ?? beforeUri }} style={{ width, height }} contentFit="cover" />
+      <Image source={{ uri: afterUri ?? beforeUri }} style={{ width, height }} resizeMode="cover" />
       <Animated.View
         style={{
           position: "absolute",
@@ -381,7 +381,7 @@ export function BeforeAfterSlider({
           borderRightColor: colors.white,
         }}
       >
-        <Image source={{ uri: beforeUri }} style={{ width, height }} contentFit="cover" />
+        <Image source={{ uri: beforeUri }} style={{ width, height }} resizeMode="cover" />
         <View style={[styles.sliderBadge, { left: 12 }]}>
           <Text style={styles.sliderBadgeText}>Before</Text>
         </View>

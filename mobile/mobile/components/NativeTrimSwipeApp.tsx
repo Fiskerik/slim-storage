@@ -1,4 +1,3 @@
-import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -8,6 +7,7 @@ import {
   Alert,
   Animated,
   Easing,
+  Image,
   Linking,
   Modal,
   PanResponder,
@@ -1455,7 +1455,7 @@ function PhotoCard({ photo, stacked, onOpenFull }: { photo: NativePhoto; stacked
   const Wrapper = onOpenFull ? Pressable : View;
   return (
     <Wrapper onLongPress={onOpenFull} delayLongPress={350} style={[styles.photoCard, stacked && styles.stackedCard]}>
-      <Image source={{ uri: photo.uri }} style={styles.photoImage} contentFit="cover" transition={120} />
+      <Image source={{ uri: photo.uri }} style={styles.photoImage} resizeMode="cover" />
       <View style={styles.photoShade} />
       <View style={styles.photoTop}>
         <Text style={styles.pill}>Delete saves {photo.sizeMB.toFixed(1)} MB</Text>
@@ -1538,7 +1538,7 @@ function ConfirmActionsReview({
   function renderRow(photo: NativePhoto, selected: boolean, onToggle: () => void, hint: string, move: "delete" | "trim") {
     return (
       <Pressable key={photo.id} onPress={onToggle} style={styles.reviewRow}>
-        <Image source={{ uri: photo.uri }} style={[styles.reviewThumb, !selected && { opacity: 0.4 }]} contentFit="cover" />
+        <Image source={{ uri: photo.uri }} style={[styles.reviewThumb, !selected && { opacity: 0.4 }]} resizeMode="cover" />
         <View style={styles.reviewCopy}>
           <Text style={[styles.reviewTitle, !selected && { textDecorationLine: "line-through", color: "#9ca3af" }]} numberOfLines={1}>
             {photo.title}
@@ -2010,7 +2010,7 @@ function GamesScreen({ stats, settings, queue, tokens, onStartGame, onOpenThisOr
                 key={photo.id}
                 source={{ uri: photo.uri }}
                 style={[styles.heroPhoto, index === 1 && styles.heroPhotoRaised]}
-                contentFit="cover"
+                resizeMode="cover"
               />
             ))
           ) : (
@@ -2069,7 +2069,7 @@ function VisualGameCard({ icon, title, detail, thumb, active, onPress }: {
     <Pressable onPress={onPress} style={[styles.visualGameCard, active && styles.visualGameCardActive]}>
       <View style={styles.visualGameImageWrap}>
         {thumb ? (
-          <Image source={{ uri: thumb }} style={styles.visualGameImage} contentFit="cover" />
+          <Image source={{ uri: thumb }} style={styles.visualGameImage} resizeMode="cover" />
         ) : (
           <View style={styles.visualGameFallback}>
             <Ionicons name={icon} size={28} color="#f97316" />
@@ -2122,7 +2122,7 @@ function LoserThumb({ photo, tone, onMove }: { photo: NativePhoto; tone: "delete
   return (
     <Animated.View {...panResponder.panHandlers} style={{ transform: [{ translateX: pan.x }, { translateY: pan.y }] }}>
       <Pressable onPress={onMove} style={styles.loserThumb}>
-        <Image source={{ uri: photo.uri }} style={styles.loserThumbImage} contentFit="cover" />
+        <Image source={{ uri: photo.uri }} style={styles.loserThumbImage} resizeMode="cover" />
         <Text style={styles.loserThumbText}>{tone === "delete" ? formatMB(photo.sizeMB) : `~${formatMB(estimateTrimSavings(photo))}`}</Text>
       </Pressable>
     </Animated.View>
@@ -2467,7 +2467,7 @@ function MemoryLaneScreen({ settings, tokens, avoidIds, trimsRemaining, onBack, 
     <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
       <MiniGameHeader title="Memory Lane" detail={`${index + 1}/${photos.length} memories`} tokens={tokens} onBack={onBack} />
       <Pressable onLongPress={() => setFullPhoto(photo)} delayLongPress={350} style={[styles.memoryCard, { borderColor: cardBorderColor, borderWidth: revealed ? 3 : StyleSheet.hairlineWidth }]}>
-        <Image source={{ uri: photo.uri }} style={styles.memoryImage} contentFit="cover" />
+        <Image source={{ uri: photo.uri }} style={styles.memoryImage} resizeMode="cover" />
         <View style={styles.photoShade} />
         <View style={styles.choiceFooter}>
           <Text style={styles.choiceTitle} numberOfLines={2}>{photo.title}</Text>
@@ -2534,7 +2534,7 @@ function TokenPill({ tokens }: { tokens: number }) {
 function ChoicePhoto({ photo, label, onPress, onLongPress }: { photo: NativePhoto; label: string; onPress: () => void; onLongPress: () => void }) {
   return (
     <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={350} style={styles.choicePhoto}>
-      <Image source={{ uri: photo.uri }} style={styles.choiceImage} contentFit="cover" />
+      <Image source={{ uri: photo.uri }} style={styles.choiceImage} resizeMode="cover" />
       <View style={styles.choiceShade} />
       <Text style={styles.choiceBadge}>{label}</Text>
       <View style={styles.choiceFooter}>
@@ -2548,7 +2548,7 @@ function ChoicePhoto({ photo, label, onPress, onLongPress }: { photo: NativePhot
 function BudgetPhotoTile({ photo, kept, onPress, onLongPress }: { photo: NativePhoto; kept: boolean; onPress: () => void; onLongPress: () => void }) {
   return (
     <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={350} style={[styles.budgetTile, kept && styles.budgetTileKept]}>
-      <Image source={{ uri: photo.uri }} style={styles.budgetImage} contentFit="cover" />
+      <Image source={{ uri: photo.uri }} style={styles.budgetImage} resizeMode="cover" />
       <View style={styles.choiceShade} />
       <Text style={[styles.budgetStatus, kept && styles.budgetStatusKept]}>{kept ? "Keep" : "Cut"}</Text>
       <Text style={styles.budgetSize}>{formatMB(photo.sizeMB)}</Text>
@@ -2565,7 +2565,7 @@ function FullPhotoModal({ photo, onClose }: { photo: NativePhoto | null; onClose
         </Pressable>
         {photo ? (
           <>
-            <Image source={{ uri: photo.uri }} style={styles.fullPhotoImage} contentFit="contain" />
+            <Image source={{ uri: photo.uri }} style={styles.fullPhotoImage} resizeMode="contain" />
             <View style={styles.fullPhotoCaption}>
               <Text style={styles.fullPhotoTitle} numberOfLines={1}>{photo.title}</Text>
               <Text style={styles.fullPhotoMeta}>{photo.month} {photo.year} - {formatMB(photo.sizeMB)}</Text>
@@ -2580,7 +2580,7 @@ function FullPhotoModal({ photo, onClose }: { photo: NativePhoto | null; onClose
 function QueuePhotoRow({ photo }: { photo: NativePhoto }) {
   return (
     <View style={styles.reviewRow}>
-      <Image source={{ uri: photo.uri }} style={styles.reviewThumb} contentFit="cover" />
+      <Image source={{ uri: photo.uri }} style={styles.reviewThumb} resizeMode="cover" />
       <View style={styles.reviewCopy}>
         <Text style={styles.reviewTitle} numberOfLines={1}>{photo.title}</Text>
         <Text style={styles.mutedSmall}>{formatMB(photo.sizeMB)} - trim ~{formatMB(estimateTrimSavings(photo))}</Text>
@@ -2673,7 +2673,7 @@ function QualityPreview({ photo, currentQuality }: { photo?: NativePhoto; curren
           <Text style={styles.settingLabel}>Trim quality preview</Text>
           <Text style={styles.mutedSmall}>{photo ? photo.title : "Load a deck to preview with one of your photos."}</Text>
         </View>
-        {photo ? <Image source={{ uri: photo.uri }} style={styles.qualityThumb} contentFit="cover" /> : null}
+        {photo ? <Image source={{ uri: photo.uri }} style={styles.qualityThumb} resizeMode="cover" /> : null}
       </View>
       {variants.map((variant) => {
         const projectedSize = variant.quality === 1 ? baseSize : baseSize * (0.45 + variant.quality * 0.45);

@@ -6,7 +6,6 @@ import {
   Text,
   View,
 } from "react-native";
-import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 
 import { colors, radius, shadow, spacing, type } from "../constants/design";

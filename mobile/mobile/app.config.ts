@@ -45,7 +45,6 @@ const config: ExpoConfig = {
         isAccessMediaLocationEnabled: true,
       },
     ],
-    "expo-image",
     "expo-web-browser",
     [
       "react-native-google-mobile-ads",

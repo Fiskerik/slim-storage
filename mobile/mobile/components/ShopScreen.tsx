@@ -152,7 +152,7 @@ export function ShopScreen({ onBack }: ShopScreenProps) {
           <Card style={[styles.proCard]} tone="warm">
             <View style={{ flex: 1 }}>
               <Text style={type.eyebrow}>Lifetime Pro</Text>
-              <Text style={styles.proTitle}>You're all set</Text>
+              <Text style={styles.proTitle}>{"You're all set"}</Text>
               <Text style={styles.proSub}>Unlimited trims · no ads · forever</Text>
             </View>
             <Ionicons name="diamond" size={28} color={colors.primary} />
