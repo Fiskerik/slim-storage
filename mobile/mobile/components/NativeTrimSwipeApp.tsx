@@ -1136,6 +1136,8 @@ export function NativeTrimSwipeApp() {
             onBack={() => setScreen("games")}
             onTrimmed={handleSingleTrimComplete}
           />
+        ) : screen === "shop" ? (
+          <ShopScreen onBack={() => setScreen("games")} />
         ) : screen === "games" ? (
           <HomeDashboard
             stats={stats}
@@ -1145,9 +1147,14 @@ export function NativeTrimSwipeApp() {
             totalFreedMB={stats.mbFreed}
             potentialMB={potentialFromScan}
             scanBusy={scanBusy}
+            tokens={tokenBalance}
+            isPro={isPro}
+            adBusy={adBusy}
             onStartSwipe={() => { setScreen("swipe"); void loadRound(); }}
             onOpenTrim={() => setScreen("trim")}
             onOpenGames={() => setScreen("this-or-that")}
+            onOpenShop={() => setScreen("shop")}
+            onWatchAd={handleWatchAd}
             onQuickScan={runLibraryScan}
             onPickCategory={pickCategoryStart}
             onShare={shareProgress}
@@ -1155,6 +1162,7 @@ export function NativeTrimSwipeApp() {
         ) : (
           <SettingsScreen settings={settings} samplePhoto={top ?? queue[0]} onChange={updateSettings} onReload={loadRound} />
         )}
+
         {statsLoaded && stats.onboardingComplete ? <BottomNav screen={screen} onChange={setScreen} /> : null}
       </View>
     </SafeAreaView>
