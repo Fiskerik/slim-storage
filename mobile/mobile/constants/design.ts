@@ -4,33 +4,34 @@
  */
 
 export const colors = {
-  background: "#fff7ed",
-  backgroundAlt: "#fffaf3",
+  // Lightweight "boxed" theme — airy white canvas with orange accents.
+  background: "#fbfaf9",
+  backgroundAlt: "#ffffff",
   card: "#ffffff",
-  cardSoft: "#fff1e3",
-  border: "#fed7aa",
-  borderSoft: "#fde6cf",
+  cardSoft: "#fffaf4",
+  border: "#f1ece6",
+  borderSoft: "#f6f1ea",
 
-  text: "#1f2937",
-  textMuted: "#64748b",
-  textSubtle: "#94a3b8",
+  text: "#1c1917",
+  textMuted: "#78716c",
+  textSubtle: "#a8a29e",
 
-  primary: "#c2410c", // terracotta deep
-  primaryBright: "#f97316",
-  primarySoft: "#ffedd5",
-  primaryGlow: "#fb923c",
+  primary: "#f97316", // bright orange accent
+  primaryBright: "#fb923c",
+  primarySoft: "#fff4e8",
+  primaryGlow: "#fdba74",
 
   sage: "#65a30d",
-  sageSoft: "#dcfce7",
+  sageSoft: "#ecfccb",
   sageDeep: "#3f6212",
 
   honey: "#d97706",
   honeySoft: "#fef3c7",
 
-  danger: "#dc2626",
+  danger: "#ef4444",
   dangerSoft: "#fee2e2",
 
-  info: "#0369a1",
+  info: "#0ea5e9",
   infoSoft: "#e0f2fe",
 
   white: "#ffffff",
@@ -75,24 +76,24 @@ export const type = {
 
 export const shadow = {
   card: {
-    shadowColor: "#9a3412",
-    shadowOpacity: 0.08,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
-  },
-  soft: {
-    shadowColor: "#9a3412",
+    shadowColor: "#1c1917",
     shadowOpacity: 0.05,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
     elevation: 2,
   },
+  soft: {
+    shadowColor: "#1c1917",
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 1,
+  },
   press: {
-    shadowColor: "#9a3412",
-    shadowOpacity: 0.18,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
+    shadowColor: "#f97316",
+    shadowOpacity: 0.22,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 12 },
     elevation: 6,
   },
 } as const;

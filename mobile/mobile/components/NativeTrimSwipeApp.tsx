@@ -19,13 +19,13 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
+  commitTrims,
   deletePhotos,
   estimateTrimSavings,
   loadRelatedPhotoPairs,
   loadPhotoRound,
   requestPhotoPermission,
   scanPhotoLibrary,
-  trimPhoto,
   type NativeLibraryScan,
   type NativeLibraryScanProgress,
   type NativePhoto,
@@ -48,6 +48,10 @@ import { HomeDashboard } from "./HomeDashboard";
 import { StatsDashboard } from "./StatsDashboard";
 import { OnboardingCarousel } from "./OnboardingCarousel";
 import { TrimScreen } from "./TrimScreen";
+import { ShopScreen } from "./ShopScreen";
+import { subscribeTokens, spendTokens, REWARDED_AD_TOKENS } from "../lib/tokens";
+import { checkProStatus } from "../lib/purchases";
+import { showRewardedAd, initAds } from "../lib/ads";
 
 type Screen =
   | "games"
@@ -57,7 +61,9 @@ type Screen =
   | "memory-lane"
   | "stats"
   | "trim"
+  | "shop"
   | "settings";
+
 type Action = "keep" | "trim" | "delete";
 
 type SessionRecap = {
@@ -437,6 +443,11 @@ export function NativeTrimSwipeApp() {
   const [scanError, setScanError] = useState<string | null>(null);
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
   const pendingDeletesRef = useRef<NativePhoto[]>([]);
+  const pendingTrimsRef = useRef<NativePhoto[]>([]);
+  const [pendingTrims, setPendingTrims] = useState<NativePhoto[]>([]);
+  const [tokenBalance, setTokenBalance] = useState<number>(10);
+  const [isPro, setIsPro] = useState(false);
+  const [adBusy, setAdBusy] = useState(false);
 
   const settings = roundSettings(stats.settings);
   const top = queue[0];
@@ -453,6 +464,32 @@ export function NativeTrimSwipeApp() {
     });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    const unsub = subscribeTokens((s) => setTokenBalance(s.tokens));
+    void checkProStatus().then(setIsPro).catch(() => {});
+    void initAds().catch(() => {});
+    return () => unsub();
+  }, []);
+
+  async function handleWatchAd() {
+    if (adBusy) return;
+    setAdBusy(true);
+    try {
+      const got = await showRewardedAd();
+      if (got > 0) {
+        Alert.alert("Thanks!", `+${got} Trim Tokens added.`);
+      } else {
+        Alert.alert("No ad available", "Please try again in a moment.");
+      }
+    } finally {
+      setAdBusy(false);
+    }
+  }
+
+  void REWARDED_AD_TOKENS; // silence unused if only used in handler
+  void spendTokens; // exported for future swipe/trim wiring
+
 
   function commitStats(updater: (current: NativeStats) => NativeStats) {
     setStats((current) => {
@@ -508,8 +545,10 @@ export function NativeTrimSwipeApp() {
     setError(null);
     setRecap(null);
     setPendingDeletes([]);
+    setPendingTrims([]);
     setTimeLeft(activeSettings.sessionMode === "time-attack" ? TIME_ATTACK_SECONDS : 0);
     pendingDeletesRef.current = [];
+    pendingTrimsRef.current = [];
     sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
     try {
       const permission = await requestPhotoPermission();
@@ -563,7 +602,7 @@ export function NativeTrimSwipeApp() {
     commitStats((current) =>
       withDailyActivity({ ...current, sessions: current.sessions + 1 }, { sessions: 1 }),
     );
-    if (pendingDeletesRef.current.length > 0) return;
+    if (pendingDeletesRef.current.length > 0 || pendingTrimsRef.current.length > 0) return;
     if (settings.sessionMode === "endless") {
       void loadRound();
       return;
@@ -607,22 +646,11 @@ export function NativeTrimSwipeApp() {
       pendingDeletesRef.current = [...pendingDeletesRef.current, photo];
       setPendingDeletes(pendingDeletesRef.current);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      commitStats((current) =>
-        appendActionLog(
-          withRecentlySeenPhotos(
-            withDailyActivity(
-            { ...current, reviewed: current.reviewed + 1, deleted: current.deleted + 1, mbFreed: +(current.mbFreed + photo.sizeMB).toFixed(2), deleteMbFreed: +(current.deleteMbFreed + photo.sizeMB).toFixed(2) },
-            { reviewed: 1, deleted: 1, mbFreed: photo.sizeMB, deleteMbFreed: photo.sizeMB },
-            ),
-            [photo],
-          ),
-          createActionLogEntry(photo, "delete", photo.sizeMB),
-        ),
-      );
+      // Stats commit happens in confirmActions so users can deselect items.
       advance();
       return;
     }
-    if (trimsRemainingToday <= 0) {
+    if (trimsRemainingToday - pendingTrimsRef.current.length <= 0) {
       Alert.alert("Daily trim limit reached", `Free accounts can trim ${FREE_DAILY_TRIM_LIMIT} photos per day. Keep reviewing or delete photos today, and trims reset tomorrow.`);
       return;
     }
@@ -630,54 +658,106 @@ export function NativeTrimSwipeApp() {
     session.trimmed += 1;
     session.freed += estimated;
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    commitStats((current) =>
-      appendActionLog(
-        withRecentlySeenPhotos(
-          withDailyActivity(
-          { ...current, reviewed: current.reviewed + 1, trimmed: current.trimmed + 1, mbFreed: +(current.mbFreed + estimated).toFixed(2), trimMbFreed: +(current.trimMbFreed + estimated).toFixed(2) },
-          { reviewed: 1, trimmed: 1, mbFreed: estimated, trimMbFreed: estimated },
-          ),
-          [photo],
-        ),
-        createActionLogEntry(photo, "trim", estimated),
-      ),
-    );
-    setTrimmingCount((count) => count + 1);
-    void trimPhoto(photo, settings.trimQuality)
-      .then((result) => {
-        if (!result.trimmed && result.error) {
-          console.log("[NativeTrimSwipe] Trim skipped", { id: photo.id, error: result.error });
-        }
-      })
-      .finally(() => setTrimmingCount((count) => Math.max(0, count - 1)));
+    // Defer the actual trim to the end-of-set confirmation step so users
+    // aren't interrupted with iOS delete dialogs after every swipe.
+    pendingTrimsRef.current = [...pendingTrimsRef.current, photo];
+    setPendingTrims(pendingTrimsRef.current);
     advance();
   }
 
-  async function confirmDeletes(photos: NativePhoto[]) {
+  async function confirmActions(deletes: NativePhoto[], trims: NativePhoto[]) {
     setLoading(true);
-    const result = await deletePhotos(photos.map((photo) => photo.id));
-    setLoading(false);
-    if (result.deleted !== photos.length) {
-      Alert.alert("Delete failed", "Some photos could not be moved to Recently Deleted.");
+    const requestedTrimIds = new Set(trims.map((p) => p.id));
+    const requestedDeleteIds = new Set(deletes.map((p) => p.id));
+
+    let deletedCount = 0;
+    if (deletes.length > 0) {
+      const res = await deletePhotos(deletes.map((p) => p.id));
+      deletedCount = res.deleted;
     }
-    setPendingDeletes([]);
-    pendingDeletesRef.current = [];
+
+    let trimmedResults: Array<{ id: string; trimmed: boolean; savedMB?: number }> = [];
+    if (trims.length > 0) {
+      trimmedResults = await commitTrims(trims, settings.trimQuality);
+    }
+    const trimmedOkIds = new Set(trimmedResults.filter((r) => r.trimmed).map((r) => r.id));
+    const actualTrimSaved = trimmedResults.reduce(
+      (sum, r, i) => (r.trimmed ? sum + (r.savedMB ?? estimateTrimSavings(trims[i])) : sum),
+      0,
+    );
+
+    // Commit stats for confirmed actions only.
+    commitStats((current) => {
+      const reviewed = deletedCount + trimmedOkIds.size;
+      const deleteSaved = deletes.slice(0, deletedCount).reduce((s, p) => s + p.sizeMB, 0);
+      let next = withDailyActivity(
+        {
+          ...current,
+          reviewed: current.reviewed + reviewed,
+          deleted: current.deleted + deletedCount,
+          trimmed: current.trimmed + trimmedOkIds.size,
+          mbFreed: +(current.mbFreed + deleteSaved + actualTrimSaved).toFixed(2),
+          deleteMbFreed: +(current.deleteMbFreed + deleteSaved).toFixed(2),
+          trimMbFreed: +(current.trimMbFreed + actualTrimSaved).toFixed(2),
+        },
+        {
+          reviewed,
+          deleted: deletedCount,
+          trimmed: trimmedOkIds.size,
+          mbFreed: deleteSaved + actualTrimSaved,
+          deleteMbFreed: deleteSaved,
+          trimMbFreed: actualTrimSaved,
+        },
+      );
+      next = withRecentlySeenPhotos(next, [...deletes.slice(0, deletedCount), ...trims.filter((p) => trimmedOkIds.has(p.id))]);
+      for (const p of deletes.slice(0, deletedCount)) {
+        next = appendActionLog(next, createActionLogEntry(p, "delete", p.sizeMB));
+      }
+      for (const p of trims.filter((tp) => trimmedOkIds.has(tp.id))) {
+        next = appendActionLog(next, createActionLogEntry(p, "trim", estimateTrimSavings(p)));
+      }
+      return next;
+    });
+
+    // Recompute session recap to reflect actual outcomes.
+    sessionRef.current = {
+      kept: sessionRef.current.kept,
+      trimmed: trimmedOkIds.size,
+      deleted: deletedCount,
+      freed: +(deletes.slice(0, deletedCount).reduce((s, p) => s + p.sizeMB, 0) + actualTrimSaved).toFixed(2),
+    };
+
+    setLoading(false);
+    if (deletedCount !== deletes.length || trimmedOkIds.size !== trims.length) {
+      Alert.alert(
+        "Some actions skipped",
+        `${deletedCount}/${deletes.length} deleted and ${trimmedOkIds.size}/${trims.length} trimmed.`,
+      );
+    }
+    // Clear any items the user deselected from the pending queues too.
+    pendingDeletesRef.current = pendingDeletesRef.current.filter(
+      (p) => !requestedDeleteIds.has(p.id),
+    );
+    pendingTrimsRef.current = pendingTrimsRef.current.filter(
+      (p) => !requestedTrimIds.has(p.id),
+    );
+    setPendingDeletes(pendingDeletesRef.current);
+    setPendingTrims(pendingTrimsRef.current);
     setRecap({ ...sessionRef.current });
   }
 
-  function undoPendingDeletes() {
-    const photos = pendingDeletesRef.current;
-    setPendingDeletes([]);
+  function cancelPendingActions() {
     pendingDeletesRef.current = [];
-    sessionRef.current.deleted = Math.max(0, sessionRef.current.deleted - photos.length);
-    sessionRef.current.freed = Math.max(0, sessionRef.current.freed - photos.reduce((sum, photo) => sum + photo.sizeMB, 0));
-    const restoredMB = photos.reduce((sum, photo) => sum + photo.sizeMB, 0);
-    commitStats((current) =>
-      withDailyActivity(
-        { ...current, deleted: Math.max(0, current.deleted - photos.length), mbFreed: Math.max(0, +(current.mbFreed - restoredMB).toFixed(2)), deleteMbFreed: Math.max(0, +(current.deleteMbFreed - restoredMB).toFixed(2)) },
-        { deleted: -photos.length, mbFreed: -restoredMB, deleteMbFreed: -restoredMB },
-      ),
-    );
+    pendingTrimsRef.current = [];
+    setPendingDeletes([]);
+    setPendingTrims([]);
+    // Reset session totals since none of the pending actions were applied.
+    sessionRef.current = {
+      kept: sessionRef.current.kept,
+      trimmed: 0,
+      deleted: 0,
+      freed: 0,
+    };
     setRecap({ ...sessionRef.current });
   }
 
@@ -724,7 +804,7 @@ export function NativeTrimSwipeApp() {
       finishIfNeeded(rest);
       return rest;
     });
-    await Promise.all(candidates.map((photo) => trimPhoto(photo, settings.trimQuality)));
+    await commitTrims(candidates, settings.trimQuality).then((rs) => candidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
     setTrimmingCount((count) => Math.max(0, count - candidates.length));
     setBulkBusy(false);
   }
@@ -753,7 +833,7 @@ export function NativeTrimSwipeApp() {
             const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
             const deletedPhotos = deleted.slice(0, deleteResult.deleted);
             setTrimmingCount((count) => count + trimCandidates.length);
-            const results = await Promise.all(trimCandidates.map((photo) => trimPhoto(photo, settings.trimQuality)));
+            const results = await commitTrims(trimCandidates, settings.trimQuality).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
             setTrimmingCount((count) => Math.max(0, count - trimCandidates.length));
             const trimmed = trimCandidates.filter((_, index) => results[index]?.trimmed);
             const trimmedIds = new Set(trimmed.map((photo) => photo.id));
@@ -838,7 +918,7 @@ export function NativeTrimSwipeApp() {
               const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
               const deletedPhotos = deleted.slice(0, deleteResult.deleted);
               setTrimmingCount((count) => count + toTrim.length);
-              const trimResults = await Promise.all(toTrim.map((photo) => trimPhoto(photo, settings.trimQuality)));
+              const trimResults = await commitTrims(toTrim, settings.trimQuality).then((rs) => toTrim.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
               setTrimmingCount((count) => Math.max(0, count - toTrim.length));
               const trimmedPhotos = toTrim.filter((_, index) => trimResults[index]?.trimmed);
               const trimmedIds = new Set(trimmedPhotos.map((photo) => photo.id));
@@ -919,7 +999,7 @@ export function NativeTrimSwipeApp() {
               const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
               const deletedPhotos = deleted.slice(0, deleteResult.deleted);
               setTrimmingCount((count) => count + toTrim.length);
-              const trimResults = await Promise.all(toTrim.map((photo) => trimPhoto(photo, settings.trimQuality)));
+              const trimResults = await commitTrims(toTrim, settings.trimQuality).then((rs) => toTrim.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
               setTrimmingCount((count) => Math.max(0, count - toTrim.length));
               const trimmedPhotos = toTrim.filter((_, index) => trimResults[index]?.trimmed);
               const trimmedIds = new Set(trimmedPhotos.map((photo) => photo.id));
@@ -1051,6 +1131,7 @@ export function NativeTrimSwipeApp() {
             settings={settings}
             recap={recap}
             pendingDeletes={pendingDeletes}
+            pendingTrims={pendingTrims}
             trimmingCount={trimmingCount}
             timeLeft={timeLeft}
             largeControls={settings.largeText}
@@ -1059,8 +1140,8 @@ export function NativeTrimSwipeApp() {
             onAction={handleAction}
             onReload={loadRound}
             onOpenSettings={() => Linking.openSettings()}
-            onConfirmDeletes={confirmDeletes}
-            onUndoDeletes={undoPendingDeletes}
+            onConfirmActions={confirmActions}
+            onCancelPending={cancelPendingActions}
             onShare={shareProgress}
           />
         ) : screen === "stats" ? (
@@ -1098,9 +1179,12 @@ export function NativeTrimSwipeApp() {
             trimsRemaining={trimsRemainingToday}
             trimLimit={FREE_DAILY_TRIM_LIMIT}
             avoidIds={recentSelectionIds(stats)}
+            isPro={isPro}
             onBack={() => setScreen("games")}
             onTrimmed={handleSingleTrimComplete}
           />
+        ) : screen === "shop" ? (
+          <ShopScreen onBack={() => setScreen("games")} />
         ) : screen === "games" ? (
           <HomeDashboard
             stats={stats}
@@ -1110,9 +1194,14 @@ export function NativeTrimSwipeApp() {
             totalFreedMB={stats.mbFreed}
             potentialMB={potentialFromScan}
             scanBusy={scanBusy}
+            tokens={tokenBalance}
+            isPro={isPro}
+            adBusy={adBusy}
             onStartSwipe={() => { setScreen("swipe"); void loadRound(); }}
             onOpenTrim={() => setScreen("trim")}
             onOpenGames={() => setScreen("this-or-that")}
+            onOpenShop={() => setScreen("shop")}
+            onWatchAd={handleWatchAd}
             onQuickScan={runLibraryScan}
             onPickCategory={pickCategoryStart}
             onShare={shareProgress}
@@ -1120,6 +1209,7 @@ export function NativeTrimSwipeApp() {
         ) : (
           <SettingsScreen settings={settings} samplePhoto={top ?? queue[0]} onChange={updateSettings} onReload={loadRound} />
         )}
+
         {statsLoaded && stats.onboardingComplete ? <BottomNav screen={screen} onChange={setScreen} /> : null}
       </View>
     </SafeAreaView>
@@ -1131,17 +1221,19 @@ export function NativeTrimSwipeApp() {
 
 function SwipeScreen({
   top, next, queueCount, loading, error, permissionDenied, permissionLimited,
-  settings, recap, pendingDeletes, trimmingCount, timeLeft, largeControls,
+  settings, recap, pendingDeletes, pendingTrims, trimmingCount, timeLeft, largeControls,
   trimsRemaining, trimLimit, onAction, onReload, onOpenSettings,
-  onConfirmDeletes, onUndoDeletes, onShare,
+  onConfirmActions, onCancelPending, onShare,
 }: {
   top?: NativePhoto; next?: NativePhoto; queueCount: number; loading: boolean;
   error: string | null; permissionDenied: boolean; permissionLimited: boolean;
   settings: NativeSettings; recap: SessionRecap | null; pendingDeletes: NativePhoto[];
+  pendingTrims: NativePhoto[];
   trimmingCount: number; timeLeft: number; largeControls: boolean; trimsRemaining: number;
   trimLimit: number; onAction: (photo: NativePhoto, action: Action) => void;
   onReload: () => void; onOpenSettings: () => void;
-  onConfirmDeletes: (photos: NativePhoto[]) => void; onUndoDeletes: () => void;
+  onConfirmActions: (deletes: NativePhoto[], trims: NativePhoto[]) => Promise<void> | void;
+  onCancelPending: () => void;
   onShare: () => void;
 }) {
   if (loading) {
@@ -1162,8 +1254,15 @@ function SwipeScreen({
       </Centered>
     );
   }
-  if (pendingDeletes.length > 0 && !top) {
-    return <DeleteReview photos={pendingDeletes} onConfirm={() => onConfirmDeletes(pendingDeletes)} onCancel={onUndoDeletes} />;
+  if ((pendingDeletes.length > 0 || pendingTrims.length > 0) && !top) {
+    return (
+      <ConfirmActionsReview
+        deletes={pendingDeletes}
+        trims={pendingTrims}
+        onConfirm={(d, t) => onConfirmActions(d, t)}
+        onCancel={onCancelPending}
+      />
+    );
   }
   if (recap) {
     return <Recap recap={recap} onNext={onReload} onShare={onShare} />;
@@ -1256,25 +1355,95 @@ function PhotoCard({ photo, stacked }: { photo: NativePhoto; stacked?: boolean }
   );
 }
 
-// FIX 2: Add proper bottom padding so delete list isn't obscured by nav bar
-function DeleteReview({ photos, onConfirm, onCancel }: { photos: NativePhoto[]; onConfirm: () => void; onCancel: () => void }) {
-  const total = photos.reduce((sum, photo) => sum + photo.sizeMB, 0);
+// Lets the user deselect any items they no longer want to delete or trim
+// before applying the actions in a single batch (one iOS confirmation).
+function ConfirmActionsReview({
+  deletes,
+  trims,
+  onConfirm,
+  onCancel,
+}: {
+  deletes: NativePhoto[];
+  trims: NativePhoto[];
+  onConfirm: (deletes: NativePhoto[], trims: NativePhoto[]) => void;
+  onCancel: () => void;
+}) {
+  const [selectedDeletes, setSelectedDeletes] = useState<Set<string>>(
+    () => new Set(deletes.map((p) => p.id)),
+  );
+  const [selectedTrims, setSelectedTrims] = useState<Set<string>>(
+    () => new Set(trims.map((p) => p.id)),
+  );
+
+  const chosenDeletes = deletes.filter((p) => selectedDeletes.has(p.id));
+  const chosenTrims = trims.filter((p) => selectedTrims.has(p.id));
+  const deleteMB = chosenDeletes.reduce((s, p) => s + p.sizeMB, 0);
+  const trimMB = chosenTrims.reduce((s, p) => s + estimateTrimSavings(p), 0);
+  const total = deleteMB + trimMB;
+  const nothingSelected = chosenDeletes.length + chosenTrims.length === 0;
+
+  function toggle(set: Set<string>, setter: (s: Set<string>) => void, id: string) {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setter(next);
+  }
+
+  function renderRow(photo: NativePhoto, selected: boolean, onToggle: () => void, hint: string) {
+    return (
+      <Pressable key={photo.id} onPress={onToggle} style={styles.reviewRow}>
+        <Image source={{ uri: photo.uri }} style={[styles.reviewThumb, !selected && { opacity: 0.4 }]} contentFit="cover" />
+        <View style={styles.reviewCopy}>
+          <Text style={[styles.reviewTitle, !selected && { textDecorationLine: "line-through", color: "#9ca3af" }]} numberOfLines={1}>
+            {photo.title}
+          </Text>
+          <Text style={styles.mutedSmall}>{hint}</Text>
+        </View>
+        <View style={[styles.checkbox, selected && styles.checkboxOn]}>
+          {selected ? <Text style={styles.checkboxMark}>✓</Text> : null}
+        </View>
+      </Pressable>
+    );
+  }
+
   return (
     <View style={styles.content}>
-      <Text style={styles.heroTitle}>Confirm deletion</Text>
-      <Text style={styles.muted}>{photos.length} photo{photos.length === 1 ? "" : "s"} will move to Recently Deleted.</Text>
+      <Text style={styles.heroTitle}>Confirm actions</Text>
+      <Text style={styles.muted}>
+        Tap any row to deselect. {chosenDeletes.length} to delete · {chosenTrims.length} to trim · ~{formatMB(total)} saved.
+      </Text>
       <ScrollView style={styles.reviewList} contentContainerStyle={styles.reviewListContent}>
-        {photos.map((photo) => (
-          <View key={photo.id} style={styles.reviewRow}>
-            <Image source={{ uri: photo.uri }} style={styles.reviewThumb} contentFit="cover" />
-            <View style={styles.reviewCopy}>
-              <Text style={styles.reviewTitle} numberOfLines={1}>{photo.title}</Text>
-              <Text style={styles.mutedSmall}>{photo.sizeMB.toFixed(1)} MB</Text>
-            </View>
-          </View>
-        ))}
+        {trims.length > 0 ? (
+          <Text style={[styles.eyebrow, { marginBottom: 6 }]}>Trim ({chosenTrims.length}/{trims.length})</Text>
+        ) : null}
+        {trims.map((photo) =>
+          renderRow(
+            photo,
+            selectedTrims.has(photo.id),
+            () => toggle(selectedTrims, setSelectedTrims, photo.id),
+            `Trim · saves ~${estimateTrimSavings(photo).toFixed(1)} MB`,
+          ),
+        )}
+        {deletes.length > 0 ? (
+          <Text style={[styles.eyebrow, { marginTop: trims.length > 0 ? 14 : 0, marginBottom: 6 }]}>
+            Delete ({chosenDeletes.length}/{deletes.length})
+          </Text>
+        ) : null}
+        {deletes.map((photo) =>
+          renderRow(
+            photo,
+            selectedDeletes.has(photo.id),
+            () => toggle(selectedDeletes, setSelectedDeletes, photo.id),
+            `${photo.sizeMB.toFixed(1)} MB`,
+          ),
+        )}
       </ScrollView>
-      <PrimaryButton label={`Delete ${formatMB(total)}`} danger onPress={onConfirm} />
+      <PrimaryButton
+        label={nothingSelected ? "Nothing selected" : `Apply · save ${formatMB(total)}`}
+        danger={chosenDeletes.length > 0}
+        disabled={nothingSelected}
+        onPress={() => onConfirm(chosenDeletes, chosenTrims)}
+      />
       <SecondaryButton label="Keep them all" onPress={onCancel} />
     </View>
   );
@@ -2380,11 +2549,13 @@ function BottomNav({ screen, onChange }: { screen: Screen; onChange: (screen: Sc
     <View style={styles.bottomNav}>
       <NavButton label="Swipe" active={screen === "swipe"} onPress={() => onChange("swipe")} />
       <NavButton label="Home" active={gamesActive} onPress={() => onChange("games")} />
+      <NavButton label="Shop" active={screen === "shop"} onPress={() => onChange("shop")} />
       <NavButton label="Stats" active={screen === "stats"} onPress={() => onChange("stats")} />
       <NavButton label="Settings" active={screen === "settings"} onPress={() => onChange("settings")} />
     </View>
   );
 }
+
 
 function NavButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
@@ -2537,6 +2708,12 @@ const styles = StyleSheet.create({
   reviewListContent: { paddingBottom: 16 },
   reviewRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: "#ffffff", padding: 10, marginBottom: 8 },
   reviewThumb: { width: 58, height: 58, borderRadius: 14 },
+  checkbox: {
+    width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: "#d1d5db",
+    alignItems: "center", justifyContent: "center", backgroundColor: "#fff",
+  },
+  checkboxOn: { backgroundColor: "#f97316", borderColor: "#f97316" },
+  checkboxMark: { color: "#fff", fontWeight: "900", fontSize: 14 },
   reviewCopy: { flex: 1 },
   reviewTitle: { color: "#1f2937", fontSize: 14, fontWeight: "800" },
   actionLogRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 12 },

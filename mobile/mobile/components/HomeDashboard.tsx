@@ -47,13 +47,19 @@ export type HomeDashboardProps = {
   potentialMB: number;
   scanBusy: boolean;
   scanInProgressText?: string;
+  tokens: number;
+  isPro: boolean;
+  adBusy?: boolean;
   onStartSwipe: () => void;
   onOpenTrim: () => void;
   onOpenGames: () => void;
+  onOpenShop: () => void;
+  onWatchAd: () => void;
   onQuickScan: () => void;
   onPickCategory: (key: Category["key"]) => void;
   onShare: () => void;
 };
+
 
 const CAT_DEFS: { key: Category["key"]; label: string; icon: keyof typeof Ionicons.glyphMap; match: (p: NativePhoto) => boolean; estPerPhoto?: number }[] = [
   { key: "large", label: "Large", icon: "albums-outline", match: (p) => p.sizeMB >= 4 },
@@ -71,13 +77,19 @@ export function HomeDashboard(props: HomeDashboardProps) {
     totalFreedMB,
     potentialMB,
     scanBusy,
+    tokens,
+    isPro,
+    adBusy,
     onStartSwipe,
     onOpenTrim,
     onOpenGames,
+    onOpenShop,
+    onWatchAd,
     onQuickScan,
     onPickCategory,
     onShare,
   } = props;
+
 
   const float = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -127,10 +139,34 @@ export function HomeDashboard(props: HomeDashboardProps) {
             <Text style={styles.eyebrow}>Trimswipe</Text>
             <Text style={styles.headerTitle}>Hey 👋</Text>
           </View>
-          <Pressable onPress={onShare} hitSlop={10} style={styles.shareBtn}>
-            <Ionicons name="share-outline" size={18} color={colors.primary} />
-          </Pressable>
+          <View style={styles.headerActions}>
+            <Pressable onPress={onOpenShop} hitSlop={10} style={styles.tokenChip}>
+              <Ionicons name="flash" size={14} color={colors.honey} />
+              <Text style={styles.tokenChipValue}>{isPro ? "∞" : tokens}</Text>
+            </Pressable>
+            <Pressable onPress={onShare} hitSlop={10} style={styles.shareBtn}>
+              <Ionicons name="share-outline" size={18} color={colors.primary} />
+            </Pressable>
+          </View>
         </View>
+
+        {!isPro ? (
+          <Pressable onPress={onWatchAd} disabled={adBusy} style={styles.adBanner}>
+            <View style={styles.adBannerIcon}>
+              <Ionicons name="play-circle" size={22} color={colors.sage} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.adBannerTitle}>Watch a short ad</Text>
+              <Text style={styles.adBannerSub}>Earn +5 Trim Tokens</Text>
+            </View>
+            <Ionicons
+              name={adBusy ? "hourglass-outline" : "add-circle"}
+              size={22}
+              color={colors.sage}
+            />
+          </Pressable>
+        ) : null}
+
 
         {/* Hero ring */}
         <Card style={styles.hero} tone="warm">
@@ -424,6 +460,38 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  tokenChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    height: 36,
+    borderRadius: radius.pill,
+    backgroundColor: colors.honeySoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.honey,
+  },
+  tokenChipValue: { fontWeight: "900", color: colors.honey, fontSize: 14 },
+  adBanner: {
+    marginTop: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.sageSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.sage,
+  },
+  adBannerIcon: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: colors.white, alignItems: "center", justifyContent: "center",
+  },
+  adBannerTitle: { fontSize: 14, fontWeight: "800", color: colors.sageDeep },
+  adBannerSub: { fontSize: 12, color: colors.sageDeep, fontWeight: "600", marginTop: 1 },
+
 
   hero: {
     marginTop: spacing.lg,

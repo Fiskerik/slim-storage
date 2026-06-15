@@ -763,43 +763,89 @@ export async function trimPhoto(
   photo: NativePhoto,
   quality: number,
 ): Promise<{ trimmed: boolean; newAssetId?: string; savedMB?: number; error?: string }> {
+  const created = await createTrimmedAsset(photo, quality);
+  if (!created.success) return { trimmed: false, error: created.error };
+  try {
+    await MediaLibrary.deleteAssetsAsync([photo.id]);
+    await removeCacheIds([photo.id]);
+    return { trimmed: true, newAssetId: created.newAssetId, savedMB: created.savedMB };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { trimmed: false, error: message };
+  }
+}
+
+type CreatedTrim =
+  | { success: true; originalId: string; newAssetId: string; savedMB: number }
+  | { success: false; originalId: string; error: string };
+
+async function createTrimmedAsset(photo: NativePhoto, quality: number): Promise<CreatedTrim> {
   const sourceUri = photo.localUri || photo.uri;
   if (!sourceUri || sourceUri.startsWith("ph://")) {
-    return { trimmed: false, error: "Photo is not downloaded locally" };
+    return { success: false, originalId: photo.id, error: "Photo is not downloaded locally" };
   }
-
   try {
     const imageManipulator = await import("expo-image-manipulator");
-    const manipulateAsync = imageManipulator.manipulateAsync;
-    const saveFormat = imageManipulator.SaveFormat.JPEG;
-    const result = await manipulateAsync(sourceUri, [], {
+    const result = await imageManipulator.manipulateAsync(sourceUri, [], {
       compress: quality,
-      format: saveFormat,
+      format: imageManipulator.SaveFormat.JPEG,
     });
     const fileInfo = await FileSystem.getInfoAsync(result.uri);
     const trimmedBytes = (fileInfo as FileSystem.FileInfo & { size?: number }).size ?? 0;
     const originalBytes = Math.max(0, photo.sizeMB * 1024 * 1024);
-
     if (!fileInfo.exists || trimmedBytes <= 0 || (originalBytes > 0 && trimmedBytes >= originalBytes)) {
       await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
-      return { trimmed: false, error: "Trim did not produce a smaller image" };
+      return { success: false, originalId: photo.id, error: "Trim did not produce a smaller image" };
     }
-
     const created = await MediaLibrary.createAssetAsync(result.uri);
-    await MediaLibrary.deleteAssetsAsync([photo.id]);
-    await removeCacheIds([photo.id]);
     await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
-
     return {
-      trimmed: true,
+      success: true,
+      originalId: photo.id,
       newAssetId: created.id,
       savedMB: +((originalBytes - trimmedBytes) / (1024 * 1024)).toFixed(2),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.log("[NativePhotoSource] Trim failed", { id: photo.id, error: message });
-    return { trimmed: false, error: message };
+    return { success: false, originalId: photo.id, error: message };
   }
+}
+
+/**
+ * Batch-trim multiple photos with a SINGLE iOS delete confirmation prompt.
+ * Phase 1: create new (trimmed) assets for every photo. Phase 2: one
+ * MediaLibrary.deleteAssetsAsync() call to remove all originals at once.
+ */
+export async function commitTrims(
+  photos: NativePhoto[],
+  quality: number,
+): Promise<Array<{ id: string; trimmed: boolean; savedMB?: number; error?: string }>> {
+  if (photos.length === 0) return [];
+  const results: CreatedTrim[] = [];
+  for (const p of photos) {
+    // sequential to avoid hitting expo-image-manipulator concurrency limits
+    // eslint-disable-next-line no-await-in-loop
+    results.push(await createTrimmedAsset(p, quality));
+  }
+  const created = results.filter((r): r is Extract<CreatedTrim, { success: true }> => r.success);
+  if (created.length > 0) {
+    try {
+      await MediaLibrary.deleteAssetsAsync(created.map((c) => c.originalId));
+      await removeCacheIds(created.map((c) => c.originalId));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return results.map((r) => ({
+        id: r.originalId,
+        trimmed: false,
+        error: r.success ? message : r.error,
+      }));
+    }
+  }
+  return results.map((r) =>
+    r.success
+      ? { id: r.originalId, trimmed: true, savedMB: r.savedMB }
+      : { id: r.originalId, trimmed: false, error: r.error },
+  );
 }
 
 export function estimateTrimSavings(photo: Pick<NativePhoto, "sizeMB" | "hasGPS">): number {

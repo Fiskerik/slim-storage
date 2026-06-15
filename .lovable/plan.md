@@ -1,90 +1,103 @@
-# Native iOS UI Revamp (mobile/mobile)
 
-Scope: native Expo app only (`mobile/mobile/`). Touches Home/Dashboard, Stats/Profile, Onboarding, and the Trim flow. SwipeDeck gestures/mapping stay as today. Warm sandstone/terracotta/sage palette is preserved — only the composition and motion change. Density target: 4/5 (bold).
+## Goal
 
-## 1. Design language
+Wire up 5 RevenueCat products (4 token packs + Lifetime Pro) and an AdMob rewarded ad that grants 5 Trim Tokens. Add a Shop screen and a "Watch ad for tokens" button on Home. Tokens stored locally; Lifetime Pro = unlimited tokens + no ads.
 
-Introduce a small native design-token module that mirrors the web palette and keeps colors consistent across screens.
+## 1. Environment variables
 
-- New file `mobile/mobile/constants/design.ts` — tokens for color (background, card, primary terracotta, sage accent, warm honey, destructive), radii, spacing, shadow presets, type ramp (display/title/body/caption), motion durations.
-- New file `mobile/mobile/components/ui/primitives.tsx` — small RN building blocks: `Card`, `Pill`, `IconTile`, `ProgressRing`, `SegmentedToggle`, `Sparkline`, `BarChart`, `BeforeAfterSlider`, `Sheet` (bottom sheet). Built with `react-native-reanimated` + `react-native-gesture-handler` (already installed).
-- Replace ad-hoc `Text`/`View` styling sprinkled in `NativeTrimSwipeApp.tsx` with these primitives where it touches the revamped screens; leave SwipeDeck untouched.
+All RC + AdMob values are **public client identifiers** (not secrets), but we still keep them out of source so dev/prod can differ.
 
-## 2. Home / Games dashboard (`GamesScreen` in NativeTrimSwipeApp.tsx)
+| Variable | Value | Purpose |
+|---|---|---|
+| `EXPO_PUBLIC_RC_KEY` | `appl_...` | RevenueCat iOS SDK key (already used) |
+| `EXPO_PUBLIC_RC_KEY_ANDROID` | `goog_...` | RevenueCat Android SDK key |
+| `EXPO_PUBLIC_RC_ENTITLEMENT_ID` | `TrimswipePro` | Lifetime entitlement (already used) |
+| `EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID` | `lifetime_premium_1` | (already used) |
+| `EXPO_PUBLIC_RC_TOKEN_PRODUCT_IDS` | `tokens_50,tokens_100,tokens_200,tokens_500` | Comma-list of consumable token packs |
+| `EXPO_PUBLIC_ADMOB_IOS_APP_ID` | `ca-app-pub-8854735603167656~1027546750` | iOS AdMob app id |
+| `EXPO_PUBLIC_ADMOB_ANDROID_APP_ID` | *(needed)* | Android AdMob app id |
+| `EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID` | `ca-app-pub-8854735603167656/4735986775` | iOS rewarded unit |
+| `EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID` | *(needed)* | Android rewarded unit |
+| `EXPO_PUBLIC_ADMOB_IOS_INTERSTITIAL_ID` | `ca-app-pub-8854735603167656/5063289836` | (optional, available) |
 
-Photos become the hero; text shrinks to labels and inline hints.
+> Need from you: the **Android AdMob app ID + Android rewarded unit ID**, and the **Android RC key** (`goog_...`) if you plan to ship Android. Otherwise we gate Android behind iOS-only.
 
-- New top hero: large circular `ProgressRing` showing "X GB freed / Y GB potential" with a tiny avatar stack of 3 recent photo thumbnails inside the ring. Tap → quick-scan.
-- Replace the row of stat numbers with three compact pill chips (Freed, Streak, Level) — single line each, icon + value.
-- New "Quick actions" row: 2x2 grid of large rounded tiles with icon + one-word label: Scan, Swipe, Trim, Games. Color-coded with palette accents. Min 56pt touch target.
-- New "Problematic photos" horizontal carousel: cards for categories ("Large", "Old", "Screenshots", "Similar") each showing 1 representative thumbnail + count + est. MB. Tap → starts a swipe round filtered to that focus (re-uses existing `loadRound` with target overrides).
-- Keep game mode cards but compress to a single horizontal scroller below the carousel.
-- Floating action button (bottom-right, above BottomNav) for "Quick scan" — kicks `runLibraryScan`.
+### Where to put them
 
-## 3. Trim flow (new screen)
+EAS does the native builds, so:
 
-Today trimming happens silently as a swipe action. Add a dedicated visual trim experience reachable from Home → Trim tile and from the SwipeDeck "Trim" action when batch mode kicks in.
+1. **Primary location: EAS environment variables** (Expo dashboard → Project → Environment variables) for the `production`, `preview`, and `development` environments. EAS injects them into `expo prebuild`/build so `app.config.ts` and the JS bundle both see them.
+2. **GitHub: not needed** for build values — EAS builds aren't run on GitHub. Only put them in GitHub Actions if you trigger EAS from CI (then use GitHub Action secrets and forward via `eas build --non-interactive`).
+3. **Local dev**: a `.env.local` (gitignored) with the same `EXPO_PUBLIC_*` keys.
 
-- New screen key `"trim"` added to the `Screen` union with a route through `setScreen`.
-- New component `TrimScreen` in NativeTrimSwipeApp.tsx (or a new file `mobile/mobile/components/TrimScreen.tsx`).
-- Layout:
-  - Full-bleed photo at top (~55% of screen) using `expo-image`.
-  - `BeforeAfterSlider` primitive — draggable handle that reveals the trimmed (re-encoded) version. While dragging, show a small badge ("−1.8 MB").
-  - Preset chip row: "Remove EXIF", "Strip Location", "Compress 50%", "Compress 80%". Each chip shows live estimated savings via `estimateTrimSavings`.
-  - Sticky bottom bar: "Trim photo" primary button (terracotta) + cancel. Haptic + `CelebrationBurst` on success.
-  - Daily free-trim counter shown as a small inline meter (re-uses `trimsRemainingToday`).
-- Wire from Home Trim tile and from a new "Customize trim" affordance inside the existing swipe flow (small icon, optional, does not change gestures).
+`EXPO_PUBLIC_*` is intentional — these are public IDs and need to be readable from the JS bundle.
 
-## 4. Stats / Profile
+## 2. RevenueCat dashboard setup (you do this)
 
-Move from text rows to dashboard-style charts and badges.
+- Add `tokens_50/100/200/500` as **Consumable** products in App Store Connect, then import into RC.
+- Create one **Offering** named `default` with 4 packages pointing at the token products + 1 package for `lifetime_premium_1` (already exists).
+- Lifetime stays attached to the `TrimswipePro` entitlement. Token packs have **no entitlement** (they're consumables credited app-side).
 
-- Rebuild `StatsScreen` body:
-  - Header: level chip + `ProgressRing` of weekly goal (uses `WEEKLY_SAVINGS_TARGET_MB`).
-  - 7-day `BarChart` of MB freed per day (replaces `ActivityBars` with a proper grouped bar: trim vs delete, sage vs terracotta).
-  - Pie/donut: trim vs delete share of freed MB.
-  - Top space hogs: horizontal list with thumbnail + size, derived from `actionLog`.
-  - Achievements: re-skin `AchievementGrid` into card grid with icon, gradient accent, lock state, progress ring per badge. Add 4 new badges: First Trim, 1 GB Freed, 100 Trimmed, 7-day Streak.
-  - "Share progress" CTA generates a card via existing `progressShareText` plus a rendered before/after thumbnail (reuse `Share.share`).
-- Profile-ish settings entry collapses into a single row at bottom that pushes to existing `SettingsScreen` — no functional change to settings.
+## 3. Code changes
 
-## 5. Onboarding
+### a. `mobile/mobile/app.config.ts` (new, replaces static `app.json`)
+- Convert `app.json` → `app.config.ts` so we can read `process.env.EXPO_PUBLIC_ADMOB_*` and inject into the `react-native-google-mobile-ads` plugin config (requires app IDs in native Info.plist / AndroidManifest).
+- Add plugin entry:
+  ```ts
+  ["react-native-google-mobile-ads", {
+    iosAppId: process.env.EXPO_PUBLIC_ADMOB_IOS_APP_ID,
+    androidAppId: process.env.EXPO_PUBLIC_ADMOB_ANDROID_APP_ID,
+    userTrackingUsageDescription: "This identifier will be used to deliver personalized ads to you."
+  }]
+  ```
+- Add iOS `SKAdNetworkItems` (AdMob's published list) and `NSUserTrackingUsageDescription`.
 
-Replace the current single-page `OnboardingScreen` with a 4-step horizontal carousel (paged `ScrollView` + dot indicator).
+### b. Dependencies
+`bun add react-native-google-mobile-ads` inside `mobile/mobile/`.
 
-- Slides:
-  1. "Meet TrimSwipe" — large illustration (use existing icon, animated subtle float).
-  2. "Before vs After" — `BeforeAfterSlider` demo on a bundled placeholder image, with a counter that animates from "12.4 GB" → "8.9 GB".
-  3. "Swipe to decide" — animated card mock showing left/up/right hint arrows with the current gesture mapping.
-  4. "Scan your library" — kicks `runLibraryScan` button; shows progress inline.
-- Skip + Next buttons at the bottom. Haptic on page change. Calls `completeOnboarding` on finish.
+### c. `mobile/mobile/lib/tokens.ts` (new)
+- AsyncStorage-backed store: `getTokens()`, `addTokens(n)`, `spendToken()`, `subscribe(cb)`.
+- Helper `hasUnlimited()` → reads RC pro flag.
+- `canTrim()` = pro || tokens > 0.
 
-## 6. Motion + polish
+### d. `mobile/mobile/lib/ads.ts` (new)
+- Lazy `initAds()` (calls `mobile.initialize()` once).
+- `showRewardedAd(): Promise<boolean>` — loads + shows rewarded; resolves true if user earned reward; on success calls `addTokens(5)`. Skips entirely if `hasUnlimited()`.
+- Preloads next rewarded after each show.
 
-- Add `react-native-reanimated` shared-value driven transitions for: progress ring fill, bar chart bar grow, carousel paging, FAB scale-on-press, tile press depth.
-- Reuse existing `CelebrationBurst` on milestone hits (first trim of day, 1 GB total, weekly goal).
-- Skeleton placeholders (light shimmer using Reanimated) while `scanBusy` / `loading` are true on Home and Stats.
-- Haptics: `Haptics.selectionAsync()` on chip/segment changes, `notificationAsync(Success)` on trim complete and onboarding finish.
+### e. `mobile/mobile/lib/purchases.ts` (edit)
+- Extend `getProducts()` to surface all packages (already does).
+- Add `purchaseTokenProduct(productId)` that on success credits the matching pack amount locally:
+  - `tokens_50 → +50`, `tokens_100 → +100`, `tokens_200 → +200`, `tokens_500 → +500`.
+- Lifetime purchase flow unchanged (entitlement flips `isPro`).
 
-## 7. What's explicitly NOT touched
+### f. `mobile/mobile/components/ShopScreen.tsx` (new)
+- 4 token pack cards (price from RC product, "Best value" badge on 500).
+- Lifetime Pro hero card (hidden / shows "Owned" when `isPro`).
+- "Watch ad → +5 tokens" button (hidden when Pro).
+- Current balance + Pro badge at top.
 
-- Web app under `src/` — unchanged.
-- SwipeDeck gestures and action mapping (left=keep, up=trim, right=delete remain).
-- Business logic in `lib/native-photo-source.ts`, `lib/native-store.ts`, trim/delete pipeline, RevenueCat, settings schema.
-- `BottomNav` structure / tabs (visual restyle only — same screens).
+### g. `mobile/mobile/components/HomeDashboard.tsx` (edit)
+- Add small "Tokens: N" chip in hero card.
+- Add "Watch ad +5" button (hidden when Pro).
+- Add "Shop" entry in quick-actions grid.
 
-## Technical notes
+### h. `mobile/mobile/components/NativeTrimSwipeApp.tsx` (edit)
+- Add `"shop"` to `Screen` union; route from Home + bottom nav.
+- Before each trim/delete in swipe + trim flows: if `!isPro && tokens === 0` → open Shop. Else spend 1 token per photo trimmed.
 
-- All edits land in `mobile/mobile/`. Most changes are inside `components/NativeTrimSwipeApp.tsx`; new files: `constants/design.ts`, `components/ui/primitives.tsx`, optionally `components/TrimScreen.tsx`, `components/OnboardingCarousel.tsx`, `components/StatsDashboard.tsx`.
-- No new npm packages required — `react-native-reanimated`, `react-native-gesture-handler`, `expo-haptics`, `expo-image`, `@expo/vector-icons` already in `package.json`.
-- No native module additions, no `prebuild` needed, no iOS Podfile changes — keeps EAS build green.
-- Charts hand-rolled with RN `View` + Reanimated (no `victory-native` / `react-native-svg-charts`) to avoid native deps.
-- `BeforeAfterSlider` implemented with `PanResponder` + clipped `Animated.View`; no SVG required.
-- Type-safe `Screen` union extended for `"trim"`; switch in render block updated; `BottomNav` icon list extended only if we expose Trim as a tab (currently planned as Home tile + deep entry, not a tab).
+### i. Profile screen (edit)
+- Show token balance, "Restore purchases" already exists, add "Manage tokens → Shop" link.
+- Remove the web "unlock pro" backdoor noted in `IOS_LAUNCH_AUDIT.md` since real IAP now works.
 
-## Out of scope (call out for a follow-up if you want them)
+## 4. Verification
 
-- SwipeDeck full-screen immersive redo + new overlays.
-- Animated Lottie assets.
-- Dark mode pass (palette is light-warm today).
-- Real chart library / SVG rendering.
+- Local sandbox: TestFlight build with sandbox Apple ID → purchase each token pack, verify balance increments, verify lifetime flips Pro and hides ads.
+- AdMob: use Google's test unit IDs in dev (`ca-app-pub-3940256099942544/5224354917` rewarded) gated by `__DEV__`.
+- Confirm `EXPO_PUBLIC_RC_KEY_ANDROID` / Android AdMob IDs once you provide them; otherwise Android builds will warn at runtime.
+
+## Open items I need from you
+
+1. Android AdMob App ID + Rewarded unit ID (or confirm iOS-only).
+2. Android RevenueCat key (`goog_...`) if Android is in scope.
+3. Confirm "1 token = 1 photo trimmed" applies to both the manual **Trim** flow and the **Swipe → trim** action (vs. only manual trim).
