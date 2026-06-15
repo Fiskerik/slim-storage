@@ -443,6 +443,9 @@ export function NativeTrimSwipeApp() {
   const [scanError, setScanError] = useState<string | null>(null);
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
   const pendingDeletesRef = useRef<NativePhoto[]>([]);
+  const [tokenBalance, setTokenBalance] = useState<number>(10);
+  const [isPro, setIsPro] = useState(false);
+  const [adBusy, setAdBusy] = useState(false);
 
   const settings = roundSettings(stats.settings);
   const top = queue[0];
@@ -459,6 +462,32 @@ export function NativeTrimSwipeApp() {
     });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    const unsub = subscribeTokens((s) => setTokenBalance(s.tokens));
+    void checkProStatus().then(setIsPro).catch(() => {});
+    void initAds().catch(() => {});
+    return () => unsub();
+  }, []);
+
+  async function handleWatchAd() {
+    if (adBusy) return;
+    setAdBusy(true);
+    try {
+      const got = await showRewardedAd();
+      if (got > 0) {
+        Alert.alert("Thanks!", `+${got} Trim Tokens added.`);
+      } else {
+        Alert.alert("No ad available", "Please try again in a moment.");
+      }
+    } finally {
+      setAdBusy(false);
+    }
+  }
+
+  void REWARDED_AD_TOKENS; // silence unused if only used in handler
+  void spendTokens; // exported for future swipe/trim wiring
+
 
   function commitStats(updater: (current: NativeStats) => NativeStats) {
     setStats((current) => {
