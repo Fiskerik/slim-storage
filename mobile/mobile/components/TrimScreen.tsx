@@ -8,11 +8,12 @@ import {
   Text,
   View,
 } from "react-native";
+import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
 import { colors, radius, shadow, spacing, type } from "../constants/design";
-import { BeforeAfterSlider, Card, Pill, SectionHeader } from "./ui/primitives";
+import { Card, Pill, SectionHeader } from "./ui/primitives";
 import {
   estimateTrimSavings,
   loadPhotoRound,
@@ -43,6 +44,7 @@ export type TrimScreenProps = {
   trimsRemaining: number;
   trimLimit: number;
   avoidIds: string[];
+  isPro?: boolean;
   onBack: () => void;
   onTrimmed: (photo: NativePhoto, savedMB: number) => void;
 };
@@ -52,20 +54,24 @@ export function TrimScreen({
   trimsRemaining,
   trimLimit,
   avoidIds,
+  isPro = false,
   onBack,
   onTrimmed,
 }: TrimScreenProps) {
   const [photo, setPhoto] = useState<NativePhoto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [presetKey, setPresetKey] = useState<Preset["key"]>("exif");
+  // Free users are locked to the EXIF preset. Pro users can stack multiple actions.
+  const [selectedKeys, setSelectedKeys] = useState<Set<Preset["key"]>>(
+    () => new Set(["exif"]),
+  );
   const [busy, setBusy] = useState(false);
-  const [trimmedUri, setTrimmedUri] = useState<string | null>(null);
+  const [justTrimmed, setJustTrimmed] = useState(false);
 
   async function loadNext() {
     setLoading(true);
     setError(null);
-    setTrimmedUri(null);
+    setJustTrimmed(false);
     try {
       const permission = await requestPhotoPermission();
       if (!permission.granted) {
@@ -92,11 +98,38 @@ export function TrimScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const preset = PRESETS.find((p) => p.key === presetKey) ?? PRESETS[0];
+  const selected = PRESETS.filter((p) => selectedKeys.has(p.key));
+  const effectivePresets = selected.length > 0 ? selected : [PRESETS[0]];
   const baseline = photo ? estimateTrimSavings(photo) : 0;
-  const estSaved = +(baseline * preset.multiplier).toFixed(2);
+  // Combined estimate: sum multipliers but cap at 3x baseline so we don't oversell.
+  const combinedMultiplier = Math.min(
+    3,
+    effectivePresets.reduce((sum, p) => sum + p.multiplier, 0),
+  );
+  const estSaved = +(baseline * combinedMultiplier).toFixed(2);
+  // Apply the strongest (lowest quality) preset when multiple are stacked.
+  const effectiveQuality = Math.min(...effectivePresets.map((p) => p.quality));
   const width = Dimensions.get("window").width - 40;
   const height = Math.round(width * 1.05);
+
+  function togglePreset(key: Preset["key"]) {
+    if (!isPro) {
+      // Free users: single-select EXIF only. Show a friendly hint for others.
+      if (key !== "exif") {
+        setError("Multi-preset trim is a Lifetime Pro feature. Free trims use Remove EXIF.");
+        return;
+      }
+      setSelectedKeys(new Set(["exif"]));
+      return;
+    }
+    setError(null);
+    void Haptics.selectionAsync();
+    const next = new Set(selectedKeys);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    if (next.size === 0) next.add("exif");
+    setSelectedKeys(next);
+  }
 
   async function applyTrim() {
     if (!photo) return;
@@ -107,12 +140,12 @@ export function TrimScreen({
     setBusy(true);
     setError(null);
     try {
-      const result = await trimPhoto(photo, preset.quality);
+      const result = await trimPhoto(photo, effectiveQuality);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       const saved = result.savedMB ?? estSaved;
       if (result.trimmed) {
         onTrimmed(photo, saved);
-        setTrimmedUri(photo.uri);
+        setJustTrimmed(true);
       } else {
         setError(result.error ?? "Could not trim this photo.");
       }
@@ -156,13 +189,15 @@ export function TrimScreen({
             </Pressable>
           </View>
         ) : (
-          <BeforeAfterSlider
-            beforeUri={photo.uri}
-            afterUri={trimmedUri ?? photo.uri}
-            width={width}
-            height={height}
-            savedLabel={`−${estSaved.toFixed(1)} MB`}
-          />
+          <View style={{ width, height }}>
+            <Image source={{ uri: photo.uri }} style={{ width, height }} contentFit="cover" transition={120} />
+            {justTrimmed ? (
+              <View style={styles.trimmedBadge}>
+                <Ionicons name="checkmark-circle" size={14} color={colors.white} />
+                <Text style={styles.trimmedBadgeText}>Trimmed</Text>
+              </View>
+            ) : null}
+          </View>
         )}
       </View>
 
@@ -179,19 +214,24 @@ export function TrimScreen({
       ) : null}
 
       {/* Presets */}
-      <SectionHeader title="Presets" action={<Text style={styles.actionLink}>tap to pick</Text>} />
+      <SectionHeader
+        title="Presets"
+        action={
+          <Text style={styles.actionLink}>
+            {isPro ? "tap to stack" : "Pro · multi-select"}
+          </Text>
+        }
+      />
       <View style={styles.presetGrid}>
         {PRESETS.map((p) => {
-          const active = p.key === presetKey;
+          const active = selectedKeys.has(p.key);
+          const locked = !isPro && p.key !== "exif";
           const saveMB = +(baseline * p.multiplier).toFixed(2);
           return (
             <Pressable
               key={p.key}
-              onPress={() => {
-                void Haptics.selectionAsync();
-                setPresetKey(p.key);
-              }}
-              style={[styles.preset, active && styles.presetActive]}
+              onPress={() => togglePreset(p.key)}
+              style={[styles.preset, active && styles.presetActive, locked && { opacity: 0.55 }]}
             >
               <View
                 style={[
@@ -199,11 +239,15 @@ export function TrimScreen({
                   { backgroundColor: active ? colors.primary : colors.primarySoft },
                 ]}
               >
-                <Ionicons name={p.icon} size={16} color={active ? colors.white : colors.primary} />
+                <Ionicons
+                  name={locked ? "lock-closed-outline" : p.icon}
+                  size={16}
+                  color={active ? colors.white : colors.primary}
+                />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.presetLabel, active && { color: colors.primary }]}>{p.label}</Text>
-                <Text style={styles.presetHint}>{p.hint}</Text>
+                <Text style={styles.presetHint}>{locked ? "Lifetime Pro" : p.hint}</Text>
               </View>
               <Text style={styles.presetSave}>~{saveMB.toFixed(1)} MB</Text>
             </Pressable>
@@ -372,4 +416,18 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primarySoft,
   },
   retryText: { color: colors.primary, fontWeight: "800" },
+
+  trimmedBadge: {
+    position: "absolute",
+    top: 12,
+    left: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    backgroundColor: colors.primary,
+  },
+  trimmedBadgeText: { color: colors.white, fontWeight: "800", fontSize: 12 },
 });

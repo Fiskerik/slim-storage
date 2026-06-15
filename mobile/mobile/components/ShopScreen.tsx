@@ -158,18 +158,37 @@ export function ShopScreen({ onBack }: ShopScreenProps) {
             <Ionicons name="diamond" size={28} color={colors.primary} />
           </Card>
         ) : (
-          <Card style={styles.lifetimeCard} tone="warm">
-            <View style={styles.lifetimeRow}>
+          <View style={styles.lifetimeModal}>
+            <View style={styles.lifetimeRibbon}>
+              <Ionicons name="diamond" size={14} color={colors.white} />
+              <Text style={styles.lifetimeRibbonText}>LIMITED OFFER · LIFETIME</Text>
+            </View>
+            <View style={styles.lifetimeHeaderRow}>
               <View style={{ flex: 1 }}>
-                <Pill icon="star" value="Best value" label="" tone="honey" />
-                <Text style={styles.lifetimeTitle}>Lifetime Pro</Text>
-                <Text style={styles.lifetimeSub}>
-                  Unlimited Trim Tokens, zero ads. One payment, forever.
+                <Text style={styles.lifetimeBigTitle}>Go Lifetime Pro</Text>
+                <Text style={styles.lifetimeBigSub}>
+                  One payment. Every benefit. Forever.
                 </Text>
               </View>
-              <View style={{ alignItems: "flex-end" }}>
-                <Text style={styles.lifetimePrice}>{lifetime?.price ?? "—"}</Text>
+              <View style={styles.lifetimePriceBlock}>
+                <Text style={styles.lifetimeBigPrice}>{lifetime?.price ?? "$24.99"}</Text>
+                <Text style={styles.lifetimePriceHint}>one-time</Text>
               </View>
+            </View>
+            <View style={styles.lifetimeBenefits}>
+              {[
+                "Unlimited Trim Tokens",
+                "No ads — ever",
+                "Multi-preset trim (stack actions)",
+                "Priority new features",
+              ].map((b) => (
+                <View key={b} style={styles.lifetimeBenefitRow}>
+                  <View style={styles.lifetimeCheck}>
+                    <Ionicons name="checkmark" size={14} color={colors.white} />
+                  </View>
+                  <Text style={styles.lifetimeBenefitText}>{b}</Text>
+                </View>
+              ))}
             </View>
             <Pressable
               disabled={!lifetime || busy === lifetime?.id}
@@ -179,10 +198,12 @@ export function ShopScreen({ onBack }: ShopScreenProps) {
               {busy === lifetime?.id ? (
                 <ActivityIndicator color={colors.white} />
               ) : (
-                <Text style={styles.ctaText}>Unlock Lifetime Pro</Text>
+                <Text style={styles.ctaText}>
+                  Unlock Lifetime Pro · {lifetime?.price ?? "$24.99"}
+                </Text>
               )}
             </Pressable>
-          </Card>
+          </View>
         )}
 
         <SectionHeader title="Token packs" />
@@ -309,6 +330,43 @@ const styles = StyleSheet.create({
   lifetimeTitle: { ...type.title, color: colors.primary, marginTop: 6 },
   lifetimeSub: { ...type.body, color: colors.textMuted, marginTop: 2 },
   lifetimePrice: { fontSize: 22, fontWeight: "900", color: colors.primary },
+
+  // New prominent Lifetime Pro hero modal
+  lifetimeModal: {
+    backgroundColor: "#1f2937",
+    borderRadius: radius.xl ?? 24,
+    padding: spacing.xl,
+    gap: spacing.md,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    ...shadow.press,
+  },
+  lifetimeRibbon: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+    backgroundColor: colors.primary,
+  },
+  lifetimeRibbonText: { color: colors.white, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
+  lifetimeHeaderRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
+  lifetimeBigTitle: { fontSize: 26, fontWeight: "900", color: colors.white, letterSpacing: -0.5 },
+  lifetimeBigSub: { fontSize: 13, color: "#cbd5e1", marginTop: 4, fontWeight: "600" },
+  lifetimePriceBlock: { alignItems: "flex-end" },
+  lifetimeBigPrice: { fontSize: 28, fontWeight: "900", color: colors.honey },
+  lifetimePriceHint: { fontSize: 11, color: "#94a3b8", fontWeight: "700" },
+  lifetimeBenefits: { gap: 8, marginTop: 2 },
+  lifetimeBenefitRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  lifetimeCheck: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: colors.primary,
+    alignItems: "center", justifyContent: "center",
+  },
+  lifetimeBenefitText: { color: colors.white, fontSize: 14, fontWeight: "700", flex: 1 },
+
 
   cta: {
     height: 50, borderRadius: radius.lg, alignItems: "center", justifyContent: "center",
