@@ -67,7 +67,7 @@ export function ShopScreen({ onBack }: ShopScreenProps) {
   const tokenPacks = TOKEN_ORDER
     .map((id) => products.find((p) => p.id === id) ?? fallbackPack(id))
     .filter(Boolean) as ShopProduct[];
-  const lifetime = products.find((p) => p.isLifetime);
+  const lifetime = products.find((p) => p.isLifetime) ?? fallbackLifetime();
 
   async function handleBuyTokens(id: string) {
     if (busy) return;
@@ -87,7 +87,7 @@ export function ShopScreen({ onBack }: ShopScreenProps) {
   }
 
   async function handleBuyLifetime() {
-    if (busy || !lifetime) return;
+    if (busy) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setBusy(lifetime.id);
     try {
@@ -191,11 +191,11 @@ export function ShopScreen({ onBack }: ShopScreenProps) {
               ))}
             </View>
             <Pressable
-              disabled={!lifetime || busy === lifetime?.id}
+              disabled={busy === lifetime.id}
               onPress={handleBuyLifetime}
-              style={[styles.cta, styles.ctaPrimary, !lifetime && styles.ctaDisabled]}
+              style={[styles.cta, styles.ctaPrimary]}
             >
-              {busy === lifetime?.id ? (
+              {busy === lifetime.id ? (
                 <ActivityIndicator color={colors.white} />
               ) : (
                 <Text style={styles.ctaText}>
@@ -303,6 +303,19 @@ function fallbackPack(id: string): ShopProduct | null {
     currency: "USD",
     tokens,
     isLifetime: false,
+  };
+}
+
+function fallbackLifetime(): ShopProduct {
+  return {
+    id: "lifetime_premium_1",
+    title: "Lifetime Pro",
+    description: "Unlimited trims and no ads",
+    price: "$24.99",
+    priceAmount: 24.99,
+    currency: "USD",
+    tokens: 0,
+    isLifetime: true,
   };
 }
 

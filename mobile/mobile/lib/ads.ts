@@ -7,6 +7,7 @@ import { checkProStatus } from "./purchases";
 
 type RewardedAdModule = {
   RewardedAd: any;
+  InterstitialAd?: any;
   TestIds: { REWARDED: string };
   AdEventType: Record<string, string>;
   RewardedAdEventType: Record<string, string>;
@@ -43,6 +44,15 @@ function rewardedUnitId(): string | null {
   if (IS_DEV) return m.TestIds.REWARDED;
   if (Platform.OS === "ios") return envValue("EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID") ?? null;
   if (Platform.OS === "android") return envValue("EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID") ?? null;
+  return null;
+}
+
+function interstitialUnitId(): string | null {
+  const m = loadModule();
+  if (!m) return null;
+  if (IS_DEV) return (m.TestIds as { INTERSTITIAL?: string }).INTERSTITIAL ?? null;
+  if (Platform.OS === "ios") return envValue("EXPO_PUBLIC_ADMOB_IOS_INTERSTITIAL_ID") ?? null;
+  if (Platform.OS === "android") return envValue("EXPO_PUBLIC_ADMOB_ANDROID_INTERSTITIAL_ID") ?? null;
   return null;
 }
 
@@ -136,6 +146,62 @@ export async function showRewardedAd(): Promise<number> {
     } catch (err) {
       console.log("[ads] showRewardedAd exception", err);
       resolve(0);
+    }
+  });
+}
+
+export async function showInterstitialAd(): Promise<boolean> {
+  try {
+    const isPro = await checkProStatus().catch(() => false);
+    if (isPro) return false;
+  } catch {
+    // ignore; ad loading can still decide availability
+  }
+
+  const m = loadModule();
+  const unitId = interstitialUnitId();
+  if (!m?.InterstitialAd || !unitId) {
+    console.log("[ads] no interstitial available");
+    return false;
+  }
+
+  await initAds();
+
+  return new Promise<boolean>((resolve) => {
+    try {
+      const ad = m.InterstitialAd.createForAdRequest(unitId, {
+        requestNonPersonalizedAdsOnly: false,
+      });
+
+      let settled = false;
+      const settle = (shown: boolean) => {
+        if (settled) return;
+        settled = true;
+        try { unsubLoad?.(); } catch {}
+        try { unsubClose?.(); } catch {}
+        try { unsubErr?.(); } catch {}
+        resolve(shown);
+      };
+
+      const unsubLoad = ad.addAdEventListener(m.AdEventType.LOADED, () => {
+        try {
+          ad.show();
+        } catch (err) {
+          console.log("[ads] interstitial show error", err);
+          settle(false);
+        }
+      });
+      const unsubClose = ad.addAdEventListener(m.AdEventType.CLOSED, () => settle(true));
+      const unsubErr = ad.addAdEventListener(m.AdEventType.ERROR, (err: unknown) => {
+        console.log("[ads] interstitial error", err);
+        settle(false);
+      });
+
+      ad.load();
+      setTimeout(() => settle(false), 30000);
+    } catch (err) {
+      console.log("[ads] showInterstitialAd exception", err);
+      resolve(false);
     }
   });
 }

@@ -54,7 +54,7 @@ import { TrimScreen } from "./TrimScreen";
 import { ShopScreen } from "./ShopScreen";
 import { addTokens, subscribeTokens, spendTokens, REWARDED_AD_TOKENS } from "../lib/tokens";
 import { checkProStatus } from "../lib/purchases";
-import { showRewardedAd, initAds } from "../lib/ads";
+import { showRewardedAd, showInterstitialAd, initAds } from "../lib/ads";
 import { colors } from "../constants/design";
 
 type Screen =
@@ -491,6 +491,7 @@ export function NativeTrimSwipeApp() {
   const [tokenBalance, setTokenBalance] = useState<number>(10);
   const [isPro, setIsPro] = useState(false);
   const [adBusy, setAdBusy] = useState(false);
+  const cleanupCompletionsRef = useRef(0);
 
   const settings = roundSettings(stats.settings);
   const top = queue[0];
@@ -528,6 +529,14 @@ export function NativeTrimSwipeApp() {
     } finally {
       setAdBusy(false);
     }
+  }
+
+  function maybeShowInterstitialAfterCleanup(appliedCount: number) {
+    if (appliedCount <= 0 || isPro) return;
+    cleanupCompletionsRef.current += 1;
+    if (cleanupCompletionsRef.current < 2) return;
+    cleanupCompletionsRef.current = 0;
+    void showInterstitialAd();
   }
 
   async function claimWeeklyReward() {
@@ -732,17 +741,20 @@ export function NativeTrimSwipeApp() {
     const requestedTrimIds = new Set(trims.map((p) => p.id));
     const requestedDeleteIds = new Set(deletes.map((p) => p.id));
 
-    let deletedCount = 0;
-    if (deletes.length > 0) {
-      const res = await deletePhotos(deletes.map((p) => p.id));
-      deletedCount = res.deleted;
-    }
-
     let trimmedResults: Array<{ id: string; trimmed: boolean; savedMB?: number }> = [];
     if (trims.length > 0) {
+      setTrimmingCount((count) => count + trims.length);
       trimmedResults = await commitTrims(trims, settings.trimQuality);
+      setTrimmingCount((count) => Math.max(0, count - trims.length));
     }
     const trimmedOkIds = new Set(trimmedResults.filter((r) => r.trimmed).map((r) => r.id));
+    const safeDeletes = deletes.filter((photo) => !trimmedOkIds.has(photo.id));
+    let deletedCount = 0;
+    if (safeDeletes.length > 0) {
+      const res = await deletePhotos(safeDeletes.map((p) => p.id));
+      deletedCount = res.deleted;
+    }
+    const deletedPhotos = safeDeletes.slice(0, deletedCount);
     const actualTrimSaved = trimmedResults.reduce(
       (sum, r, i) => (r.trimmed ? sum + (r.savedMB ?? estimateTrimSavings(trims[i])) : sum),
       0,
@@ -751,7 +763,7 @@ export function NativeTrimSwipeApp() {
     // Commit stats for confirmed actions only.
     commitStats((current) => {
       const reviewed = deletedCount + trimmedOkIds.size;
-      const deleteSaved = deletes.slice(0, deletedCount).reduce((s, p) => s + p.sizeMB, 0);
+      const deleteSaved = deletedPhotos.reduce((s, p) => s + p.sizeMB, 0);
       let next = withDailyActivity(
         {
           ...current,
@@ -771,8 +783,8 @@ export function NativeTrimSwipeApp() {
           trimMbFreed: actualTrimSaved,
         },
       );
-      next = withRecentlySeenPhotos(next, [...deletes.slice(0, deletedCount), ...trims.filter((p) => trimmedOkIds.has(p.id))]);
-      for (const p of deletes.slice(0, deletedCount)) {
+      next = withRecentlySeenPhotos(next, [...deletedPhotos, ...trims.filter((p) => trimmedOkIds.has(p.id))]);
+      for (const p of deletedPhotos) {
         next = appendActionLog(next, createActionLogEntry(p, "delete", p.sizeMB));
       }
       for (const p of trims.filter((tp) => trimmedOkIds.has(tp.id))) {
@@ -786,7 +798,7 @@ export function NativeTrimSwipeApp() {
       kept: sessionRef.current.kept,
       trimmed: trimmedOkIds.size,
       deleted: deletedCount,
-      freed: +(deletes.slice(0, deletedCount).reduce((s, p) => s + p.sizeMB, 0) + actualTrimSaved).toFixed(2),
+      freed: +(deletedPhotos.reduce((s, p) => s + p.sizeMB, 0) + actualTrimSaved).toFixed(2),
     };
 
     setLoading(false);
@@ -806,6 +818,7 @@ export function NativeTrimSwipeApp() {
     setPendingDeletes(pendingDeletesRef.current);
     setPendingTrims(pendingTrimsRef.current);
     setRecap({ ...sessionRef.current });
+    maybeShowInterstitialAfterCleanup(deletedCount + trimmedOkIds.size);
   }
 
   function cancelPendingActions() {
@@ -850,25 +863,41 @@ export function NativeTrimSwipeApp() {
     }
     setBulkBusy(true);
     setTrimmingCount((count) => count + candidates.length);
-    const estimated = candidates.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0);
-    sessionRef.current.trimmed += candidates.length;
-    sessionRef.current.freed += estimated;
+    const results = await commitTrims(candidates, settings.trimQuality).then((rs) =>
+      candidates.map((p, i) => ({
+        photo: p,
+        trimmed: rs[i]?.trimmed === true,
+        savedMB: rs[i]?.savedMB,
+        error: rs[i]?.error,
+      })),
+    );
+    const trimmed = results.filter((item) => item.trimmed).map((item) => item.photo);
+    const actualSaved = results.reduce(
+      (sum, item) =>
+        item.trimmed ? sum + (item.savedMB ?? estimateTrimSavings(item.photo)) : sum,
+      0,
+    );
+    sessionRef.current.trimmed += trimmed.length;
+    sessionRef.current.freed += actualSaved;
     commitStats((current) => {
       const next = withDailyActivity(
-        { ...current, reviewed: current.reviewed + candidates.length, trimmed: current.trimmed + candidates.length, mbFreed: +(current.mbFreed + estimated).toFixed(2), trimMbFreed: +(current.trimMbFreed + estimated).toFixed(2) },
-        { reviewed: candidates.length, trimmed: candidates.length, mbFreed: estimated, trimMbFreed: estimated },
+        { ...current, reviewed: current.reviewed + trimmed.length, trimmed: current.trimmed + trimmed.length, mbFreed: +(current.mbFreed + actualSaved).toFixed(2), trimMbFreed: +(current.trimMbFreed + actualSaved).toFixed(2) },
+        { reviewed: trimmed.length, trimmed: trimmed.length, mbFreed: actualSaved, trimMbFreed: actualSaved },
       );
-      return candidates.reduce((sf, photo) => appendActionLog(sf, createActionLogEntry(photo, "trim", estimateTrimSavings(photo))), withRecentlySeenPhotos(next, candidates));
+      return trimmed.reduce((sf, photo) => appendActionLog(sf, createActionLogEntry(photo, "trim", estimateTrimSavings(photo))), withRecentlySeenPhotos(next, trimmed));
     });
     setQueue((current) => {
-      const trimmedIds = new Set(candidates.map((photo) => photo.id));
+      const trimmedIds = new Set(trimmed.map((photo) => photo.id));
       const rest = current.filter((photo) => !trimmedIds.has(photo.id));
       finishIfNeeded(rest);
       return rest;
     });
-    await commitTrims(candidates, settings.trimQuality).then((rs) => candidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
     setTrimmingCount((count) => Math.max(0, count - candidates.length));
     setBulkBusy(false);
+    maybeShowInterstitialAfterCleanup(trimmed.length);
+    if (trimmed.length !== candidates.length) {
+      Alert.alert("Trim incomplete", `${trimmed.length}/${candidates.length} photos trimmed.`);
+    }
   }
 
   async function confirmThisOrThatOutcome(
@@ -952,6 +981,7 @@ export function NativeTrimSwipeApp() {
               requested: trimCandidates.length,
               trimmed: trimmed.length,
             });
+            maybeShowInterstitialAfterCleanup(reviewed.length);
             resolve(reviewed.length);
           },
         },
@@ -1033,6 +1063,7 @@ export function NativeTrimSwipeApp() {
                   `${deleteResult.deleted}/${deleted.length} deleted and ${trimmedPhotos.length}/${toTrim.length} trimmed.`,
                 );
               }
+              maybeShowInterstitialAfterCleanup(deletedPhotos.length + trimmedPhotos.length);
               resolve(deletedPhotos.length + trimmedPhotos.length + kept.length);
             },
           },
@@ -1114,6 +1145,7 @@ export function NativeTrimSwipeApp() {
                   `${deleteResult.deleted}/${deleted.length} deleted and ${trimmedPhotos.length}/${toTrim.length} trimmed.`,
                 );
               }
+              maybeShowInterstitialAfterCleanup(deletedPhotos.length + trimmedPhotos.length);
               resolve(reviewed.length);
             },
           },
@@ -1143,6 +1175,7 @@ export function NativeTrimSwipeApp() {
         createActionLogEntry(photo, "trim", savedMB),
       ),
     );
+    maybeShowInterstitialAfterCleanup(1);
   }
 
   function pickCategoryStart(key: "large" | "old" | "screenshots" | "similar") {
@@ -1211,8 +1244,6 @@ export function NativeTrimSwipeApp() {
         ) : screen === "stats" ? (
           <StatsDashboard
             stats={stats}
-            onStartRound={() => { setScreen("swipe"); void loadRound(); }}
-            onOpenSettings={() => setScreen("settings")}
             onShare={shareProgress}
           />
         ) : screen === "this-or-that" ? (
@@ -1257,20 +1288,11 @@ export function NativeTrimSwipeApp() {
             stats={stats}
             settings={settings}
             queue={queue}
-            actionLog={stats.actionLog}
-            busy={bulkBusy}
-            trimsRemaining={trimsRemainingToday}
             tokens={tokenBalance}
-            scan={libraryScan}
-            scanBusy={scanBusy}
-            scanProgress={scanProgress}
-            onScan={runLibraryScan}
             onStartGame={startGame}
             onOpenThisOrThat={() => setScreen("this-or-that")}
             onOpenStorageBudget={() => setScreen("storage-budget")}
             onOpenMemoryLane={() => setScreen("memory-lane")}
-            onBulkTrim={() => bulkTrimPhotos(queue)}
-            onStartRound={() => { setScreen("swipe"); void loadRound(); }}
           />
         ) : screen === "home" ? (
           <HomeDashboard
@@ -1664,23 +1686,6 @@ function StatsScreen({ stats, onStartRound, onOpenSettings, onShare }: {
         </View>
         <AnimatedScoreRing score={health} size={88} />
       </View>
-
-      {/* Quick action strip */}
-      <View style={styles.statsActionStrip}>
-        <Pressable onPress={onStartRound} style={styles.statsActionBtn}>
-          <Text style={styles.statsActionIcon}>▶</Text>
-          <Text style={styles.statsActionLabel}>Start round</Text>
-        </Pressable>
-        <Pressable onPress={onOpenSettings} style={styles.statsActionBtn}>
-          <Text style={styles.statsActionIcon}>⚙</Text>
-          <Text style={styles.statsActionLabel}>Tune focus</Text>
-        </Pressable>
-        <Pressable onPress={onShare} style={styles.statsActionBtn}>
-          <Text style={styles.statsActionIcon}>↑</Text>
-          <Text style={styles.statsActionLabel}>Share</Text>
-        </Pressable>
-      </View>
-
       {/* Impact summary */}
       <View style={styles.impactSummaryRow}>
         <ImpactPill label="Freed" value={formatMB(stats.mbFreed)} accent="#f97316" />
@@ -1979,115 +1984,104 @@ function OnboardingStep({ title, detail }: { title: string; detail: string }) {
 
 // ─── Games Screen ─────────────────────────────────────────────────────────────
 
-function GamesScreen({ stats, settings, queue, actionLog, busy, trimsRemaining, tokens, scan, scanBusy, scanProgress, onScan, onStartGame, onOpenThisOrThat, onOpenStorageBudget, onOpenMemoryLane, onBulkTrim, onStartRound }: {
-  stats: NativeStats; settings: NativeSettings; queue: NativePhoto[]; actionLog: NativeActionLogEntry[];
-  busy: boolean; trimsRemaining: number; tokens: number; scan: NativeLibraryScan | null; scanBusy: boolean;
-  scanProgress: NativeLibraryScanProgress | null; onScan: () => void; onStartGame: (patch: Partial<NativeSettings>) => void;
+function GamesScreen({ stats, settings, queue, tokens, onStartGame, onOpenThisOrThat, onOpenStorageBudget, onOpenMemoryLane }: {
+  stats: NativeStats; settings: NativeSettings; queue: NativePhoto[]; tokens: number; onStartGame: (patch: Partial<NativeSettings>) => void;
   onOpenThisOrThat: () => void; onOpenStorageBudget: () => void; onOpenMemoryLane: () => void;
-  onBulkTrim: () => void; onStartRound: () => void;
 }) {
-  const [actionsExpanded, setActionsExpanded] = useState(false);
   const today = dailyFor(stats, dateKey());
-  const trimCandidates = queue.filter((photo) => !photo.isCloudAsset);
-  const trimSavings = trimCandidates.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0);
-  const deletionActions = actionLog.filter((entry) => entry.action === "delete");
-  const visibleActions = actionsExpanded ? deletionActions : deletionActions.slice(0, 3);
-  const scanProgressText = scanProgress?.total ? `Scanning ${scanProgress.scanned}/${scanProgress.total}` : scanProgress ? `Scanning ${scanProgress.scanned}` : "Scanning";
-  const scanSavingsLow = scan ? Math.max(0, scan.trimSavingsMB) : 0;
-  const scanSavingsHigh = scan ? Math.max(scanSavingsLow, scan.trimSavingsMB + scan.deleteSavingsMB) : 0;
+  const heroPhotos = queue.slice(0, 3);
+  const gameThumbs = queue.slice(3, 7);
+  const todayLabel = today.mbFreed > 0 ? `${formatMB(today.mbFreed)} today` : "Ready to clean";
   return (
     <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-      <View style={styles.gamesHero}>
+      <View style={styles.gamesVisualHero}>
         <View style={styles.gameTopRow}>
-          <View>
+          <View style={styles.gamesHeroCopy}>
             <Text style={styles.eyebrow}>Games</Text>
-            <Text style={styles.heroTitle}>Pick a cleanup game</Text>
+            <Text style={styles.heroTitle}>Choose how to clean</Text>
+            <Text style={styles.dashboardCopy}>{todayLabel} · {stats.reviewed} photos reviewed</Text>
           </View>
           <TokenPill tokens={tokens} />
         </View>
-        <Text style={styles.dashboardCopy}>{formatMB(today.mbFreed)} saved today.</Text>
-        <View style={styles.homeStatRow}>
-          <HomeStat label="Reviewed" value={String(today.reviewed)} />
-          <HomeStat label="Trimmed" value={String(today.trimmed)} />
-          <HomeStat label="Deleted" value={String(today.deleted)} />
+        <View style={styles.heroPhotoStrip}>
+          {heroPhotos.length > 0 ? (
+            heroPhotos.map((photo, index) => (
+              <Image
+                key={photo.id}
+                source={{ uri: photo.uri }}
+                style={[styles.heroPhoto, index === 1 && styles.heroPhotoRaised]}
+                contentFit="cover"
+              />
+            ))
+          ) : (
+            <View style={styles.heroPhotoFallback}>
+              <Ionicons name="images-outline" size={34} color="#ffffff" />
+            </View>
+          )}
         </View>
-        <Text style={styles.dashboardCopy}>TrimSwipe has saved {formatMB(stats.mbFreed)} total across {stats.reviewed} reviewed photos.</Text>
-      </View>
-      <View style={styles.scanQuickCard}>
-        <View style={styles.dashboardHeroTop}>
-          <View style={styles.scanQuickCopy}>
-            <Text style={styles.eyebrow}>iPhone storage scan</Text>
-            <Text style={styles.challengeTitle}>
-              {scan ? `Save ${formatMB(scanSavingsLow)} - ${formatMB(scanSavingsHigh)}` : "Estimate your photo savings"}
-            </Text>
-            <Text style={styles.mutedSmall}>
-              {scan ? `${scan.assetCount} photos scanned · Photos use ${formatMB(scan.totalSizeMB)}` : "Uses local photo metadata to estimate trim + delete potential."}
-            </Text>
-          </View>
-          <Pressable disabled={scanBusy} onPress={onScan} style={[styles.scanMiniButton, scanBusy && styles.primaryButtonDisabled]}>
-            <Text style={styles.scanMiniButtonText}>{scanBusy ? scanProgressText : scan ? "Rescan" : "Scan"}</Text>
-          </Pressable>
+        <View style={styles.gamesStatsRow}>
+          <GameMetric icon="eye-outline" value={today.reviewed} label="Reviewed" />
+          <GameMetric icon="cut-outline" value={today.trimmed} label="Trimmed" />
+          <GameMetric icon="trash-outline" value={today.deleted} label="Deleted" />
         </View>
       </View>
-      <Pressable onPress={() => onStartGame({ sessionMode: "classic" })} style={styles.primaryGameCard}>
-        <View style={styles.primaryGameBadge}><Text style={styles.primaryGameBadgeText}>Main game</Text></View>
-        <Text style={styles.primaryGameTitle}>TrimSwipe</Text>
-        <Text style={styles.primaryGameDetail}>Keep, trim, or delete one photo at a time.</Text>
+      <Pressable onPress={() => onStartGame({ sessionMode: "classic" })} style={styles.primaryGameVisualCard}>
+        <View style={styles.primaryGameText}>
+          <View style={styles.primaryGameBadge}><Text style={styles.primaryGameBadgeText}>Main game</Text></View>
+          <Text style={styles.primaryGameTitle}>TrimSwipe</Text>
+          <Text style={styles.primaryGameDetail}>Swipe left, up, or right.</Text>
+        </View>
+        <View style={styles.primaryGameIcons}>
+          <Ionicons name="checkmark-circle" size={30} color="#ffffff" />
+          <Ionicons name="cut" size={30} color="#ffffff" />
+          <Ionicons name="trash" size={30} color="#ffffff" />
+        </View>
       </Pressable>
       <View style={styles.gameGrid}>
-        <GameModeCard icon="A/B" title="This or That" detail="Pick one keeper from two similar photos." active={false} onPress={onOpenThisOrThat} />
-        <GameModeCard icon="MB" title="Storage Budget" detail="Keep photos under a 50 MB budget." active={false} onPress={onOpenStorageBudget} />
-        <GameModeCard icon="60" title="Speed Round" detail="60 seconds, save what you can." active={settings.sessionMode === "time-attack"} onPress={() => onStartGame({ sessionMode: "time-attack" })} />
-        <GameModeCard icon="YR" title="Memory Lane" detail="Older photos first, decide what stays." active={settings.targetMode === "old-only"} onPress={onOpenMemoryLane} />
+        <VisualGameCard icon="git-compare-outline" title="This or That" detail="Pick the keeper" thumb={gameThumbs[0]?.uri} onPress={onOpenThisOrThat} />
+        <VisualGameCard icon="speedometer-outline" title="Storage Budget" detail="Stay under 50 MB" thumb={gameThumbs[1]?.uri} onPress={onOpenStorageBudget} />
+        <VisualGameCard icon="timer-outline" title="Speed Round" detail="60 seconds" thumb={gameThumbs[2]?.uri} active={settings.sessionMode === "time-attack"} onPress={() => onStartGame({ sessionMode: "time-attack" })} />
+        <VisualGameCard icon="calendar-outline" title="Memory Lane" detail="Old photos first" thumb={gameThumbs[3]?.uri} active={settings.targetMode === "old-only"} onPress={onOpenMemoryLane} />
       </View>
-      <View style={styles.dashboardHero}>
-        <View style={styles.dashboardHeroTop}>
-          <View>
-            <Text style={styles.eyebrow}>Review queue</Text>
-            <Text style={styles.heroTitle}>Batch tools</Text>
-          </View>
-          <View style={styles.healthScore}>
-            <Text style={styles.healthValue}>{queue.length}</Text>
-            <Text style={styles.healthLabel}>left</Text>
-          </View>
-        </View>
-        <Text style={styles.dashboardCopy}>Trim all local photos in the current deck, then keep swiping the rest.</Text>
-        <Text style={styles.mutedSmall}>{trimsRemaining}/{FREE_DAILY_TRIM_LIMIT} free trims left today</Text>
-        <PrimaryButton label={busy ? "Trimming..." : `Trim ${trimCandidates.length} photos, save ~${formatMB(trimSavings)}`} onPress={onBulkTrim} />
-      </View>
-      <SectionTitle title="Current deck" detail={`${queue.length} remaining`} />
-      {queue.length > 0 ? queue.slice(0, 8).map((photo) => <QueuePhotoRow key={photo.id} photo={photo} />) : <EmptyPanel title="No active deck" detail="Start a new round to fill the review queue." actionLabel="Start round" onAction={onStartRound} />}
-      <SectionTitle title="Recent deletions" detail={`${deletionActions.length} saved locally`} />
-      {visibleActions.length > 0 ? (
-        <View style={styles.compactActionList}>
-          {visibleActions.map((entry) => <ActionLogRow key={entry.id} entry={entry} compact />)}
-          {deletionActions.length > 3 ? (
-            <SecondaryButton label={actionsExpanded ? "Show fewer" : `Show ${deletionActions.length - 3} more`} onPress={() => setActionsExpanded((current) => !current)} />
-          ) : null}
-        </View>
-      ) : <EmptyPanel title="No deletions yet" detail="Your locally saved deletions will appear here." />}
     </ScrollView>
   );
 }
 
-function HomeStat({ label, value }: { label: string; value: string }) {
+function GameMetric({ icon, value, label }: { icon: keyof typeof Ionicons.glyphMap; value: number; label: string }) {
   return (
-    <View style={styles.homeStat}>
-      <Text style={styles.homeStatValue}>{value}</Text>
-      <Text style={styles.mutedSmall}>{label}</Text>
+    <View style={styles.gameMetric}>
+      <Ionicons name={icon} size={16} color="#f97316" />
+      <Text style={styles.gameMetricValue}>{value}</Text>
+      <Text style={styles.gameMetricLabel}>{label}</Text>
     </View>
   );
 }
 
-function GameModeCard({ icon, title, detail, active, onPress }: { icon: string; title: string; detail: string; active: boolean; onPress: () => void }) {
+function VisualGameCard({ icon, title, detail, thumb, active, onPress }: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  detail: string;
+  thumb?: string;
+  active?: boolean;
+  onPress: () => void;
+}) {
   return (
-    <Pressable onPress={onPress} style={[styles.gameCard, active && styles.gameCardActive]}>
-      <View style={[styles.gameIcon, active && styles.gameIconActive]}>
-        <Text style={[styles.gameIconText, active && styles.gameIconTextActive]}>{icon}</Text>
+    <Pressable onPress={onPress} style={[styles.visualGameCard, active && styles.visualGameCardActive]}>
+      <View style={styles.visualGameImageWrap}>
+        {thumb ? (
+          <Image source={{ uri: thumb }} style={styles.visualGameImage} contentFit="cover" />
+        ) : (
+          <View style={styles.visualGameFallback}>
+            <Ionicons name={icon} size={28} color="#f97316" />
+          </View>
+        )}
+        <View style={styles.visualGameIcon}>
+          <Ionicons name={icon} size={16} color="#ffffff" />
+        </View>
       </View>
       <View style={styles.gameCopy}>
-        <Text style={[styles.gameTitle, active && styles.gameTitleActive]}>{title}</Text>
-        <Text style={[styles.gameDetail, active && styles.gameDetailActive]}>{detail}</Text>
+        <Text style={[styles.gameTitle, active && styles.gameTitleActive]} numberOfLines={1}>{title}</Text>
+        <Text style={[styles.gameDetail, active && styles.gameDetailActive]} numberOfLines={1}>{detail}</Text>
       </View>
     </Pressable>
   );
@@ -2990,7 +2984,17 @@ const styles = StyleSheet.create({
 
   // Games
   gamesHero: { borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 18, gap: 8 },
+  gamesVisualHero: { overflow: "hidden", borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 18, gap: 14 },
+  gamesHeroCopy: { flex: 1, gap: 4 },
   gameTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
+  heroPhotoStrip: { height: 118, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  heroPhoto: { width: "31%", height: 104, borderRadius: 18, backgroundColor: "#ffedd5", borderWidth: 3, borderColor: "#ffffff" },
+  heroPhotoRaised: { height: 118, transform: [{ translateY: -4 }] },
+  heroPhotoFallback: { flex: 1, height: 112, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: "#fb923c" },
+  gamesStatsRow: { flexDirection: "row", gap: 8 },
+  gameMetric: { flex: 1, alignItems: "center", borderRadius: 16, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", paddingVertical: 10, gap: 2 },
+  gameMetricValue: { color: "#1f2937", fontSize: 20, fontWeight: "900" },
+  gameMetricLabel: { color: "#64748b", fontSize: 9, fontWeight: "800", textTransform: "uppercase" },
   homeStatRow: { flexDirection: "row", gap: 8 },
   homeStat: { flex: 1, borderRadius: 16, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 12 },
   homeStatValue: { color: "#c2410c", fontSize: 22, fontWeight: "900" },
@@ -3000,6 +3004,9 @@ const styles = StyleSheet.create({
   scanMiniButtonText: { color: "#ffffff", fontSize: 13, fontWeight: "900" },
   gameGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   primaryGameCard: { width: "100%", borderRadius: 24, backgroundColor: "#f97316", padding: 20, gap: 8, shadowColor: "#fb923c", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 18, elevation: 6 },
+  primaryGameVisualCard: { width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 24, backgroundColor: "#f97316", padding: 20, gap: 14, shadowColor: "#fb923c", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 18, elevation: 6 },
+  primaryGameText: { flex: 1, gap: 8 },
+  primaryGameIcons: { flexDirection: "row", gap: 7 },
   primaryGameBadge: { alignSelf: "flex-start", borderRadius: 999, backgroundColor: "rgba(255, 255, 255, 0.22)", paddingHorizontal: 10, paddingVertical: 5 },
   primaryGameBadgeText: { color: "#ffffff", fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
   primaryGameTitle: { color: "#ffffff", fontSize: 32, fontWeight: "900" },
@@ -3015,6 +3022,12 @@ const styles = StyleSheet.create({
   gameTitleActive: { color: "#9a3412" },
   gameDetail: { color: "#64748b", fontSize: 12, lineHeight: 17, fontWeight: "700" },
   gameDetailActive: { color: "#9a3412" },
+  visualGameCard: { width: "48%", overflow: "hidden", borderRadius: 20, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#fed7aa", padding: 9, gap: 9 },
+  visualGameCardActive: { backgroundColor: "#ffedd5", borderColor: "#fb923c" },
+  visualGameImageWrap: { position: "relative", height: 94, overflow: "hidden", borderRadius: 16, backgroundColor: "#fff7ed" },
+  visualGameImage: { width: "100%", height: "100%" },
+  visualGameFallback: { width: "100%", height: "100%", alignItems: "center", justifyContent: "center", backgroundColor: "#fff7ed" },
+  visualGameIcon: { position: "absolute", right: 8, top: 8, width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: "rgba(249, 115, 22, 0.92)" },
 
   // Mini game shared
   miniGameHeader: { flexDirection: "row", alignItems: "center", gap: 12 },

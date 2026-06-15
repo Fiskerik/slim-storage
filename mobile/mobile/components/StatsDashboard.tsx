@@ -29,15 +29,11 @@ const WEEKLY_TARGET_MB = 500;
 
 export type StatsDashboardProps = {
   stats: NativeStats;
-  onStartRound: () => void;
-  onOpenSettings: () => void;
   onShare: () => void;
 };
 
 export function StatsDashboard({
   stats,
-  onStartRound,
-  onOpenSettings,
   onShare,
 }: StatsDashboardProps) {
   const today = dailyFor(stats, dateKey());
@@ -155,18 +151,6 @@ export function StatsDashboard({
         {badges.map((b) => (
           <BadgeCard key={b.title} {...b} />
         ))}
-      </View>
-
-      {/* CTAs */}
-      <View style={styles.ctaRow}>
-        <Pressable onPress={onStartRound} style={[styles.cta, styles.ctaPrimary]}>
-          <Ionicons name="play" size={16} color={colors.white} />
-          <Text style={styles.ctaPrimaryText}>Start round</Text>
-        </Pressable>
-        <Pressable onPress={onOpenSettings} style={[styles.cta, styles.ctaGhost]}>
-          <Ionicons name="settings-outline" size={16} color={colors.text} />
-          <Text style={styles.ctaGhostText}>Settings</Text>
-        </Pressable>
       </View>
 
       <View style={{ height: 100 }} />
@@ -496,11 +480,4 @@ const styles = StyleSheet.create({
   badgeHint: { fontSize: 11, color: colors.textMuted, fontWeight: "600", minHeight: 28 },
   badgeTrack: { marginTop: 6, height: 4, borderRadius: 2, backgroundColor: colors.borderSoft, overflow: "hidden" },
   badgeFill: { height: "100%", backgroundColor: colors.primary, borderRadius: 2 },
-
-  ctaRow: { flexDirection: "row", gap: spacing.md, marginTop: spacing.xxl },
-  cta: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, borderRadius: radius.pill },
-  ctaPrimary: { backgroundColor: colors.primary, ...shadow.press },
-  ctaPrimaryText: { color: colors.white, fontWeight: "900" },
-  ctaGhost: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
-  ctaGhostText: { color: colors.text, fontWeight: "800" },
 });

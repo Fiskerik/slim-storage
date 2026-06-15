@@ -15,7 +15,6 @@ import * as Haptics from "expo-haptics";
 import { colors, radius, shadow, spacing, type, tiles } from "../constants/design";
 import {
   Card,
-  FAB,
   IconTile,
   Pill,
   ProgressRing,
@@ -407,8 +406,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
 
         <View style={{ height: 110 }} />
       </ScrollView>
-
-      <FAB icon="flash-outline" label="Quick scan" onPress={onQuickScan} />
     </View>
   );
 }

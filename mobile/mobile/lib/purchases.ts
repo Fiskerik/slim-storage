@@ -4,10 +4,13 @@
 import { Platform } from "react-native";
 import Purchases, {
   LOG_LEVEL,
+  PURCHASE_TYPE,
   type CustomerInfo,
   type PurchasesOfferings,
   type PurchasesPackage,
+  type PurchasesStoreProduct,
 } from "react-native-purchases";
+import { addTokens, TOKEN_PACKS } from "./tokens";
 
 function envValue(key: string): string | undefined {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
@@ -173,6 +176,12 @@ async function getProducts(): Promise<PurchaseResult> {
   try {
     const offerings: PurchasesOfferings = await Purchases.getOfferings();
     const packages: PurchasesPackage[] = offerings.current?.availablePackages || [];
+    if (packages.length === 0) {
+      const ids = [LIFETIME_PRODUCT_ID, ...Object.keys(TOKEN_PACKS)].filter(Boolean);
+      const storeProducts =
+        ids.length > 0 ? await Purchases.getProducts(ids, PURCHASE_TYPE.INAPP) : [];
+      return { products: storeProducts.map(serializeStoreProduct) };
+    }
 
     return {
       products: packages.map((pkg) => ({
@@ -191,6 +200,18 @@ async function getProducts(): Promise<PurchaseResult> {
   }
 }
 
+function serializeStoreProduct(product: PurchasesStoreProduct) {
+  return {
+    id: product.identifier,
+    title: product.title,
+    description: product.description,
+    price: product.priceString,
+    priceAmount: product.price,
+    currency: product.currencyCode,
+    packageType: "STORE_PRODUCT",
+  };
+}
+
 // ─── Purchase a Product ───────────────────────────
 
 async function purchase(productId: string): Promise<PurchaseResult> {
@@ -202,11 +223,9 @@ async function purchase(productId: string): Promise<PurchaseResult> {
       (p: PurchasesPackage) => p.product.identifier === productId,
     );
 
-    if (!pkg) {
-      return { success: false, error: `Product "${productId}" not found in current offering` };
-    }
-
-    const { customerInfo } = await Purchases.purchasePackage(pkg);
+    const { customerInfo } = pkg
+      ? await Purchases.purchasePackage(pkg)
+      : await purchaseStoreProductById(productId);
     const isPro = isProFromInfo(customerInfo);
 
     return {
@@ -222,6 +241,15 @@ async function purchase(productId: string): Promise<PurchaseResult> {
     console.error("[RevenueCat] purchase error:", err?.message);
     return { success: false, error: err?.message };
   }
+}
+
+async function purchaseStoreProductById(productId: string): Promise<{ customerInfo: CustomerInfo }> {
+  const products = await Purchases.getProducts([productId], PURCHASE_TYPE.INAPP);
+  const product = products.find((item) => item.identifier === productId);
+  if (!product) {
+    throw new Error(`Product "${productId}" not available from StoreKit`);
+  }
+  return Purchases.purchaseStoreProduct(product);
 }
 
 // ─── Restore Purchases ───────────────────────────
@@ -328,8 +356,6 @@ async function setEmail(email: string): Promise<PurchaseResult> {
 }
 
 // ─── Public helpers used by the native UI (Shop, Home) ────────────────────────
-
-import { addTokens, TOKEN_PACKS } from "./tokens";
 
 export type ShopProduct = {
   id: string;
