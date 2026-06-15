@@ -662,7 +662,7 @@ export function NativeTrimSwipeApp() {
       advance();
       return;
     }
-    if (trimsRemainingToday <= 0) {
+    if (trimsRemainingToday - pendingTrimsRef.current.length <= 0) {
       Alert.alert("Daily trim limit reached", `Free accounts can trim ${FREE_DAILY_TRIM_LIMIT} photos per day. Keep reviewing or delete photos today, and trims reset tomorrow.`);
       return;
     }
@@ -670,54 +670,106 @@ export function NativeTrimSwipeApp() {
     session.trimmed += 1;
     session.freed += estimated;
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    commitStats((current) =>
-      appendActionLog(
-        withRecentlySeenPhotos(
-          withDailyActivity(
-          { ...current, reviewed: current.reviewed + 1, trimmed: current.trimmed + 1, mbFreed: +(current.mbFreed + estimated).toFixed(2), trimMbFreed: +(current.trimMbFreed + estimated).toFixed(2) },
-          { reviewed: 1, trimmed: 1, mbFreed: estimated, trimMbFreed: estimated },
-          ),
-          [photo],
-        ),
-        createActionLogEntry(photo, "trim", estimated),
-      ),
-    );
-    setTrimmingCount((count) => count + 1);
-    void trimPhoto(photo, settings.trimQuality)
-      .then((result) => {
-        if (!result.trimmed && result.error) {
-          console.log("[NativeTrimSwipe] Trim skipped", { id: photo.id, error: result.error });
-        }
-      })
-      .finally(() => setTrimmingCount((count) => Math.max(0, count - 1)));
+    // Defer the actual trim to the end-of-set confirmation step so users
+    // aren't interrupted with iOS delete dialogs after every swipe.
+    pendingTrimsRef.current = [...pendingTrimsRef.current, photo];
+    setPendingTrims(pendingTrimsRef.current);
     advance();
   }
 
-  async function confirmDeletes(photos: NativePhoto[]) {
+  async function confirmActions(deletes: NativePhoto[], trims: NativePhoto[]) {
     setLoading(true);
-    const result = await deletePhotos(photos.map((photo) => photo.id));
-    setLoading(false);
-    if (result.deleted !== photos.length) {
-      Alert.alert("Delete failed", "Some photos could not be moved to Recently Deleted.");
+    const requestedTrimIds = new Set(trims.map((p) => p.id));
+    const requestedDeleteIds = new Set(deletes.map((p) => p.id));
+
+    let deletedCount = 0;
+    if (deletes.length > 0) {
+      const res = await deletePhotos(deletes.map((p) => p.id));
+      deletedCount = res.deleted;
     }
-    setPendingDeletes([]);
-    pendingDeletesRef.current = [];
+
+    let trimmedResults: Array<{ id: string; trimmed: boolean; savedMB?: number }> = [];
+    if (trims.length > 0) {
+      trimmedResults = await commitTrims(trims, settings.trimQuality);
+    }
+    const trimmedOkIds = new Set(trimmedResults.filter((r) => r.trimmed).map((r) => r.id));
+    const actualTrimSaved = trimmedResults.reduce(
+      (sum, r, i) => (r.trimmed ? sum + (r.savedMB ?? estimateTrimSavings(trims[i])) : sum),
+      0,
+    );
+
+    // Commit stats for confirmed actions only.
+    commitStats((current) => {
+      const reviewed = deletedCount + trimmedOkIds.size;
+      const deleteSaved = deletes.slice(0, deletedCount).reduce((s, p) => s + p.sizeMB, 0);
+      let next = withDailyActivity(
+        {
+          ...current,
+          reviewed: current.reviewed + reviewed,
+          deleted: current.deleted + deletedCount,
+          trimmed: current.trimmed + trimmedOkIds.size,
+          mbFreed: +(current.mbFreed + deleteSaved + actualTrimSaved).toFixed(2),
+          deleteMbFreed: +(current.deleteMbFreed + deleteSaved).toFixed(2),
+          trimMbFreed: +(current.trimMbFreed + actualTrimSaved).toFixed(2),
+        },
+        {
+          reviewed,
+          deleted: deletedCount,
+          trimmed: trimmedOkIds.size,
+          mbFreed: deleteSaved + actualTrimSaved,
+          deleteMbFreed: deleteSaved,
+          trimMbFreed: actualTrimSaved,
+        },
+      );
+      next = withRecentlySeenPhotos(next, [...deletes.slice(0, deletedCount), ...trims.filter((p) => trimmedOkIds.has(p.id))]);
+      for (const p of deletes.slice(0, deletedCount)) {
+        next = appendActionLog(next, createActionLogEntry(p, "delete", p.sizeMB));
+      }
+      for (const p of trims.filter((tp) => trimmedOkIds.has(tp.id))) {
+        next = appendActionLog(next, createActionLogEntry(p, "trim", estimateTrimSavings(p)));
+      }
+      return next;
+    });
+
+    // Recompute session recap to reflect actual outcomes.
+    sessionRef.current = {
+      kept: sessionRef.current.kept,
+      trimmed: trimmedOkIds.size,
+      deleted: deletedCount,
+      freed: +(deletes.slice(0, deletedCount).reduce((s, p) => s + p.sizeMB, 0) + actualTrimSaved).toFixed(2),
+    };
+
+    setLoading(false);
+    if (deletedCount !== deletes.length || trimmedOkIds.size !== trims.length) {
+      Alert.alert(
+        "Some actions skipped",
+        `${deletedCount}/${deletes.length} deleted and ${trimmedOkIds.size}/${trims.length} trimmed.`,
+      );
+    }
+    // Clear any items the user deselected from the pending queues too.
+    pendingDeletesRef.current = pendingDeletesRef.current.filter(
+      (p) => !requestedDeleteIds.has(p.id),
+    );
+    pendingTrimsRef.current = pendingTrimsRef.current.filter(
+      (p) => !requestedTrimIds.has(p.id),
+    );
+    setPendingDeletes(pendingDeletesRef.current);
+    setPendingTrims(pendingTrimsRef.current);
     setRecap({ ...sessionRef.current });
   }
 
-  function undoPendingDeletes() {
-    const photos = pendingDeletesRef.current;
-    setPendingDeletes([]);
+  function cancelPendingActions() {
     pendingDeletesRef.current = [];
-    sessionRef.current.deleted = Math.max(0, sessionRef.current.deleted - photos.length);
-    sessionRef.current.freed = Math.max(0, sessionRef.current.freed - photos.reduce((sum, photo) => sum + photo.sizeMB, 0));
-    const restoredMB = photos.reduce((sum, photo) => sum + photo.sizeMB, 0);
-    commitStats((current) =>
-      withDailyActivity(
-        { ...current, deleted: Math.max(0, current.deleted - photos.length), mbFreed: Math.max(0, +(current.mbFreed - restoredMB).toFixed(2)), deleteMbFreed: Math.max(0, +(current.deleteMbFreed - restoredMB).toFixed(2)) },
-        { deleted: -photos.length, mbFreed: -restoredMB, deleteMbFreed: -restoredMB },
-      ),
-    );
+    pendingTrimsRef.current = [];
+    setPendingDeletes([]);
+    setPendingTrims([]);
+    // Reset session totals since none of the pending actions were applied.
+    sessionRef.current = {
+      kept: sessionRef.current.kept,
+      trimmed: 0,
+      deleted: 0,
+      freed: 0,
+    };
     setRecap({ ...sessionRef.current });
   }
 
