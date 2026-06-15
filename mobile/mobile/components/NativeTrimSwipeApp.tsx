@@ -1180,6 +1180,7 @@ export function NativeTrimSwipeApp() {
             trimsRemaining={trimsRemainingToday}
             trimLimit={FREE_DAILY_TRIM_LIMIT}
             avoidIds={recentSelectionIds(stats)}
+            isPro={isPro}
             onBack={() => setScreen("games")}
             onTrimmed={handleSingleTrimComplete}
           />
