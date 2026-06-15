@@ -444,6 +444,8 @@ export function NativeTrimSwipeApp() {
   const [scanError, setScanError] = useState<string | null>(null);
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
   const pendingDeletesRef = useRef<NativePhoto[]>([]);
+  const pendingTrimsRef = useRef<NativePhoto[]>([]);
+  const [pendingTrims, setPendingTrims] = useState<NativePhoto[]>([]);
   const [tokenBalance, setTokenBalance] = useState<number>(10);
   const [isPro, setIsPro] = useState(false);
   const [adBusy, setAdBusy] = useState(false);
