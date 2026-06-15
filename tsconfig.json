@@ -41,10 +41,5 @@
     ".vinxi",
     "mobile"
 <<<<<<< HEAD
-  ],
-  "extends": "expo/tsconfig.base"
-}
-=======
   ]
 }
->>>>>>> b652684f822fdc81768d47c89e543a3a5165837a
