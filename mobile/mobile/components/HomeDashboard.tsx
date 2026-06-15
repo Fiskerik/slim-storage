@@ -139,10 +139,34 @@ export function HomeDashboard(props: HomeDashboardProps) {
             <Text style={styles.eyebrow}>Trimswipe</Text>
             <Text style={styles.headerTitle}>Hey 👋</Text>
           </View>
-          <Pressable onPress={onShare} hitSlop={10} style={styles.shareBtn}>
-            <Ionicons name="share-outline" size={18} color={colors.primary} />
-          </Pressable>
+          <View style={styles.headerActions}>
+            <Pressable onPress={onOpenShop} hitSlop={10} style={styles.tokenChip}>
+              <Ionicons name="flash" size={14} color={colors.honey} />
+              <Text style={styles.tokenChipValue}>{isPro ? "∞" : tokens}</Text>
+            </Pressable>
+            <Pressable onPress={onShare} hitSlop={10} style={styles.shareBtn}>
+              <Ionicons name="share-outline" size={18} color={colors.primary} />
+            </Pressable>
+          </View>
         </View>
+
+        {!isPro ? (
+          <Pressable onPress={onWatchAd} disabled={adBusy} style={styles.adBanner}>
+            <View style={styles.adBannerIcon}>
+              <Ionicons name="play-circle" size={22} color={colors.sage} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.adBannerTitle}>Watch a short ad</Text>
+              <Text style={styles.adBannerSub}>Earn +5 Trim Tokens</Text>
+            </View>
+            <Ionicons
+              name={adBusy ? "hourglass-outline" : "add-circle"}
+              size={22}
+              color={colors.sage}
+            />
+          </Pressable>
+        ) : null}
+
 
         {/* Hero ring */}
         <Card style={styles.hero} tone="warm">
