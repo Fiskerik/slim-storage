@@ -460,6 +460,38 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  tokenChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    height: 36,
+    borderRadius: radius.pill,
+    backgroundColor: colors.honeySoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.honey,
+  },
+  tokenChipValue: { fontWeight: "900", color: colors.honey, fontSize: 14 },
+  adBanner: {
+    marginTop: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.sageSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.sage,
+  },
+  adBannerIcon: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: colors.white, alignItems: "center", justifyContent: "center",
+  },
+  adBannerTitle: { fontSize: 14, fontWeight: "800", color: colors.sageDeep },
+  adBannerSub: { fontSize: 12, color: colors.sageDeep, fontWeight: "600", marginTop: 1 },
+
 
   hero: {
     marginTop: spacing.lg,
