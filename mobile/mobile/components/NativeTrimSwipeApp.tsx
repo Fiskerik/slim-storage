@@ -26,7 +26,6 @@ import {
   loadPhotoRound,
   requestPhotoPermission,
   scanPhotoLibrary,
-  trimPhoto,
   type NativeLibraryScan,
   type NativeLibraryScanProgress,
   type NativePhoto,
