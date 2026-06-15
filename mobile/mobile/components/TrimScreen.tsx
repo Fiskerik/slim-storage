@@ -214,19 +214,24 @@ export function TrimScreen({
       ) : null}
 
       {/* Presets */}
-      <SectionHeader title="Presets" action={<Text style={styles.actionLink}>tap to pick</Text>} />
+      <SectionHeader
+        title="Presets"
+        action={
+          <Text style={styles.actionLink}>
+            {isPro ? "tap to stack" : "Pro · multi-select"}
+          </Text>
+        }
+      />
       <View style={styles.presetGrid}>
         {PRESETS.map((p) => {
-          const active = p.key === presetKey;
+          const active = selectedKeys.has(p.key);
+          const locked = !isPro && p.key !== "exif";
           const saveMB = +(baseline * p.multiplier).toFixed(2);
           return (
             <Pressable
               key={p.key}
-              onPress={() => {
-                void Haptics.selectionAsync();
-                setPresetKey(p.key);
-              }}
-              style={[styles.preset, active && styles.presetActive]}
+              onPress={() => togglePreset(p.key)}
+              style={[styles.preset, active && styles.presetActive, locked && { opacity: 0.55 }]}
             >
               <View
                 style={[
@@ -234,11 +239,15 @@ export function TrimScreen({
                   { backgroundColor: active ? colors.primary : colors.primarySoft },
                 ]}
               >
-                <Ionicons name={p.icon} size={16} color={active ? colors.white : colors.primary} />
+                <Ionicons
+                  name={locked ? "lock-closed-outline" : p.icon}
+                  size={16}
+                  color={active ? colors.white : colors.primary}
+                />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.presetLabel, active && { color: colors.primary }]}>{p.label}</Text>
-                <Text style={styles.presetHint}>{p.hint}</Text>
+                <Text style={styles.presetHint}>{locked ? "Lifetime Pro" : p.hint}</Text>
               </View>
               <Text style={styles.presetSave}>~{saveMB.toFixed(1)} MB</Text>
             </Pressable>
