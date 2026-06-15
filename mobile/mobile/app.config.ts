@@ -62,11 +62,11 @@ const config: ExpoConfig = {
   ],
   extra: {
     eas: {
-      projectId: "761a961b-b2ba-48b1-9e2f-8051dee70c08",
+      projectId: "ddf5633b-2fa9-4f34-b960-fbc01e8b5729",
     },
     router: {},
   },
-  owner: "eddypham1981",
+  owner: "fiskerik89",
 };
 
 export default config;
