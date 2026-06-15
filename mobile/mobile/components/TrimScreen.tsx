@@ -189,13 +189,15 @@ export function TrimScreen({
             </Pressable>
           </View>
         ) : (
-          <BeforeAfterSlider
-            beforeUri={photo.uri}
-            afterUri={trimmedUri ?? photo.uri}
-            width={width}
-            height={height}
-            savedLabel={`−${estSaved.toFixed(1)} MB`}
-          />
+          <View style={{ width, height }}>
+            <Image source={{ uri: photo.uri }} style={{ width, height }} contentFit="cover" transition={120} />
+            {justTrimmed ? (
+              <View style={styles.trimmedBadge}>
+                <Ionicons name="checkmark-circle" size={14} color={colors.white} />
+                <Text style={styles.trimmedBadgeText}>Trimmed</Text>
+              </View>
+            ) : null}
+          </View>
         )}
       </View>
 
