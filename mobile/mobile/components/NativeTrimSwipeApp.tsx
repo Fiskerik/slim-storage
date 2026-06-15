@@ -2708,6 +2708,12 @@ const styles = StyleSheet.create({
   reviewListContent: { paddingBottom: 16 },
   reviewRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: "#ffffff", padding: 10, marginBottom: 8 },
   reviewThumb: { width: 58, height: 58, borderRadius: 14 },
+  checkbox: {
+    width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: "#d1d5db",
+    alignItems: "center", justifyContent: "center", backgroundColor: "#fff",
+  },
+  checkboxOn: { backgroundColor: "#f97316", borderColor: "#f97316" },
+  checkboxMark: { color: "#fff", fontWeight: "900", fontSize: 14 },
   reviewCopy: { flex: 1 },
   reviewTitle: { color: "#1f2937", fontSize: 14, fontWeight: "800" },
   actionLogRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 12 },
