@@ -158,18 +158,37 @@ export function ShopScreen({ onBack }: ShopScreenProps) {
             <Ionicons name="diamond" size={28} color={colors.primary} />
           </Card>
         ) : (
-          <Card style={styles.lifetimeCard} tone="warm">
-            <View style={styles.lifetimeRow}>
+          <View style={styles.lifetimeModal}>
+            <View style={styles.lifetimeRibbon}>
+              <Ionicons name="diamond" size={14} color={colors.white} />
+              <Text style={styles.lifetimeRibbonText}>LIMITED OFFER · LIFETIME</Text>
+            </View>
+            <View style={styles.lifetimeHeaderRow}>
               <View style={{ flex: 1 }}>
-                <Pill icon="star" value="Best value" label="" tone="honey" />
-                <Text style={styles.lifetimeTitle}>Lifetime Pro</Text>
-                <Text style={styles.lifetimeSub}>
-                  Unlimited Trim Tokens, zero ads. One payment, forever.
+                <Text style={styles.lifetimeBigTitle}>Go Lifetime Pro</Text>
+                <Text style={styles.lifetimeBigSub}>
+                  One payment. Every benefit. Forever.
                 </Text>
               </View>
-              <View style={{ alignItems: "flex-end" }}>
-                <Text style={styles.lifetimePrice}>{lifetime?.price ?? "—"}</Text>
+              <View style={styles.lifetimePriceBlock}>
+                <Text style={styles.lifetimeBigPrice}>{lifetime?.price ?? "$24.99"}</Text>
+                <Text style={styles.lifetimePriceHint}>one-time</Text>
               </View>
+            </View>
+            <View style={styles.lifetimeBenefits}>
+              {[
+                "Unlimited Trim Tokens",
+                "No ads — ever",
+                "Multi-preset trim (stack actions)",
+                "Priority new features",
+              ].map((b) => (
+                <View key={b} style={styles.lifetimeBenefitRow}>
+                  <View style={styles.lifetimeCheck}>
+                    <Ionicons name="checkmark" size={14} color={colors.white} />
+                  </View>
+                  <Text style={styles.lifetimeBenefitText}>{b}</Text>
+                </View>
+              ))}
             </View>
             <Pressable
               disabled={!lifetime || busy === lifetime?.id}
@@ -179,10 +198,12 @@ export function ShopScreen({ onBack }: ShopScreenProps) {
               {busy === lifetime?.id ? (
                 <ActivityIndicator color={colors.white} />
               ) : (
-                <Text style={styles.ctaText}>Unlock Lifetime Pro</Text>
+                <Text style={styles.ctaText}>
+                  Unlock Lifetime Pro · {lifetime?.price ?? "$24.99"}
+                </Text>
               )}
             </Pressable>
-          </Card>
+          </View>
         )}
 
         <SectionHeader title="Token packs" />
