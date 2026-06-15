@@ -331,6 +331,43 @@ const styles = StyleSheet.create({
   lifetimeSub: { ...type.body, color: colors.textMuted, marginTop: 2 },
   lifetimePrice: { fontSize: 22, fontWeight: "900", color: colors.primary },
 
+  // New prominent Lifetime Pro hero modal
+  lifetimeModal: {
+    backgroundColor: "#1f2937",
+    borderRadius: radius.xl ?? 24,
+    padding: spacing.xl,
+    gap: spacing.md,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    ...shadow.press,
+  },
+  lifetimeRibbon: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+    backgroundColor: colors.primary,
+  },
+  lifetimeRibbonText: { color: colors.white, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
+  lifetimeHeaderRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
+  lifetimeBigTitle: { fontSize: 26, fontWeight: "900", color: colors.white, letterSpacing: -0.5 },
+  lifetimeBigSub: { fontSize: 13, color: "#cbd5e1", marginTop: 4, fontWeight: "600" },
+  lifetimePriceBlock: { alignItems: "flex-end" },
+  lifetimeBigPrice: { fontSize: 28, fontWeight: "900", color: colors.honey },
+  lifetimePriceHint: { fontSize: 11, color: "#94a3b8", fontWeight: "700" },
+  lifetimeBenefits: { gap: 8, marginTop: 2 },
+  lifetimeBenefitRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  lifetimeCheck: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: colors.primary,
+    alignItems: "center", justifyContent: "center",
+  },
+  lifetimeBenefitText: { color: colors.white, fontSize: 14, fontWeight: "700", flex: 1 },
+
+
   cta: {
     height: 50, borderRadius: radius.lg, alignItems: "center", justifyContent: "center",
   },
