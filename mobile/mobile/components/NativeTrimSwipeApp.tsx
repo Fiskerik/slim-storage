@@ -48,6 +48,10 @@ import { HomeDashboard } from "./HomeDashboard";
 import { StatsDashboard } from "./StatsDashboard";
 import { OnboardingCarousel } from "./OnboardingCarousel";
 import { TrimScreen } from "./TrimScreen";
+import { ShopScreen } from "./ShopScreen";
+import { subscribeTokens, spendTokens, REWARDED_AD_TOKENS } from "../lib/tokens";
+import { checkProStatus } from "../lib/purchases";
+import { showRewardedAd, initAds } from "../lib/ads";
 
 type Screen =
   | "games"
@@ -57,7 +61,9 @@ type Screen =
   | "memory-lane"
   | "stats"
   | "trim"
+  | "shop"
   | "settings";
+
 type Action = "keep" | "trim" | "delete";
 
 type SessionRecap = {
@@ -437,6 +443,9 @@ export function NativeTrimSwipeApp() {
   const [scanError, setScanError] = useState<string | null>(null);
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
   const pendingDeletesRef = useRef<NativePhoto[]>([]);
+  const [tokenBalance, setTokenBalance] = useState<number>(10);
+  const [isPro, setIsPro] = useState(false);
+  const [adBusy, setAdBusy] = useState(false);
 
   const settings = roundSettings(stats.settings);
   const top = queue[0];
@@ -453,6 +462,32 @@ export function NativeTrimSwipeApp() {
     });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    const unsub = subscribeTokens((s) => setTokenBalance(s.tokens));
+    void checkProStatus().then(setIsPro).catch(() => {});
+    void initAds().catch(() => {});
+    return () => unsub();
+  }, []);
+
+  async function handleWatchAd() {
+    if (adBusy) return;
+    setAdBusy(true);
+    try {
+      const got = await showRewardedAd();
+      if (got > 0) {
+        Alert.alert("Thanks!", `+${got} Trim Tokens added.`);
+      } else {
+        Alert.alert("No ad available", "Please try again in a moment.");
+      }
+    } finally {
+      setAdBusy(false);
+    }
+  }
+
+  void REWARDED_AD_TOKENS; // silence unused if only used in handler
+  void spendTokens; // exported for future swipe/trim wiring
+
 
   function commitStats(updater: (current: NativeStats) => NativeStats) {
     setStats((current) => {
@@ -1101,6 +1136,8 @@ export function NativeTrimSwipeApp() {
             onBack={() => setScreen("games")}
             onTrimmed={handleSingleTrimComplete}
           />
+        ) : screen === "shop" ? (
+          <ShopScreen onBack={() => setScreen("games")} />
         ) : screen === "games" ? (
           <HomeDashboard
             stats={stats}
@@ -1110,9 +1147,14 @@ export function NativeTrimSwipeApp() {
             totalFreedMB={stats.mbFreed}
             potentialMB={potentialFromScan}
             scanBusy={scanBusy}
+            tokens={tokenBalance}
+            isPro={isPro}
+            adBusy={adBusy}
             onStartSwipe={() => { setScreen("swipe"); void loadRound(); }}
             onOpenTrim={() => setScreen("trim")}
             onOpenGames={() => setScreen("this-or-that")}
+            onOpenShop={() => setScreen("shop")}
+            onWatchAd={handleWatchAd}
             onQuickScan={runLibraryScan}
             onPickCategory={pickCategoryStart}
             onShare={shareProgress}
@@ -1120,6 +1162,7 @@ export function NativeTrimSwipeApp() {
         ) : (
           <SettingsScreen settings={settings} samplePhoto={top ?? queue[0]} onChange={updateSettings} onReload={loadRound} />
         )}
+
         {statsLoaded && stats.onboardingComplete ? <BottomNav screen={screen} onChange={setScreen} /> : null}
       </View>
     </SafeAreaView>
@@ -2380,11 +2423,13 @@ function BottomNav({ screen, onChange }: { screen: Screen; onChange: (screen: Sc
     <View style={styles.bottomNav}>
       <NavButton label="Swipe" active={screen === "swipe"} onPress={() => onChange("swipe")} />
       <NavButton label="Home" active={gamesActive} onPress={() => onChange("games")} />
+      <NavButton label="Shop" active={screen === "shop"} onPress={() => onChange("shop")} />
       <NavButton label="Stats" active={screen === "stats"} onPress={() => onChange("stats")} />
       <NavButton label="Settings" active={screen === "settings"} onPress={() => onChange("settings")} />
     </View>
   );
 }
+
 
 function NavButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
