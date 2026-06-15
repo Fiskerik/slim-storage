@@ -55,6 +55,7 @@ export type NativeStats = {
   onboardingComplete: boolean;
   shareCount: number;
   dailyActivity: Record<string, NativeDailyStats>;
+  dailyRewardClaims: Record<string, number>;
   actionLog: NativeActionLogEntry[];
   recentSeenPhotos: NativeSeenPhoto[];
   settings: NativeSettings;
@@ -106,6 +107,7 @@ export const DEFAULT_NATIVE_STATS: NativeStats = {
   onboardingComplete: false,
   shareCount: 0,
   dailyActivity: {},
+  dailyRewardClaims: {},
   actionLog: [],
   recentSeenPhotos: [],
   settings: DEFAULT_NATIVE_SETTINGS,
@@ -141,6 +143,17 @@ function normalizeDailyActivity(value: unknown): Record<string, NativeDailyStats
     Object.entries(value as Record<string, unknown>)
       .filter(([date]) => /^\d{4}-\d{2}-\d{2}$/.test(date))
       .map(([date, stats]) => [date, normalizeDailyStats(stats)]),
+  );
+}
+
+function normalizeRewardClaims(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([date]) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+      .map(([date, amount]): [string, number] => [date, Math.max(0, safeNumber(amount))])
+      .filter(([, amount]) => amount > 0),
   );
 }
 
@@ -217,6 +230,7 @@ function normalizeStats(value: unknown): NativeStats {
     onboardingComplete: raw.onboardingComplete === undefined ? safeNumber(raw.reviewed) > 0 : Boolean(raw.onboardingComplete),
     shareCount: Math.max(0, safeNumber(raw.shareCount)),
     dailyActivity: normalizeDailyActivity(raw.dailyActivity),
+    dailyRewardClaims: normalizeRewardClaims(raw.dailyRewardClaims),
     actionLog: normalizeActionLog(raw.actionLog),
     recentSeenPhotos: normalizeSeenPhotos(raw.recentSeenPhotos),
     settings: {

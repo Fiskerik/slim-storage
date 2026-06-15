@@ -508,6 +508,8 @@ const styles = StyleSheet.create({
 
   iconTile: {
     borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
     paddingVertical: spacing.lg,
     paddingHorizontal: spacing.md,
     alignItems: "flex-start",

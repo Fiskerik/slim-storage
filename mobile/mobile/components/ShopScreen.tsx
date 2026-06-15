@@ -206,6 +206,26 @@ export function ShopScreen({ onBack }: ShopScreenProps) {
           </View>
         )}
 
+        {!isPro ? (
+          <>
+            <SectionHeader title="Free tokens" />
+            <Pressable disabled={adBusy} onPress={handleWatchAd} style={styles.adCard}>
+              <View style={styles.adIcon}>
+                <Ionicons name="play-circle" size={28} color={colors.sage} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.adTitle}>Watch a short ad</Text>
+                <Text style={styles.adSub}>Get +{REWARDED_AD_TOKENS} Trim Tokens</Text>
+              </View>
+              {adBusy ? (
+                <ActivityIndicator color={colors.sage} />
+              ) : (
+                <Ionicons name="add-circle" size={26} color={colors.sage} />
+              )}
+            </Pressable>
+          </>
+        ) : null}
+
         <SectionHeader title="Token packs" />
         {loading ? (
           <Card style={styles.loading}>
@@ -251,26 +271,6 @@ export function ShopScreen({ onBack }: ShopScreenProps) {
             })}
           </View>
         )}
-
-        {!isPro ? (
-          <>
-            <SectionHeader title="Free tokens" />
-            <Pressable disabled={adBusy} onPress={handleWatchAd} style={styles.adCard}>
-              <View style={styles.adIcon}>
-                <Ionicons name="play-circle" size={28} color={colors.sage} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.adTitle}>Watch a short ad</Text>
-                <Text style={styles.adSub}>Get +{REWARDED_AD_TOKENS} Trim Tokens</Text>
-              </View>
-              {adBusy ? (
-                <ActivityIndicator color={colors.sage} />
-              ) : (
-                <Ionicons name="add-circle" size={26} color={colors.sage} />
-              )}
-            </Pressable>
-          </>
-        ) : null}
 
         <Pressable disabled={busy === "restore"} onPress={handleRestore} style={styles.restore}>
           {busy === "restore" ? (

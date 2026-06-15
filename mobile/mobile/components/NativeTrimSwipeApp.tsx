@@ -9,6 +9,7 @@ import {
   Animated,
   Easing,
   Linking,
+  Modal,
   PanResponder,
   Pressable,
   ScrollView,
@@ -17,6 +18,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   commitTrims,
@@ -45,15 +47,18 @@ import {
   type NativeTargetMode,
 } from "../lib/native-store";
 import { HomeDashboard } from "./HomeDashboard";
+import type { WeeklyRewardState } from "./HomeDashboard";
 import { StatsDashboard } from "./StatsDashboard";
 import { OnboardingCarousel } from "./OnboardingCarousel";
 import { TrimScreen } from "./TrimScreen";
 import { ShopScreen } from "./ShopScreen";
-import { subscribeTokens, spendTokens, REWARDED_AD_TOKENS } from "../lib/tokens";
+import { addTokens, subscribeTokens, spendTokens, REWARDED_AD_TOKENS } from "../lib/tokens";
 import { checkProStatus } from "../lib/purchases";
 import { showRewardedAd, initAds } from "../lib/ads";
+import { colors } from "../constants/design";
 
 type Screen =
+  | "home"
   | "games"
   | "swipe"
   | "this-or-that"
@@ -223,6 +228,43 @@ function currentStreak(stats: NativeStats): number {
     cursor = addDays(cursor, -1);
   }
   return streak;
+}
+
+function qualifiesForDailyReward(day: NativeDailyStats): boolean {
+  return day.trimmed > 0 || day.deleted > 0 || day.sessions > 0;
+}
+
+function weeklyRewardState(stats: NativeStats): WeeklyRewardState {
+  const today = dateKey();
+  const days = Array.from({ length: 7 }, (_, index) => {
+    const date = addDays(new Date(), index - 6);
+    const key = dateKey(date);
+    const day = dailyFor(stats, key);
+    return {
+      key,
+      label: date.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 3),
+      qualified: qualifiesForDailyReward(day),
+      claimed: (stats.dailyRewardClaims[key] ?? 0) > 0,
+      today: key === today,
+    };
+  });
+
+  let streak = 0;
+  let cursor = new Date();
+  while (qualifiesForDailyReward(dailyFor(stats, dateKey(cursor)))) {
+    streak += 1;
+    cursor = addDays(cursor, -1);
+  }
+
+  const claimedToday = (stats.dailyRewardClaims[today] ?? 0) > 0;
+  const daySeven = streak >= 7;
+  return {
+    days,
+    canClaimToday: qualifiesForDailyReward(dailyFor(stats, today)) && !claimedToday,
+    claimedToday,
+    rewardAmount: daySeven ? 20 : 5,
+    streak: Math.min(7, streak),
+  };
 }
 
 function trimStreak(stats: NativeStats): number {
@@ -424,7 +466,7 @@ function CelebrationBurst({ visible }: { visible: boolean }) {
 }
 
 export function NativeTrimSwipeApp() {
-  const [screen, setScreen] = useState<Screen>("games");
+  const [screen, setScreen] = useState<Screen>("home");
   const [stats, setStats] = useState<NativeStats>(DEFAULT_NATIVE_STATS);
   const [queue, setQueue] = useState<NativePhoto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -440,6 +482,7 @@ export function NativeTrimSwipeApp() {
   const [libraryScan, setLibraryScan] = useState<NativeLibraryScan | null>(null);
   const [scanProgress, setScanProgress] = useState<NativeLibraryScanProgress | null>(null);
   const [scanBusy, setScanBusy] = useState(false);
+  const [scanComplete, setScanComplete] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
   const pendingDeletesRef = useRef<NativePhoto[]>([]);
@@ -487,6 +530,22 @@ export function NativeTrimSwipeApp() {
     }
   }
 
+  async function claimWeeklyReward() {
+    const reward = weeklyRewardState(stats);
+    const today = dateKey();
+    if (!reward.canClaimToday || reward.claimedToday) return;
+    await addTokens(reward.rewardAmount, "grant");
+    commitStats((current) => ({
+      ...current,
+      dailyRewardClaims: {
+        ...current.dailyRewardClaims,
+        [today]: reward.rewardAmount,
+      },
+    }));
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    Alert.alert("Tokens claimed", `+${reward.rewardAmount} Trim Tokens added.`);
+  }
+
   void REWARDED_AD_TOKENS; // silence unused if only used in handler
   void spendTokens; // exported for future swipe/trim wiring
 
@@ -514,6 +573,7 @@ export function NativeTrimSwipeApp() {
 
   async function runLibraryScan() {
     setScanBusy(true);
+    setScanComplete(false);
     setScanError(null);
     setScanProgress({ scanned: 0 });
     try {
@@ -529,9 +589,11 @@ export function NativeTrimSwipeApp() {
       const result = await scanPhotoLibrary(setScanProgress);
       setLibraryScan(result);
       setScanProgress(null);
+      setScanComplete(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not scan the photo library";
       setScanError(message);
+      setScanComplete(false);
     } finally {
       setScanBusy(false);
     }
@@ -1095,6 +1157,7 @@ export function NativeTrimSwipeApp() {
 
   const todayStats = dailyFor(stats, dateKey());
   const recentPhotosForHero: NativePhoto[] = queue.slice(0, 3);
+  const weeklyReward = weeklyRewardState(stats);
   const potentialFromScan = libraryScan
     ? libraryScan.trimSavingsMB + libraryScan.deleteSavingsMB
     : Math.max(stats.mbFreed * 2, 500);
@@ -1135,6 +1198,7 @@ export function NativeTrimSwipeApp() {
             trimmingCount={trimmingCount}
             timeLeft={timeLeft}
             largeControls={settings.largeText}
+            tokens={tokenBalance}
             trimsRemaining={trimsRemainingToday}
             trimLimit={FREE_DAILY_TRIM_LIMIT}
             onAction={handleAction}
@@ -1154,12 +1218,14 @@ export function NativeTrimSwipeApp() {
         ) : screen === "this-or-that" ? (
           <ThisOrThatScreen
             settings={settings}
+            tokens={tokenBalance}
             onBack={() => setScreen("games")}
             onConfirmOutcome={confirmThisOrThatOutcome}
           />
         ) : screen === "storage-budget" ? (
           <StorageBudgetScreen
             settings={settings}
+            tokens={tokenBalance}
             trimsRemaining={trimsRemainingToday}
             avoidIds={recentSelectionIds(stats)}
             onBack={() => setScreen("games")}
@@ -1168,6 +1234,7 @@ export function NativeTrimSwipeApp() {
         ) : screen === "memory-lane" ? (
           <MemoryLaneScreen
             settings={settings}
+            tokens={tokenBalance}
             avoidIds={recentSelectionIds(stats)}
             trimsRemaining={trimsRemainingToday}
             onBack={() => setScreen("games")}
@@ -1186,6 +1253,26 @@ export function NativeTrimSwipeApp() {
         ) : screen === "shop" ? (
           <ShopScreen onBack={() => setScreen("games")} />
         ) : screen === "games" ? (
+          <GamesScreen
+            stats={stats}
+            settings={settings}
+            queue={queue}
+            actionLog={stats.actionLog}
+            busy={bulkBusy}
+            trimsRemaining={trimsRemainingToday}
+            tokens={tokenBalance}
+            scan={libraryScan}
+            scanBusy={scanBusy}
+            scanProgress={scanProgress}
+            onScan={runLibraryScan}
+            onStartGame={startGame}
+            onOpenThisOrThat={() => setScreen("this-or-that")}
+            onOpenStorageBudget={() => setScreen("storage-budget")}
+            onOpenMemoryLane={() => setScreen("memory-lane")}
+            onBulkTrim={() => bulkTrimPhotos(queue)}
+            onStartRound={() => { setScreen("swipe"); void loadRound(); }}
+          />
+        ) : screen === "home" ? (
           <HomeDashboard
             stats={stats}
             today={todayStats}
@@ -1194,15 +1281,19 @@ export function NativeTrimSwipeApp() {
             totalFreedMB={stats.mbFreed}
             potentialMB={potentialFromScan}
             scanBusy={scanBusy}
+            scanComplete={scanComplete}
+            scanInProgressText={scanProgress?.total ? `Scanning ${scanProgress.scanned}/${scanProgress.total}` : scanProgress ? `Scanning ${scanProgress.scanned}` : undefined}
             tokens={tokenBalance}
             isPro={isPro}
             adBusy={adBusy}
+            weeklyReward={weeklyReward}
             onStartSwipe={() => { setScreen("swipe"); void loadRound(); }}
             onOpenTrim={() => setScreen("trim")}
-            onOpenGames={() => setScreen("this-or-that")}
+            onOpenGames={() => setScreen("games")}
             onOpenShop={() => setScreen("shop")}
             onWatchAd={handleWatchAd}
             onQuickScan={runLibraryScan}
+            onClaimWeeklyReward={claimWeeklyReward}
             onPickCategory={pickCategoryStart}
             onShare={shareProgress}
           />
@@ -1221,7 +1312,7 @@ export function NativeTrimSwipeApp() {
 
 function SwipeScreen({
   top, next, queueCount, loading, error, permissionDenied, permissionLimited,
-  settings, recap, pendingDeletes, pendingTrims, trimmingCount, timeLeft, largeControls,
+  settings, recap, pendingDeletes, pendingTrims, trimmingCount, timeLeft, largeControls, tokens,
   trimsRemaining, trimLimit, onAction, onReload, onOpenSettings,
   onConfirmActions, onCancelPending, onShare,
 }: {
@@ -1229,13 +1320,15 @@ function SwipeScreen({
   error: string | null; permissionDenied: boolean; permissionLimited: boolean;
   settings: NativeSettings; recap: SessionRecap | null; pendingDeletes: NativePhoto[];
   pendingTrims: NativePhoto[];
-  trimmingCount: number; timeLeft: number; largeControls: boolean; trimsRemaining: number;
+  trimmingCount: number; timeLeft: number; largeControls: boolean; tokens: number; trimsRemaining: number;
   trimLimit: number; onAction: (photo: NativePhoto, action: Action) => void;
   onReload: () => void; onOpenSettings: () => void;
   onConfirmActions: (deletes: NativePhoto[], trims: NativePhoto[]) => Promise<void> | void;
   onCancelPending: () => void;
   onShare: () => void;
 }) {
+  const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
+
   if (loading) {
     return (
       <Centered>
@@ -1285,6 +1378,7 @@ function SwipeScreen({
           <Text style={styles.swipeSubtitle}>{sessionModeLabel(settings.sessionMode)} mode. A cleaner set of photos, one quick decision at a time.</Text>
         </View>
         <View style={styles.swipeStatusColumn}>
+          <TokenPill tokens={tokens} />
           <Text style={styles.queuePill}>{queueCount} left</Text>
           <Text style={styles.trimLimitPill}>{trimsRemaining}/{trimLimit} trims</Text>
           {settings.sessionMode === "time-attack" ? <Text style={styles.timerPill}>{timeLeft}s</Text> : null}
@@ -1294,18 +1388,19 @@ function SwipeScreen({
       {permissionLimited ? <Text style={styles.warning}>Limited photo access is enabled. Some photos may be hidden.</Text> : null}
       <View style={styles.deck}>
         {next ? <PhotoCard photo={next} stacked /> : null}
-        {top ? <SwipeablePhotoCard photo={top} onAction={(action) => onAction(top, action)} /> : null}
+        {top ? <SwipeablePhotoCard photo={top} onAction={(action) => onAction(top, action)} onOpenFull={() => setFullPhoto(top)} /> : null}
       </View>
       <View style={styles.actions}>
         <ActionButton label="Keep" tone="keep" large={largeControls} onPress={() => top && onAction(top, "keep")} />
         <ActionButton label={trimsRemaining > 0 ? "Trim" : "Limit hit"} tone="trim" large={largeControls} disabled={trimsRemaining <= 0} onPress={() => top && onAction(top, "trim")} />
         <ActionButton label="Delete" tone="delete" large={largeControls} onPress={() => top && onAction(top, "delete")} />
       </View>
+      <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </View>
   );
 }
 
-function SwipeablePhotoCard({ photo, onAction }: { photo: NativePhoto; onAction: (action: Action) => void }) {
+function SwipeablePhotoCard({ photo, onAction, onOpenFull }: { photo: NativePhoto; onAction: (action: Action) => void; onOpenFull: () => void }) {
   const pan = useRef(new Animated.ValueXY()).current;
   useEffect(() => { pan.setValue({ x: 0, y: 0 }); }, [pan, photo.id]);
   const panResponder = useMemo(
@@ -1327,16 +1422,17 @@ function SwipeablePhotoCard({ photo, onAction }: { photo: NativePhoto; onAction:
   const deleteOpacity = pan.x.interpolate({ inputRange: [0, 20, SWIPE_THRESHOLD], outputRange: [0, 0.14, 0.38], extrapolate: "clamp" });
   return (
     <Animated.View {...panResponder.panHandlers} style={[styles.animatedCard, { transform: [{ translateX: pan.x }, { translateY: pan.y }, { rotate }] }]}>
-      <PhotoCard photo={photo} />
+      <PhotoCard photo={photo} onOpenFull={onOpenFull} />
       <Animated.View pointerEvents="none" style={[styles.swipeTint, styles.keepTint, { opacity: keepOpacity }]} />
       <Animated.View pointerEvents="none" style={[styles.swipeTint, styles.deleteTint, { opacity: deleteOpacity }]} />
     </Animated.View>
   );
 }
 
-function PhotoCard({ photo, stacked }: { photo: NativePhoto; stacked?: boolean }) {
+function PhotoCard({ photo, stacked, onOpenFull }: { photo: NativePhoto; stacked?: boolean; onOpenFull?: () => void }) {
+  const Wrapper = onOpenFull ? Pressable : View;
   return (
-    <View style={[styles.photoCard, stacked && styles.stackedCard]}>
+    <Wrapper onLongPress={onOpenFull} delayLongPress={350} style={[styles.photoCard, stacked && styles.stackedCard]}>
       <Image source={{ uri: photo.uri }} style={styles.photoImage} contentFit="cover" transition={120} />
       <View style={styles.photoShade} />
       <View style={styles.photoTop}>
@@ -1351,7 +1447,7 @@ function PhotoCard({ photo, stacked }: { photo: NativePhoto; stacked?: boolean }
           {photo.isCloudAsset ? <Text style={styles.reason}>iCloud</Text> : null}
         </View>
       </View>
-    </View>
+    </Wrapper>
   );
 }
 
@@ -1368,6 +1464,8 @@ function ConfirmActionsReview({
   onConfirm: (deletes: NativePhoto[], trims: NativePhoto[]) => void;
   onCancel: () => void;
 }) {
+  const [deleteList, setDeleteList] = useState<NativePhoto[]>(deletes);
+  const [trimList, setTrimList] = useState<NativePhoto[]>(trims);
   const [selectedDeletes, setSelectedDeletes] = useState<Set<string>>(
     () => new Set(deletes.map((p) => p.id)),
   );
@@ -1375,8 +1473,8 @@ function ConfirmActionsReview({
     () => new Set(trims.map((p) => p.id)),
   );
 
-  const chosenDeletes = deletes.filter((p) => selectedDeletes.has(p.id));
-  const chosenTrims = trims.filter((p) => selectedTrims.has(p.id));
+  const chosenDeletes = deleteList.filter((p) => selectedDeletes.has(p.id));
+  const chosenTrims = trimList.filter((p) => selectedTrims.has(p.id));
   const deleteMB = chosenDeletes.reduce((s, p) => s + p.sizeMB, 0);
   const trimMB = chosenTrims.reduce((s, p) => s + estimateTrimSavings(p), 0);
   const total = deleteMB + trimMB;
@@ -1389,7 +1487,33 @@ function ConfirmActionsReview({
     setter(next);
   }
 
-  function renderRow(photo: NativePhoto, selected: boolean, onToggle: () => void, hint: string) {
+  function moveToDelete(photo: NativePhoto) {
+    setTrimList((current) => current.filter((item) => item.id !== photo.id));
+    setDeleteList((current) =>
+      current.some((item) => item.id === photo.id) ? current : [...current, photo],
+    );
+    setSelectedTrims((current) => {
+      const next = new Set(current);
+      next.delete(photo.id);
+      return next;
+    });
+    setSelectedDeletes((current) => new Set(current).add(photo.id));
+  }
+
+  function moveToTrim(photo: NativePhoto) {
+    setDeleteList((current) => current.filter((item) => item.id !== photo.id));
+    setTrimList((current) =>
+      current.some((item) => item.id === photo.id) ? current : [...current, photo],
+    );
+    setSelectedDeletes((current) => {
+      const next = new Set(current);
+      next.delete(photo.id);
+      return next;
+    });
+    setSelectedTrims((current) => new Set(current).add(photo.id));
+  }
+
+  function renderRow(photo: NativePhoto, selected: boolean, onToggle: () => void, hint: string, move: "delete" | "trim") {
     return (
       <Pressable key={photo.id} onPress={onToggle} style={styles.reviewRow}>
         <Image source={{ uri: photo.uri }} style={[styles.reviewThumb, !selected && { opacity: 0.4 }]} contentFit="cover" />
@@ -1399,6 +1523,21 @@ function ConfirmActionsReview({
           </Text>
           <Text style={styles.mutedSmall}>{hint}</Text>
         </View>
+        <Pressable
+          onPress={(event) => {
+            event.stopPropagation();
+            if (move === "delete") moveToDelete(photo);
+            else moveToTrim(photo);
+          }}
+          hitSlop={8}
+          style={styles.reviewMoveButton}
+        >
+          <Ionicons
+            name={move === "delete" ? "trash-outline" : "cut-outline"}
+            size={18}
+            color={move === "delete" ? "#dc2626" : "#c2410c"}
+          />
+        </Pressable>
         <View style={[styles.checkbox, selected && styles.checkboxOn]}>
           {selected ? <Text style={styles.checkboxMark}>✓</Text> : null}
         </View>
@@ -1410,31 +1549,33 @@ function ConfirmActionsReview({
     <View style={styles.content}>
       <Text style={styles.heroTitle}>Confirm actions</Text>
       <Text style={styles.muted}>
-        Tap any row to deselect. {chosenDeletes.length} to delete · {chosenTrims.length} to trim · ~{formatMB(total)} saved.
+        Tap rows to deselect. Use the bin/scissors to move photos between Delete and Trim. {chosenDeletes.length} to delete - {chosenTrims.length} to trim - ~{formatMB(total)} saved.
       </Text>
       <ScrollView style={styles.reviewList} contentContainerStyle={styles.reviewListContent}>
-        {trims.length > 0 ? (
-          <Text style={[styles.eyebrow, { marginBottom: 6 }]}>Trim ({chosenTrims.length}/{trims.length})</Text>
+        {trimList.length > 0 ? (
+          <Text style={[styles.eyebrow, { marginBottom: 6 }]}>Trim ({chosenTrims.length}/{trimList.length})</Text>
         ) : null}
-        {trims.map((photo) =>
+        {trimList.map((photo) =>
           renderRow(
             photo,
             selectedTrims.has(photo.id),
             () => toggle(selectedTrims, setSelectedTrims, photo.id),
-            `Trim · saves ~${estimateTrimSavings(photo).toFixed(1)} MB`,
+            `Trim - saves ~${estimateTrimSavings(photo).toFixed(1)} MB`,
+            "delete",
           ),
         )}
-        {deletes.length > 0 ? (
-          <Text style={[styles.eyebrow, { marginTop: trims.length > 0 ? 14 : 0, marginBottom: 6 }]}>
-            Delete ({chosenDeletes.length}/{deletes.length})
+        {deleteList.length > 0 ? (
+          <Text style={[styles.eyebrow, { marginTop: trimList.length > 0 ? 14 : 0, marginBottom: 6 }]}>
+            Delete ({chosenDeletes.length}/{deleteList.length})
           </Text>
         ) : null}
-        {deletes.map((photo) =>
+        {deleteList.map((photo) =>
           renderRow(
             photo,
             selectedDeletes.has(photo.id),
             () => toggle(selectedDeletes, setSelectedDeletes, photo.id),
-            `${photo.sizeMB.toFixed(1)} MB`,
+            `Delete - frees ${photo.sizeMB.toFixed(1)} MB`,
+            "trim",
           ),
         )}
       </ScrollView>
@@ -1838,9 +1979,9 @@ function OnboardingStep({ title, detail }: { title: string; detail: string }) {
 
 // ─── Games Screen ─────────────────────────────────────────────────────────────
 
-function GamesScreen({ stats, settings, queue, actionLog, busy, trimsRemaining, scan, scanBusy, scanProgress, onScan, onStartGame, onOpenThisOrThat, onOpenStorageBudget, onOpenMemoryLane, onBulkTrim, onStartRound }: {
+function GamesScreen({ stats, settings, queue, actionLog, busy, trimsRemaining, tokens, scan, scanBusy, scanProgress, onScan, onStartGame, onOpenThisOrThat, onOpenStorageBudget, onOpenMemoryLane, onBulkTrim, onStartRound }: {
   stats: NativeStats; settings: NativeSettings; queue: NativePhoto[]; actionLog: NativeActionLogEntry[];
-  busy: boolean; trimsRemaining: number; scan: NativeLibraryScan | null; scanBusy: boolean;
+  busy: boolean; trimsRemaining: number; tokens: number; scan: NativeLibraryScan | null; scanBusy: boolean;
   scanProgress: NativeLibraryScanProgress | null; onScan: () => void; onStartGame: (patch: Partial<NativeSettings>) => void;
   onOpenThisOrThat: () => void; onOpenStorageBudget: () => void; onOpenMemoryLane: () => void;
   onBulkTrim: () => void; onStartRound: () => void;
@@ -1857,8 +1998,14 @@ function GamesScreen({ stats, settings, queue, actionLog, busy, trimsRemaining, 
   return (
     <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
       <View style={styles.gamesHero}>
-        <Text style={styles.eyebrow}>Home</Text>
-        <Text style={styles.heroTitle}>{formatMB(today.mbFreed)} saved today</Text>
+        <View style={styles.gameTopRow}>
+          <View>
+            <Text style={styles.eyebrow}>Games</Text>
+            <Text style={styles.heroTitle}>Pick a cleanup game</Text>
+          </View>
+          <TokenPill tokens={tokens} />
+        </View>
+        <Text style={styles.dashboardCopy}>{formatMB(today.mbFreed)} saved today.</Text>
         <View style={styles.homeStatRow}>
           <HomeStat label="Reviewed" value={String(today.reviewed)} />
           <HomeStat label="Trimmed" value={String(today.trimmed)} />
@@ -1988,8 +2135,8 @@ function LoserThumb({ photo, tone, onMove }: { photo: NativePhoto; tone: "delete
   );
 }
 
-function ThisOrThatScreen({ settings, onBack, onConfirmOutcome }: {
-  settings: NativeSettings; onBack: () => void;
+function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
+  settings: NativeSettings; tokens: number; onBack: () => void;
   onConfirmOutcome: (kept: NativePhoto[], deleted: NativePhoto[], toTrim: NativePhoto[]) => Promise<number>;
 }) {
   const [pairs, setPairs] = useState<[NativePhoto, NativePhoto][]>([]);
@@ -1999,6 +2146,7 @@ function ThisOrThatScreen({ settings, onBack, onConfirmOutcome }: {
   const [loserModes, setLoserModes] = useState<Record<string, "delete" | "trim">>({});
   const [loadingPairs, setLoadingPairs] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
 
   async function loadPairs() {
     setLoadingPairs(true);
@@ -2051,7 +2199,7 @@ function ThisOrThatScreen({ settings, onBack, onConfirmOutcome }: {
   if (!pair) {
     return (
       <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-        <MiniGameHeader title="This or That" detail="Round complete" onBack={onBack} />
+        <MiniGameHeader title="This or That" detail="Round complete" tokens={tokens} onBack={onBack} />
         <View style={styles.dashboardHero}>
           <Text style={styles.heroTitle}>{deleted.length} losers ready</Text>
           <Text style={styles.dashboardCopy}>Losers default to Delete. Move anything you still want to keep smaller into Trim before applying.</Text>
@@ -2072,24 +2220,25 @@ function ThisOrThatScreen({ settings, onBack, onConfirmOutcome }: {
 
   return (
     <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-      <MiniGameHeader title="This or That" detail={`${index + 1}/${pairs.length} pairs`} onBack={onBack} />
+      <MiniGameHeader title="This or That" detail={`${index + 1}/${pairs.length} pairs`} tokens={tokens} onBack={onBack} />
       <View style={styles.dashboardHero}>
         <Text style={styles.heroTitle}>Tap the photo to keep</Text>
         <Text style={styles.dashboardCopy}>The unpicked photo waits for final delete confirmation.</Text>
       </View>
       <View style={styles.thisThatRow}>
-        <ChoicePhoto photo={pair[0]} label="A" onPress={() => pick(0)} />
-        <ChoicePhoto photo={pair[1]} label="B" onPress={() => pick(1)} />
+        <ChoicePhoto photo={pair[0]} label="A" onPress={() => pick(0)} onLongPress={() => setFullPhoto(pair[0])} />
+        <ChoicePhoto photo={pair[1]} label="B" onPress={() => pick(1)} onLongPress={() => setFullPhoto(pair[1])} />
       </View>
       <Text style={styles.centerText}>Queued savings: {formatMB(deleteFreed)}</Text>
+      <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </ScrollView>
   );
 }
 
 // ─── Storage Budget (FIX 3) ───────────────────────────────────────────────────
 
-function StorageBudgetScreen({ settings, trimsRemaining, avoidIds, onBack, onConfirmOutcome }: {
-  settings: NativeSettings; trimsRemaining: number; avoidIds: string[]; onBack: () => void;
+function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBack, onConfirmOutcome }: {
+  settings: NativeSettings; tokens: number; trimsRemaining: number; avoidIds: string[]; onBack: () => void;
   onConfirmOutcome: (kept: NativePhoto[], deleted: NativePhoto[], toTrim: NativePhoto[]) => Promise<number>;
 }) {
   const [photos, setPhotos] = useState<NativePhoto[]>([]);
@@ -2097,6 +2246,7 @@ function StorageBudgetScreen({ settings, trimsRemaining, avoidIds, onBack, onCon
   const [loadingPhotos, setLoadingPhotos] = useState(true);
   const [busy, setBusy] = useState(false);
   const scrollY = useRef(new Animated.Value(0)).current;
+  const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
 
   // FIX 3: Load enough photos to total ~75-100 MB pool so user must make real choices
   async function loadBoard() {
@@ -2171,7 +2321,7 @@ function StorageBudgetScreen({ settings, trimsRemaining, avoidIds, onBack, onCon
         onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
         scrollEventThrottle={16}
       >
-        <MiniGameHeader title="Storage Budget" detail="Keep what fits" onBack={onBack} />
+        <MiniGameHeader title="Storage Budget" detail="Keep what fits" tokens={tokens} onBack={onBack} />
       <View style={styles.dashboardHero}>
         <View style={styles.dashboardHeroTop}>
           <View>
@@ -2195,7 +2345,7 @@ function StorageBudgetScreen({ settings, trimsRemaining, avoidIds, onBack, onCon
       </View>
       <View style={styles.budgetGrid}>
         {photos.map((photo) => (
-          <BudgetPhotoTile key={photo.id} photo={photo} kept={keptIds.has(photo.id)} onPress={() => toggle(photo)} />
+          <BudgetPhotoTile key={photo.id} photo={photo} kept={keptIds.has(photo.id)} onPress={() => toggle(photo)} onLongPress={() => setFullPhoto(photo)} />
         ))}
       </View>
       <PrimaryButton
@@ -2204,6 +2354,7 @@ function StorageBudgetScreen({ settings, trimsRemaining, avoidIds, onBack, onCon
         onPress={lockBudget}
       />
       </Animated.ScrollView>
+      <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
       <Animated.View style={[styles.floatingBudget, { transform: [{ translateY: budgetTranslateY }, { scale: budgetScale }] }]}>
         <Text style={styles.floatingBudgetLabel}>Used</Text>
         <Text style={[styles.floatingBudgetValue, overBudget && styles.floatingBudgetOver]}>{formatMB(usedMB)} / {formatMB(BUDGET_KEEP_LIMIT_MB)}</Text>
@@ -2217,8 +2368,8 @@ function StorageBudgetScreen({ settings, trimsRemaining, avoidIds, onBack, onCon
 
 // ─── Memory Lane (FIX 4) ──────────────────────────────────────────────────────
 
-function MemoryLaneScreen({ settings, avoidIds, trimsRemaining, onBack, onConfirmOutcome }: {
-  settings: NativeSettings; avoidIds: string[]; trimsRemaining: number; onBack: () => void;
+function MemoryLaneScreen({ settings, tokens, avoidIds, trimsRemaining, onBack, onConfirmOutcome }: {
+  settings: NativeSettings; tokens: number; avoidIds: string[]; trimsRemaining: number; onBack: () => void;
   onConfirmOutcome: (kept: NativePhoto[], deleted: NativePhoto[], toTrim: NativePhoto[]) => Promise<number>;
 }) {
   const [photos, setPhotos] = useState<NativePhoto[]>([]);
@@ -2231,6 +2382,7 @@ function MemoryLaneScreen({ settings, avoidIds, trimsRemaining, onBack, onConfir
   const [revealed, setRevealed] = useState(false);
   const [loadingPhotos, setLoadingPhotos] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
   // FIX 4: Celebration state
   const [showCelebration, setShowCelebration] = useState(false);
   const borderAnim = useRef(new Animated.Value(0)).current;
@@ -2301,7 +2453,7 @@ function MemoryLaneScreen({ settings, avoidIds, trimsRemaining, onBack, onConfir
   if (!photo) {
     return (
       <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-        <MiniGameHeader title="Memory Lane" detail="Round complete" onBack={onBack} />
+        <MiniGameHeader title="Memory Lane" detail="Round complete" tokens={tokens} onBack={onBack} />
         <View style={styles.dashboardHero}>
           <Text style={styles.heroTitle}>{kept.length} kept, {toTrim.length} trimmed, {deleted.length} cleared</Text>
           <Text style={styles.dashboardCopy}>
@@ -2319,8 +2471,8 @@ function MemoryLaneScreen({ settings, avoidIds, trimsRemaining, onBack, onConfir
 
   return (
     <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-      <MiniGameHeader title="Memory Lane" detail={`${index + 1}/${photos.length} memories`} onBack={onBack} />
-      <View style={[styles.memoryCard, { borderColor: cardBorderColor, borderWidth: revealed ? 3 : StyleSheet.hairlineWidth }]}>
+      <MiniGameHeader title="Memory Lane" detail={`${index + 1}/${photos.length} memories`} tokens={tokens} onBack={onBack} />
+      <Pressable onLongPress={() => setFullPhoto(photo)} delayLongPress={350} style={[styles.memoryCard, { borderColor: cardBorderColor, borderWidth: revealed ? 3 : StyleSheet.hairlineWidth }]}>
         <Image source={{ uri: photo.uri }} style={styles.memoryImage} contentFit="cover" />
         <View style={styles.photoShade} />
         <View style={styles.choiceFooter}>
@@ -2328,7 +2480,7 @@ function MemoryLaneScreen({ settings, avoidIds, trimsRemaining, onBack, onConfir
           <Text style={styles.choiceMeta}>{formatMB(photo.sizeMB)}</Text>
         </View>
         <CelebrationBurst visible={showCelebration} />
-      </View>
+      </Pressable>
 
       {!revealed ? (
         <View style={styles.dashboardHero}>
@@ -2356,13 +2508,14 @@ function MemoryLaneScreen({ settings, avoidIds, trimsRemaining, onBack, onConfir
           <Text style={styles.mutedSmall}>{Math.max(0, trimsRemaining - toTrim.length)} trim tokens left</Text>
         </View>
       )}
+      <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </ScrollView>
   );
 }
 
 // ─── Shared mini components ───────────────────────────────────────────────────
 
-function MiniGameHeader({ title, detail, onBack }: { title: string; detail: string; onBack: () => void }) {
+function MiniGameHeader({ title, detail, tokens, onBack }: { title: string; detail: string; tokens: number; onBack: () => void }) {
   return (
     <View style={styles.miniGameHeader}>
       <Pressable onPress={onBack} style={styles.backButton}><Text style={styles.backButtonText}>Back</Text></Pressable>
@@ -2370,13 +2523,23 @@ function MiniGameHeader({ title, detail, onBack }: { title: string; detail: stri
         <Text style={styles.eyebrow}>{detail}</Text>
         <Text style={styles.heroTitle}>{title}</Text>
       </View>
+      <TokenPill tokens={tokens} />
     </View>
   );
 }
 
-function ChoicePhoto({ photo, label, onPress }: { photo: NativePhoto; label: string; onPress: () => void }) {
+function TokenPill({ tokens }: { tokens: number }) {
   return (
-    <Pressable onPress={onPress} style={styles.choicePhoto}>
+    <View style={styles.tokenPill}>
+      <Ionicons name="flash" size={14} color="#92400e" />
+      <Text style={styles.tokenPillText}>{tokens}</Text>
+    </View>
+  );
+}
+
+function ChoicePhoto({ photo, label, onPress, onLongPress }: { photo: NativePhoto; label: string; onPress: () => void; onLongPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={350} style={styles.choicePhoto}>
       <Image source={{ uri: photo.uri }} style={styles.choiceImage} contentFit="cover" />
       <View style={styles.choiceShade} />
       <Text style={styles.choiceBadge}>{label}</Text>
@@ -2388,14 +2551,35 @@ function ChoicePhoto({ photo, label, onPress }: { photo: NativePhoto; label: str
   );
 }
 
-function BudgetPhotoTile({ photo, kept, onPress }: { photo: NativePhoto; kept: boolean; onPress: () => void }) {
+function BudgetPhotoTile({ photo, kept, onPress, onLongPress }: { photo: NativePhoto; kept: boolean; onPress: () => void; onLongPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={[styles.budgetTile, kept && styles.budgetTileKept]}>
+    <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={350} style={[styles.budgetTile, kept && styles.budgetTileKept]}>
       <Image source={{ uri: photo.uri }} style={styles.budgetImage} contentFit="cover" />
       <View style={styles.choiceShade} />
       <Text style={[styles.budgetStatus, kept && styles.budgetStatusKept]}>{kept ? "Keep" : "Cut"}</Text>
       <Text style={styles.budgetSize}>{formatMB(photo.sizeMB)}</Text>
     </Pressable>
+  );
+}
+
+function FullPhotoModal({ photo, onClose }: { photo: NativePhoto | null; onClose: () => void }) {
+  return (
+    <Modal visible={photo !== null} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.fullPhotoOverlay}>
+        <Pressable onPress={onClose} hitSlop={12} style={styles.fullPhotoClose}>
+          <Ionicons name="close" size={24} color={colors.white} />
+        </Pressable>
+        {photo ? (
+          <>
+            <Image source={{ uri: photo.uri }} style={styles.fullPhotoImage} contentFit="contain" />
+            <View style={styles.fullPhotoCaption}>
+              <Text style={styles.fullPhotoTitle} numberOfLines={1}>{photo.title}</Text>
+              <Text style={styles.fullPhotoMeta}>{photo.month} {photo.year} - {formatMB(photo.sizeMB)}</Text>
+            </View>
+          </>
+        ) : null}
+      </View>
+    </Modal>
   );
 }
 
@@ -2544,11 +2728,11 @@ function SettingsScreen({ settings, samplePhoto, onChange, onReload }: { setting
 // ─── Navigation ───────────────────────────────────────────────────────────────
 
 function BottomNav({ screen, onChange }: { screen: Screen; onChange: (screen: Screen) => void }) {
-  const gamesActive = screen === "games" || screen === "this-or-that" || screen === "storage-budget" || screen === "memory-lane";
+  const gamesActive = screen === "games" || screen === "swipe" || screen === "this-or-that" || screen === "storage-budget" || screen === "memory-lane";
   return (
     <View style={styles.bottomNav}>
-      <NavButton label="Swipe" active={screen === "swipe"} onPress={() => onChange("swipe")} />
-      <NavButton label="Home" active={gamesActive} onPress={() => onChange("games")} />
+      <NavButton label="Home" active={screen === "home"} onPress={() => onChange("home")} />
+      <NavButton label="Games" active={gamesActive} onPress={() => onChange("games")} />
       <NavButton label="Shop" active={screen === "shop"} onPress={() => onChange("shop")} />
       <NavButton label="Stats" active={screen === "stats"} onPress={() => onChange("stats")} />
       <NavButton label="Settings" active={screen === "settings"} onPress={() => onChange("settings")} />
@@ -2708,6 +2892,7 @@ const styles = StyleSheet.create({
   reviewListContent: { paddingBottom: 16 },
   reviewRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: "#ffffff", padding: 10, marginBottom: 8 },
   reviewThumb: { width: 58, height: 58, borderRadius: 14 },
+  reviewMoveButton: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa" },
   checkbox: {
     width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: "#d1d5db",
     alignItems: "center", justifyContent: "center", backgroundColor: "#fff",
@@ -2805,6 +2990,7 @@ const styles = StyleSheet.create({
 
   // Games
   gamesHero: { borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 18, gap: 8 },
+  gameTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
   homeStatRow: { flexDirection: "row", gap: 8 },
   homeStat: { flex: 1, borderRadius: 16, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 12 },
   homeStatValue: { color: "#c2410c", fontSize: 22, fontWeight: "900" },
@@ -2833,6 +3019,8 @@ const styles = StyleSheet.create({
   // Mini game shared
   miniGameHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
   miniGameHeaderCopy: { flex: 1 },
+  tokenPill: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 999, backgroundColor: "#fef3c7", borderWidth: StyleSheet.hairlineWidth, borderColor: "#f59e0b", paddingHorizontal: 10, paddingVertical: 7 },
+  tokenPillText: { color: "#92400e", fontSize: 13, fontWeight: "900" },
   backButton: { borderRadius: 999, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", paddingHorizontal: 14, paddingVertical: 10 },
   backButtonText: { color: "#c2410c", fontSize: 13, fontWeight: "900" },
 
@@ -2873,6 +3061,13 @@ const styles = StyleSheet.create({
   budgetStatus: { position: "absolute", top: 6, left: 6, overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(254, 226, 226, 0.92)", color: "#b91c1c", paddingHorizontal: 7, paddingVertical: 3, fontSize: 10, fontWeight: "900" },
   budgetStatusKept: { backgroundColor: "rgba(220, 252, 231, 0.92)", color: "#15803d" },
   budgetSize: { position: "absolute", left: 6, right: 6, bottom: 6, color: "#ffffff", fontSize: 11, fontWeight: "900" },
+
+  fullPhotoOverlay: { flex: 1, backgroundColor: "rgba(15, 23, 42, 0.96)", alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+  fullPhotoClose: { position: "absolute", top: 54, right: 22, zIndex: 2, width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.14)" },
+  fullPhotoImage: { width: "100%", height: "78%" },
+  fullPhotoCaption: { position: "absolute", left: 20, right: 20, bottom: 38, borderRadius: 18, backgroundColor: "rgba(15, 23, 42, 0.72)", padding: 14 },
+  fullPhotoTitle: { color: "#ffffff", fontSize: 16, fontWeight: "900" },
+  fullPhotoMeta: { marginTop: 3, color: "#cbd5e1", fontSize: 12, fontWeight: "700" },
 
   // Memory Lane
   memoryCard: { height: 420, overflow: "hidden", borderRadius: 24, backgroundColor: "#ffffff" },
@@ -2952,7 +3147,7 @@ const styles = StyleSheet.create({
   secondaryButtonText: { color: "#c2410c", fontSize: 14, fontWeight: "800" },
 
   // Nav
-  bottomNav: { position: "absolute", left: 16, right: 16, bottom: 16, flexDirection: "row", gap: 8, borderRadius: 22, backgroundColor: "rgba(255, 255, 255, 0.96)", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 8, shadowColor: "#fb923c", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.14, shadowRadius: 18, elevation: 6 },
+  bottomNav: { position: "absolute", left: 14, right: 14, bottom: 14, flexDirection: "row", gap: 8, borderRadius: 30, backgroundColor: "rgba(255, 255, 255, 0.98)", borderWidth: 1, borderColor: "#f59e0b", padding: 8, shadowColor: "#fb923c", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 22, elevation: 8 },
   navButton: { flex: 1, alignItems: "center", borderRadius: 16, paddingVertical: 11 },
   navButtonActive: { backgroundColor: "#fb923c" },
   navText: { color: "#9a3412", fontSize: 12, fontWeight: "900" },

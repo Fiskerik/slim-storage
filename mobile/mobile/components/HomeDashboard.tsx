@@ -38,6 +38,22 @@ type Category = {
   thumb?: string;
 };
 
+export type WeeklyRewardDay = {
+  key: string;
+  label: string;
+  qualified: boolean;
+  claimed: boolean;
+  today: boolean;
+};
+
+export type WeeklyRewardState = {
+  days: WeeklyRewardDay[];
+  canClaimToday: boolean;
+  claimedToday: boolean;
+  rewardAmount: number;
+  streak: number;
+};
+
 export type HomeDashboardProps = {
   stats: NativeStats;
   today: NativeDailyStats;
@@ -46,16 +62,19 @@ export type HomeDashboardProps = {
   totalFreedMB: number;
   potentialMB: number;
   scanBusy: boolean;
+  scanComplete: boolean;
   scanInProgressText?: string;
   tokens: number;
   isPro: boolean;
   adBusy?: boolean;
+  weeklyReward: WeeklyRewardState;
   onStartSwipe: () => void;
   onOpenTrim: () => void;
   onOpenGames: () => void;
   onOpenShop: () => void;
   onWatchAd: () => void;
   onQuickScan: () => void;
+  onClaimWeeklyReward: () => void;
   onPickCategory: (key: Category["key"]) => void;
   onShare: () => void;
 };
@@ -77,15 +96,18 @@ export function HomeDashboard(props: HomeDashboardProps) {
     totalFreedMB,
     potentialMB,
     scanBusy,
+    scanComplete,
     tokens,
     isPro,
     adBusy,
+    weeklyReward,
     onStartSwipe,
     onOpenTrim,
     onOpenGames,
     onOpenShop,
     onWatchAd,
     onQuickScan,
+    onClaimWeeklyReward,
     onPickCategory,
     onShare,
   } = props;
@@ -126,6 +148,15 @@ export function HomeDashboard(props: HomeDashboardProps) {
   const potentialDisplay = formatMB(target);
 
   const heroThumbs = recentPhotos.slice(0, 3);
+  const dailyGoalMB = 50;
+  const dailyGoalProgress = Math.min(1, today.mbFreed / dailyGoalMB);
+  const scanHint = scanBusy
+    ? props.scanInProgressText ?? "Scanning..."
+    : scanComplete
+      ? "Scanning completed"
+      : "Find savings";
+  const scanBg = scanComplete ? colors.sageSoft : "#ffe6cc";
+  const scanAccent = scanComplete ? colors.sageDeep : tiles.scan.accent;
 
   return (
     <View style={{ flex: 1 }}>
@@ -206,6 +237,84 @@ export function HomeDashboard(props: HomeDashboardProps) {
           </Animated.View>
         </Card>
 
+        <SectionHeader
+          title="Daily goal"
+          action={<Text style={styles.sectionAction}>{formatMB(today.mbFreed)} / {dailyGoalMB} MB</Text>}
+        />
+        <Card style={styles.dailyGoalCard}>
+          <View style={styles.dailyGoalTop}>
+            <View>
+              <Text style={styles.goalTitle}>Trim 50 MB today</Text>
+              <Text style={styles.goalHint}>
+                {dailyGoalProgress >= 1
+                  ? "Goal complete"
+                  : `${formatMB(Math.max(0, dailyGoalMB - today.mbFreed))} left`}
+              </Text>
+            </View>
+            <Text style={styles.goalPercent}>{Math.round(dailyGoalProgress * 100)}%</Text>
+          </View>
+          <View style={styles.goalTrack}>
+            <View style={[styles.goalFill, { width: `${dailyGoalProgress * 100}%` }]} />
+          </View>
+        </Card>
+
+        <SectionHeader
+          title="Weekly login"
+          action={<Text style={styles.sectionAction}>{weeklyReward.streak}/7 active</Text>}
+        />
+        <Card style={styles.weeklyCard}>
+          <View style={styles.weeklyDays}>
+            {weeklyReward.days.map((day, index) => (
+              <View key={day.key} style={styles.weeklyDay}>
+                <View
+                  style={[
+                    styles.weeklyDot,
+                    day.qualified && styles.weeklyDotDone,
+                    day.claimed && styles.weeklyDotClaimed,
+                    day.today && styles.weeklyDotToday,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.weeklyDotText,
+                      (day.qualified || day.claimed) && styles.weeklyDotTextActive,
+                    ]}
+                  >
+                    {index + 1}
+                  </Text>
+                </View>
+                <Text style={styles.weeklyLabel}>{day.label}</Text>
+              </View>
+            ))}
+          </View>
+          <View style={styles.weeklyFooter}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.goalTitle}>
+                {weeklyReward.claimedToday
+                  ? "Reward claimed"
+                  : weeklyReward.canClaimToday
+                    ? `Claim ${weeklyReward.rewardAmount} Trim Tokens`
+                    : "Play or clean to unlock today"}
+              </Text>
+              <Text style={styles.goalHint}>
+                5 tokens daily. Day 7 pays 20 after a full active streak.
+              </Text>
+            </View>
+            <Pressable
+              disabled={!weeklyReward.canClaimToday || weeklyReward.claimedToday}
+              onPress={onClaimWeeklyReward}
+              style={[
+                styles.claimButton,
+                (!weeklyReward.canClaimToday || weeklyReward.claimedToday) && styles.claimButtonDisabled,
+              ]}
+            >
+              <Text style={styles.claimButtonText}>
+                {weeklyReward.claimedToday ? "Done" : "Claim"}
+              </Text>
+            </Pressable>
+          </View>
+        </Card>
+
         {/* Quick actions 2x2 */}
         <SectionHeader title="Quick actions" />
         <View style={styles.tileGrid}>
@@ -213,9 +322,9 @@ export function HomeDashboard(props: HomeDashboardProps) {
             <IconTile
               icon="search-outline"
               label="Scan"
-              hint={scanBusy ? "Scanning…" : "Find savings"}
-              bg={tiles.scan.bg}
-              accent={tiles.scan.accent}
+              hint={scanHint}
+              bg={scanBg}
+              accent={scanAccent}
               onPress={() => {
                 void Haptics.selectionAsync();
                 onQuickScan();
@@ -235,14 +344,14 @@ export function HomeDashboard(props: HomeDashboardProps) {
           </View>
           <View style={styles.tileRow}>
             <IconTile
-              icon="cut-outline"
-              label="Trim"
-              hint="Strip metadata"
+              icon="bag-outline"
+              label="Shop"
+              hint="Tokens and Pro"
               bg={tiles.trim.bg}
               accent={tiles.trim.accent}
               onPress={() => {
                 void Haptics.selectionAsync();
-                onOpenTrim();
+                onOpenShop();
               }}
             />
             <IconTile
@@ -516,6 +625,57 @@ const styles = StyleSheet.create({
 
   tileGrid: { gap: spacing.md },
   tileRow: { flexDirection: "row", gap: spacing.md },
+
+  dailyGoalCard: { gap: spacing.md },
+  dailyGoalTop: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  goalTitle: { fontSize: 14, fontWeight: "900", color: colors.text },
+  goalHint: { marginTop: 2, fontSize: 12, color: colors.textMuted, fontWeight: "600" },
+  goalPercent: { color: colors.primary, fontSize: 22, fontWeight: "900" },
+  goalTrack: {
+    height: 10,
+    overflow: "hidden",
+    borderRadius: radius.pill,
+    backgroundColor: colors.borderSoft,
+  },
+  goalFill: {
+    height: "100%",
+    borderRadius: radius.pill,
+    backgroundColor: colors.primary,
+  },
+
+  weeklyCard: { gap: spacing.lg },
+  weeklyDays: { flexDirection: "row", justifyContent: "space-between", gap: 6 },
+  weeklyDay: { flex: 1, alignItems: "center", gap: 6 },
+  weeklyDot: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 15,
+    backgroundColor: colors.cardSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  weeklyDotDone: { backgroundColor: colors.sageSoft, borderColor: colors.sage },
+  weeklyDotClaimed: { backgroundColor: colors.primary, borderColor: colors.primary },
+  weeklyDotToday: { borderWidth: 2 },
+  weeklyDotText: { fontSize: 12, fontWeight: "900", color: colors.textMuted },
+  weeklyDotTextActive: { color: colors.sageDeep },
+  weeklyLabel: { fontSize: 10, color: colors.textMuted, fontWeight: "800" },
+  weeklyFooter: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  claimButton: {
+    borderRadius: radius.pill,
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  claimButtonDisabled: { backgroundColor: colors.border, opacity: 0.8 },
+  claimButtonText: { color: colors.white, fontSize: 13, fontWeight: "900" },
 
   todayCard: {
     flexDirection: "row",
