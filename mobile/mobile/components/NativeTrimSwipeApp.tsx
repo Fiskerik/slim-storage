@@ -44,8 +44,20 @@ import {
   type NativeStats,
   type NativeTargetMode,
 } from "../lib/native-store";
+import { HomeDashboard } from "./HomeDashboard";
+import { StatsDashboard } from "./StatsDashboard";
+import { OnboardingCarousel } from "./OnboardingCarousel";
+import { TrimScreen } from "./TrimScreen";
 
-type Screen = "games" | "swipe" | "this-or-that" | "storage-budget" | "memory-lane" | "stats" | "settings";
+type Screen =
+  | "games"
+  | "swipe"
+  | "this-or-that"
+  | "storage-budget"
+  | "memory-lane"
+  | "stats"
+  | "trim"
+  | "settings";
 type Action = "keep" | "trim" | "delete";
 
 type SessionRecap = {
@@ -968,6 +980,45 @@ export function NativeTrimSwipeApp() {
     });
   }
 
+  function handleSingleTrimComplete(photo: NativePhoto, savedMB: number) {
+    sessionRef.current.trimmed += 1;
+    sessionRef.current.freed += savedMB;
+    commitStats((current) =>
+      appendActionLog(
+        withRecentlySeenPhotos(
+          withDailyActivity(
+            {
+              ...current,
+              reviewed: current.reviewed + 1,
+              trimmed: current.trimmed + 1,
+              mbFreed: +(current.mbFreed + savedMB).toFixed(2),
+              trimMbFreed: +(current.trimMbFreed + savedMB).toFixed(2),
+            },
+            { reviewed: 1, trimmed: 1, mbFreed: savedMB, trimMbFreed: savedMB },
+          ),
+          [photo],
+        ),
+        createActionLogEntry(photo, "trim", savedMB),
+      ),
+    );
+  }
+
+  function pickCategoryStart(key: "large" | "old" | "screenshots" | "similar") {
+    const map: Record<typeof key, NativeTargetMode> = {
+      large: "big-only",
+      old: "old-only",
+      screenshots: "screenshots",
+      similar: "similar",
+    };
+    startGame({ targetMode: map[key], sessionMode: "classic" });
+  }
+
+  const todayStats = dailyFor(stats, dateKey());
+  const recentPhotosForHero: NativePhoto[] = queue.slice(0, 3);
+  const potentialFromScan = libraryScan
+    ? libraryScan.trimSavingsMB + libraryScan.deleteSavingsMB
+    : Math.max(stats.mbFreed * 2, 500);
+
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar style="dark" />
@@ -978,7 +1029,7 @@ export function NativeTrimSwipeApp() {
             <Text style={styles.muted}>Preparing TrimSwipe...</Text>
           </Centered>
         ) : !stats.onboardingComplete ? (
-          <OnboardingScreen
+          <OnboardingCarousel
             scan={libraryScan}
             scanBusy={scanBusy}
             scanError={scanError}
@@ -987,7 +1038,6 @@ export function NativeTrimSwipeApp() {
             permissionLimited={permissionLimited}
             onScan={runLibraryScan}
             onDone={completeOnboarding}
-            onOpenSettings={() => { completeOnboarding(); setScreen("settings"); }}
           />
         ) : screen === "swipe" ? (
           <SwipeScreen
@@ -1014,7 +1064,7 @@ export function NativeTrimSwipeApp() {
             onShare={shareProgress}
           />
         ) : screen === "stats" ? (
-          <StatsScreen
+          <StatsDashboard
             stats={stats}
             onStartRound={() => { setScreen("swipe"); void loadRound(); }}
             onOpenSettings={() => setScreen("settings")}
@@ -1042,24 +1092,30 @@ export function NativeTrimSwipeApp() {
             onBack={() => setScreen("games")}
             onConfirmOutcome={confirmMemoryLaneOutcome}
           />
-        ) : screen === "games" ? (
-          <GamesScreen
-            stats={stats}
+        ) : screen === "trim" ? (
+          <TrimScreen
             settings={settings}
-            queue={queue}
-            actionLog={stats.actionLog}
-            busy={bulkBusy}
             trimsRemaining={trimsRemainingToday}
-            scan={libraryScan}
+            trimLimit={FREE_DAILY_TRIM_LIMIT}
+            avoidIds={recentSelectionIds(stats)}
+            onBack={() => setScreen("games")}
+            onTrimmed={handleSingleTrimComplete}
+          />
+        ) : screen === "games" ? (
+          <HomeDashboard
+            stats={stats}
+            today={todayStats}
+            queue={queue}
+            recentPhotos={recentPhotosForHero}
+            totalFreedMB={stats.mbFreed}
+            potentialMB={potentialFromScan}
             scanBusy={scanBusy}
-            scanProgress={scanProgress}
-            onScan={runLibraryScan}
-            onStartGame={startGame}
-            onOpenThisOrThat={() => setScreen("this-or-that")}
-            onOpenStorageBudget={() => setScreen("storage-budget")}
-            onOpenMemoryLane={() => setScreen("memory-lane")}
-            onBulkTrim={() => void bulkTrimPhotos(queue)}
-            onStartRound={() => { setScreen("swipe"); void loadRound(); }}
+            onStartSwipe={() => { setScreen("swipe"); void loadRound(); }}
+            onOpenTrim={() => setScreen("trim")}
+            onOpenGames={() => setScreen("this-or-that")}
+            onQuickScan={runLibraryScan}
+            onPickCategory={pickCategoryStart}
+            onShare={shareProgress}
           />
         ) : (
           <SettingsScreen settings={settings} samplePhoto={top ?? queue[0]} onChange={updateSettings} onReload={loadRound} />
@@ -1069,6 +1125,7 @@ export function NativeTrimSwipeApp() {
     </SafeAreaView>
   );
 }
+
 
 // ─── Swipe Screen ─────────────────────────────────────────────────────────────
 
