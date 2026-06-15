@@ -416,4 +416,18 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primarySoft,
   },
   retryText: { color: colors.primary, fontWeight: "800" },
+
+  trimmedBadge: {
+    position: "absolute",
+    top: 12,
+    left: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    backgroundColor: colors.primary,
+  },
+  trimmedBadgeText: { color: colors.white, fontWeight: "800", fontSize: 12 },
 });
