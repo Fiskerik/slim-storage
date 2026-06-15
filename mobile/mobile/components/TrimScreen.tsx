@@ -54,20 +54,24 @@ export function TrimScreen({
   trimsRemaining,
   trimLimit,
   avoidIds,
+  isPro = false,
   onBack,
   onTrimmed,
 }: TrimScreenProps) {
   const [photo, setPhoto] = useState<NativePhoto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [presetKey, setPresetKey] = useState<Preset["key"]>("exif");
+  // Free users are locked to the EXIF preset. Pro users can stack multiple actions.
+  const [selectedKeys, setSelectedKeys] = useState<Set<Preset["key"]>>(
+    () => new Set(["exif"]),
+  );
   const [busy, setBusy] = useState(false);
-  const [trimmedUri, setTrimmedUri] = useState<string | null>(null);
+  const [justTrimmed, setJustTrimmed] = useState(false);
 
   async function loadNext() {
     setLoading(true);
     setError(null);
-    setTrimmedUri(null);
+    setJustTrimmed(false);
     try {
       const permission = await requestPhotoPermission();
       if (!permission.granted) {
@@ -94,11 +98,38 @@ export function TrimScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const preset = PRESETS.find((p) => p.key === presetKey) ?? PRESETS[0];
+  const selected = PRESETS.filter((p) => selectedKeys.has(p.key));
+  const effectivePresets = selected.length > 0 ? selected : [PRESETS[0]];
   const baseline = photo ? estimateTrimSavings(photo) : 0;
-  const estSaved = +(baseline * preset.multiplier).toFixed(2);
+  // Combined estimate: sum multipliers but cap at 3x baseline so we don't oversell.
+  const combinedMultiplier = Math.min(
+    3,
+    effectivePresets.reduce((sum, p) => sum + p.multiplier, 0),
+  );
+  const estSaved = +(baseline * combinedMultiplier).toFixed(2);
+  // Apply the strongest (lowest quality) preset when multiple are stacked.
+  const effectiveQuality = Math.min(...effectivePresets.map((p) => p.quality));
   const width = Dimensions.get("window").width - 40;
   const height = Math.round(width * 1.05);
+
+  function togglePreset(key: Preset["key"]) {
+    if (!isPro) {
+      // Free users: single-select EXIF only. Show a friendly hint for others.
+      if (key !== "exif") {
+        setError("Multi-preset trim is a Lifetime Pro feature. Free trims use Remove EXIF.");
+        return;
+      }
+      setSelectedKeys(new Set(["exif"]));
+      return;
+    }
+    setError(null);
+    void Haptics.selectionAsync();
+    const next = new Set(selectedKeys);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    if (next.size === 0) next.add("exif");
+    setSelectedKeys(next);
+  }
 
   async function applyTrim() {
     if (!photo) return;
