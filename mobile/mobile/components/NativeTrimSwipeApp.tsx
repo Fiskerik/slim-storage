@@ -546,8 +546,10 @@ export function NativeTrimSwipeApp() {
     setError(null);
     setRecap(null);
     setPendingDeletes([]);
+    setPendingTrims([]);
     setTimeLeft(activeSettings.sessionMode === "time-attack" ? TIME_ATTACK_SECONDS : 0);
     pendingDeletesRef.current = [];
+    pendingTrimsRef.current = [];
     sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
     try {
       const permission = await requestPhotoPermission();
