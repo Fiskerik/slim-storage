@@ -49,13 +49,13 @@ const config: ExpoConfig = {
     [
       "react-native-google-mobile-ads",
       {
-        iosAppId:
+        ios_app_id:
           process.env.EXPO_PUBLIC_ADMOB_IOS_APP_ID ??
           "ca-app-pub-8854735603167656~1027546750",
-        androidAppId:
+        android_app_id:
           process.env.EXPO_PUBLIC_ADMOB_ANDROID_APP_ID ??
           "ca-app-pub-3940256099942544~3347511713",
-        userTrackingUsageDescription:
+        user_tracking_usage_description:
           "This identifier will be used to deliver personalized ads to you.",
       },
     ],
