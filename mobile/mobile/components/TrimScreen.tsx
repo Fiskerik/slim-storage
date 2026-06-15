@@ -44,6 +44,7 @@ export type TrimScreenProps = {
   trimsRemaining: number;
   trimLimit: number;
   avoidIds: string[];
+  isPro?: boolean;
   onBack: () => void;
   onTrimmed: (photo: NativePhoto, savedMB: number) => void;
 };
