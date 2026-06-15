@@ -8,11 +8,12 @@ import {
   Text,
   View,
 } from "react-native";
+import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
 import { colors, radius, shadow, spacing, type } from "../constants/design";
-import { BeforeAfterSlider, Card, Pill, SectionHeader } from "./ui/primitives";
+import { Card, Pill, SectionHeader } from "./ui/primitives";
 import {
   estimateTrimSavings,
   loadPhotoRound,
