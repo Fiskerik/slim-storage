@@ -647,18 +647,7 @@ export function NativeTrimSwipeApp() {
       pendingDeletesRef.current = [...pendingDeletesRef.current, photo];
       setPendingDeletes(pendingDeletesRef.current);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      commitStats((current) =>
-        appendActionLog(
-          withRecentlySeenPhotos(
-            withDailyActivity(
-            { ...current, reviewed: current.reviewed + 1, deleted: current.deleted + 1, mbFreed: +(current.mbFreed + photo.sizeMB).toFixed(2), deleteMbFreed: +(current.deleteMbFreed + photo.sizeMB).toFixed(2) },
-            { reviewed: 1, deleted: 1, mbFreed: photo.sizeMB, deleteMbFreed: photo.sizeMB },
-            ),
-            [photo],
-          ),
-          createActionLogEntry(photo, "delete", photo.sizeMB),
-        ),
-      );
+      // Stats commit happens in confirmActions so users can deselect items.
       advance();
       return;
     }
