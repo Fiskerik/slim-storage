@@ -1355,25 +1355,95 @@ function PhotoCard({ photo, stacked }: { photo: NativePhoto; stacked?: boolean }
   );
 }
 
-// FIX 2: Add proper bottom padding so delete list isn't obscured by nav bar
-function DeleteReview({ photos, onConfirm, onCancel }: { photos: NativePhoto[]; onConfirm: () => void; onCancel: () => void }) {
-  const total = photos.reduce((sum, photo) => sum + photo.sizeMB, 0);
+// Lets the user deselect any items they no longer want to delete or trim
+// before applying the actions in a single batch (one iOS confirmation).
+function ConfirmActionsReview({
+  deletes,
+  trims,
+  onConfirm,
+  onCancel,
+}: {
+  deletes: NativePhoto[];
+  trims: NativePhoto[];
+  onConfirm: (deletes: NativePhoto[], trims: NativePhoto[]) => void;
+  onCancel: () => void;
+}) {
+  const [selectedDeletes, setSelectedDeletes] = useState<Set<string>>(
+    () => new Set(deletes.map((p) => p.id)),
+  );
+  const [selectedTrims, setSelectedTrims] = useState<Set<string>>(
+    () => new Set(trims.map((p) => p.id)),
+  );
+
+  const chosenDeletes = deletes.filter((p) => selectedDeletes.has(p.id));
+  const chosenTrims = trims.filter((p) => selectedTrims.has(p.id));
+  const deleteMB = chosenDeletes.reduce((s, p) => s + p.sizeMB, 0);
+  const trimMB = chosenTrims.reduce((s, p) => s + estimateTrimSavings(p), 0);
+  const total = deleteMB + trimMB;
+  const nothingSelected = chosenDeletes.length + chosenTrims.length === 0;
+
+  function toggle(set: Set<string>, setter: (s: Set<string>) => void, id: string) {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setter(next);
+  }
+
+  function renderRow(photo: NativePhoto, selected: boolean, onToggle: () => void, hint: string) {
+    return (
+      <Pressable key={photo.id} onPress={onToggle} style={styles.reviewRow}>
+        <Image source={{ uri: photo.uri }} style={[styles.reviewThumb, !selected && { opacity: 0.4 }]} contentFit="cover" />
+        <View style={styles.reviewCopy}>
+          <Text style={[styles.reviewTitle, !selected && { textDecorationLine: "line-through", color: "#9ca3af" }]} numberOfLines={1}>
+            {photo.title}
+          </Text>
+          <Text style={styles.mutedSmall}>{hint}</Text>
+        </View>
+        <View style={[styles.checkbox, selected && styles.checkboxOn]}>
+          {selected ? <Text style={styles.checkboxMark}>✓</Text> : null}
+        </View>
+      </Pressable>
+    );
+  }
+
   return (
     <View style={styles.content}>
-      <Text style={styles.heroTitle}>Confirm deletion</Text>
-      <Text style={styles.muted}>{photos.length} photo{photos.length === 1 ? "" : "s"} will move to Recently Deleted.</Text>
+      <Text style={styles.heroTitle}>Confirm actions</Text>
+      <Text style={styles.muted}>
+        Tap any row to deselect. {chosenDeletes.length} to delete · {chosenTrims.length} to trim · ~{formatMB(total)} saved.
+      </Text>
       <ScrollView style={styles.reviewList} contentContainerStyle={styles.reviewListContent}>
-        {photos.map((photo) => (
-          <View key={photo.id} style={styles.reviewRow}>
-            <Image source={{ uri: photo.uri }} style={styles.reviewThumb} contentFit="cover" />
-            <View style={styles.reviewCopy}>
-              <Text style={styles.reviewTitle} numberOfLines={1}>{photo.title}</Text>
-              <Text style={styles.mutedSmall}>{photo.sizeMB.toFixed(1)} MB</Text>
-            </View>
-          </View>
-        ))}
+        {trims.length > 0 ? (
+          <Text style={[styles.eyebrow, { marginBottom: 6 }]}>Trim ({chosenTrims.length}/{trims.length})</Text>
+        ) : null}
+        {trims.map((photo) =>
+          renderRow(
+            photo,
+            selectedTrims.has(photo.id),
+            () => toggle(selectedTrims, setSelectedTrims, photo.id),
+            `Trim · saves ~${estimateTrimSavings(photo).toFixed(1)} MB`,
+          ),
+        )}
+        {deletes.length > 0 ? (
+          <Text style={[styles.eyebrow, { marginTop: trims.length > 0 ? 14 : 0, marginBottom: 6 }]}>
+            Delete ({chosenDeletes.length}/{deletes.length})
+          </Text>
+        ) : null}
+        {deletes.map((photo) =>
+          renderRow(
+            photo,
+            selectedDeletes.has(photo.id),
+            () => toggle(selectedDeletes, setSelectedDeletes, photo.id),
+            `${photo.sizeMB.toFixed(1)} MB`,
+          ),
+        )}
       </ScrollView>
-      <PrimaryButton label={`Delete ${formatMB(total)}`} danger onPress={onConfirm} />
+      <PrimaryButton
+        label={nothingSelected ? "Nothing selected" : `Apply · save ${formatMB(total)}`}
+        danger={chosenDeletes.length > 0}
+        disabled={nothingSelected}
+        onPress={() => onConfirm(chosenDeletes, chosenTrims)}
+      />
       <SecondaryButton label="Keep them all" onPress={onCancel} />
     </View>
   );
