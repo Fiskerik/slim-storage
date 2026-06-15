@@ -77,13 +77,19 @@ export function HomeDashboard(props: HomeDashboardProps) {
     totalFreedMB,
     potentialMB,
     scanBusy,
+    tokens,
+    isPro,
+    adBusy,
     onStartSwipe,
     onOpenTrim,
     onOpenGames,
+    onOpenShop,
+    onWatchAd,
     onQuickScan,
     onPickCategory,
     onShare,
   } = props;
+
 
   const float = useRef(new Animated.Value(0)).current;
   useEffect(() => {
