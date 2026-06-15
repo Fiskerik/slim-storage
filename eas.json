@@ -1,10 +1,13 @@
 {
+  "cli": {
+    "appVersionSource": "remote"
+  },
   "build": {
     "production": {
       "autoIncrement": true,
       "ios": {
-             "image": "macos-sequoia-15.6-xcode-26.2",
-             "buildConfiguration": "Release"
+        "image": "macos-sequoia-15.6-xcode-26.2",
+        "buildConfiguration": "Release"
       },
       "env": {
         "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
@@ -16,7 +19,7 @@
       "node": "22.12.0"
     }
   },
-  "cli": {
-    "appVersionSource": "remote"
+  "submit": {
+    "production": {}
   }
 }
