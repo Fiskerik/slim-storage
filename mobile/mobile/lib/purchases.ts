@@ -326,3 +326,86 @@ async function setEmail(email: string): Promise<PurchaseResult> {
     return { success: false, error: err?.message };
   }
 }
+
+// ─── Public helpers used by the native UI (Shop, Home) ────────────────────────
+
+import { addTokens, TOKEN_PACKS } from "./tokens";
+
+export type ShopProduct = {
+  id: string;
+  title: string;
+  description: string;
+  price: string;
+  priceAmount: number;
+  currency: string;
+  packageType?: string;
+  /** Number of Trim Tokens this pack grants (0 for lifetime / non-token products). */
+  tokens: number;
+  /** True if this product unlocks the Lifetime Pro entitlement. */
+  isLifetime: boolean;
+};
+
+export async function checkProStatus(): Promise<boolean> {
+  const ok = await initializePurchases();
+  if (!ok) return false;
+  try {
+    const info = await Purchases.getCustomerInfo();
+    return isProFromInfo(info);
+  } catch (err: any) {
+    console.log("[RevenueCat] checkProStatus error:", err?.message);
+    return false;
+  }
+}
+
+export async function loadShopProducts(): Promise<ShopProduct[]> {
+  const result = await getProducts();
+  const products = result.products ?? [];
+  return products.map((p) => ({
+    ...p,
+    tokens: TOKEN_PACKS[p.id] ?? 0,
+    isLifetime: p.id === LIFETIME_PRODUCT_ID,
+  }));
+}
+
+export async function purchaseTokenPack(
+  productId: string,
+): Promise<{ success: boolean; tokensGranted: number; error?: string }> {
+  const ok = await initializePurchases();
+  if (!ok) return { success: false, tokensGranted: 0, error: "RevenueCat not configured" };
+
+  const granted = TOKEN_PACKS[productId];
+  if (!granted) {
+    return { success: false, tokensGranted: 0, error: `Unknown token product: ${productId}` };
+  }
+
+  const result = await purchase(productId);
+  if (!result.success) {
+    return { success: false, tokensGranted: 0, error: result.error };
+  }
+
+  await addTokens(granted, "purchase");
+  return { success: true, tokensGranted: granted };
+}
+
+export async function purchaseLifetime(): Promise<{ success: boolean; isPro: boolean; error?: string }> {
+  const ok = await initializePurchases();
+  if (!ok) return { success: false, isPro: false, error: "RevenueCat not configured" };
+
+  const result = await purchase(LIFETIME_PRODUCT_ID);
+  return { success: result.success === true, isPro: result.isPro === true, error: result.error };
+}
+
+export async function restorePurchasesPublic(): Promise<boolean> {
+  const ok = await initializePurchases();
+  if (!ok) return false;
+  const result = await restore();
+  return result.isPro === true;
+}
+
+export async function presentPaywallPublic(): Promise<boolean> {
+  const ok = await initializePurchases();
+  if (!ok) return false;
+  const result = await presentPaywall();
+  return result.success === true || result.isPro === true;
+}
+
