@@ -603,7 +603,7 @@ export function NativeTrimSwipeApp() {
     commitStats((current) =>
       withDailyActivity({ ...current, sessions: current.sessions + 1 }, { sessions: 1 }),
     );
-    if (pendingDeletesRef.current.length > 0) return;
+    if (pendingDeletesRef.current.length > 0 || pendingTrimsRef.current.length > 0) return;
     if (settings.sessionMode === "endless") {
       void loadRound();
       return;
