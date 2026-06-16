@@ -3,8 +3,8 @@ import type { ExpoConfig } from "expo/config";
 const config: ExpoConfig = {
   name: "Trimswipe",
   slug: "slim-storage",
-  version: "1.0.4",
-  icon: "./assets/images/icon-glassy-scissors-1024.png",
+  version: "1.0.6",
+  icon: "./assets/images/icon.png",
   orientation: "portrait",
   scheme: "trimswipe",
   userInterfaceStyle: "automatic",
@@ -49,13 +49,13 @@ const config: ExpoConfig = {
     [
       "react-native-google-mobile-ads",
       {
-        ios_app_id:
+        iosAppId:
           process.env.EXPO_PUBLIC_ADMOB_IOS_APP_ID ??
           "ca-app-pub-8854735603167656~1027546750",
-        android_app_id:
+        androidAppId:
           process.env.EXPO_PUBLIC_ADMOB_ANDROID_APP_ID ??
           "ca-app-pub-3940256099942544~3347511713",
-        user_tracking_usage_description:
+        userTrackingUsageDescription:
           "This identifier will be used to deliver personalized ads to you.",
       },
     ],
