@@ -3591,6 +3591,11 @@ const styles = StyleSheet.create({
   budgetChoiceTitleSelected: { color: "#c2410c" },
   budgetChoiceDetail: { marginTop: 3, color: "#64748b", fontSize: 12, fontWeight: "700" },
   budgetDecisionActions: { gap: 10 },
+  beforeAfterRow: { flexDirection: "row", gap: 10, marginTop: 14 },
+  beforeAfterCard: { flex: 1, borderRadius: 16, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 12 },
+  beforeAfterLabel: { color: "#64748b", fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
+  beforeAfterValueRed: { marginTop: 5, color: "#dc2626", fontSize: 15, fontWeight: "900" },
+  beforeAfterValueGreen: { marginTop: 5, color: "#15803d", fontSize: 15, fontWeight: "900" },
 
   fullPhotoOverlay: { flex: 1, backgroundColor: "rgba(15, 23, 42, 0.96)", alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
   fullPhotoClose: { position: "absolute", top: 54, right: 22, zIndex: 2, width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.14)" },

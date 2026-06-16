@@ -19,8 +19,15 @@ dist-ssr
 
 # Expo & EAS
 .expo/
+.expo
+.expo/**
 .eas/
 web-build/
+mobile/mobile/.expo/
+mobile/mobile/.expo
+mobile/mobile/.expo/**
+mobile/mobile/android/
+mobile/mobile/ios/
 
 # Apple / iOS Security & Signing (Viktigt!)
 # Dessa filer innehåller dina privata nycklar och certifikat

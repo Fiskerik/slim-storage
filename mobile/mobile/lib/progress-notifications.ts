@@ -4,7 +4,9 @@ import * as TaskManager from "expo-task-manager";
 
 const CLEANUP_TASK = "trimswipe-cleanup-maintenance";
 
-TaskManager.defineTask(CLEANUP_TASK, () => BackgroundTask.BackgroundTaskResult.Success);
+TaskManager.defineTask(CLEANUP_TASK, () =>
+  Promise.resolve(BackgroundTask.BackgroundTaskResult.Success),
+);
 
 let notificationsReady = false;
 
