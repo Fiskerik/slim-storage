@@ -1,0 +1,26 @@
+1.0.7 ideas:
+
+* Auto-group bursts and let users keep best one.
+* "One-tap cleanup" mode: "Nuke 500 screenshots + duplicates, save X GB" with preview/undo.
+Auto-group bursts and let users keep best one.
+
+* Show before/after size preview clearly (green/red numbers to show how much the user saves)
+* Option to replace originals or save as new (with iCloud sync awareness).
+
+* Smart folders: "Photos >1 year old", ">5MB", "Screenshots", "Live Photos", "Duplicates".
+* Dashboard: "Your library health score", projected GB freed, top space hogs.
+* Integration with iOS "Optimize iPhone Storage" nudge.
+
+* Shareable "I freed X GB this month" templates (Instagram stories friendly). It should also contain the link to app store
+* Background processing for large batches (with progress notifications).
+
+Must: 
+* 3 slide "introduction" with skip option. Slide 1: Load photos - Slide 2: Pick your game and select what to Trim/Delete. Slide 3: Profit. Show how much a user can save by delete photos or keep the photos but by making them smaller. + Button "Start Trimming!" in the end 
+
+Design:
+* Visuals: Lean into "satisfying minimalism." Big cards, buttery swipe physics (you have Framer — use it), particle effects on successful deletes/trims, progress rings everywhere.
+* Copy: Fun, encouraging, zero shame. "Your camera roll is 40% junk — let's fix that."
+
+
+Maybe:
+* One-time "Deep Clean" IAP: Pay once for a guided full-library scan + auto-actions (popular for these apps).
