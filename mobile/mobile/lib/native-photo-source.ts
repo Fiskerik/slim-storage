@@ -848,6 +848,69 @@ export async function commitTrims(
   );
 }
 
+export async function commitTrimsAndDeletes(
+  deletes: NativePhoto[],
+  trims: NativePhoto[],
+  quality: number,
+): Promise<{
+  deletedCount: number;
+  deletedPhotos: NativePhoto[];
+  trimResults: Array<{ id: string; trimmed: boolean; savedMB?: number; error?: string }>;
+}> {
+  const deleteIds = new Set(deletes.map((photo) => photo.id));
+  const trimCandidates = trims.filter((photo) => !deleteIds.has(photo.id));
+  const trimCreates: CreatedTrim[] = [];
+
+  for (const photo of trimCandidates) {
+    // sequential to avoid hitting expo-image-manipulator concurrency limits
+    // eslint-disable-next-line no-await-in-loop
+    trimCreates.push(await createTrimmedAsset(photo, quality));
+  }
+
+  const createdTrims = trimCreates.filter(
+    (result): result is Extract<CreatedTrim, { success: true }> => result.success,
+  );
+  const idsToDelete = [...deleteIds, ...createdTrims.map((result) => result.originalId)];
+
+  if (idsToDelete.length === 0) {
+    return {
+      deletedCount: 0,
+      deletedPhotos: [],
+      trimResults: trimCreates.map((result) => ({
+        id: result.originalId,
+        trimmed: false,
+        error: result.success ? "Trim was not applied" : result.error,
+      })),
+    };
+  }
+
+  try {
+    await MediaLibrary.deleteAssetsAsync(idsToDelete);
+    await removeCacheIds(idsToDelete);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      deletedCount: 0,
+      deletedPhotos: [],
+      trimResults: trimCreates.map((result) => ({
+        id: result.originalId,
+        trimmed: false,
+        error: result.success ? message : result.error,
+      })),
+    };
+  }
+
+  return {
+    deletedCount: deletes.length,
+    deletedPhotos: deletes,
+    trimResults: trimCreates.map((result) =>
+      result.success
+        ? { id: result.originalId, trimmed: true, savedMB: result.savedMB }
+        : { id: result.originalId, trimmed: false, error: result.error },
+    ),
+  };
+}
+
 export function estimateTrimSavings(photo: Pick<NativePhoto, "sizeMB" | "hasGPS">): number {
   const metadataSavings = photo.hasGPS ? 0.18 : 0.08;
   const compressionSavings = photo.sizeMB * 0.28;

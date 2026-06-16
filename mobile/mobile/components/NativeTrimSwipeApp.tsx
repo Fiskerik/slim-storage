@@ -20,8 +20,10 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { captureRef } from "react-native-view-shot";
 import {
   commitTrims,
+  commitTrimsAndDeletes,
   deletePhotos,
   estimateTrimSavings,
   loadRelatedPhotoPairs,
@@ -52,7 +54,7 @@ import { StatsDashboard } from "./StatsDashboard";
 import { OnboardingCarousel } from "./OnboardingCarousel";
 import { TrimScreen } from "./TrimScreen";
 import { ShopScreen } from "./ShopScreen";
-import { addTokens, subscribeTokens, spendTokens, REWARDED_AD_TOKENS } from "../lib/tokens";
+import { addTokens, subscribeTokens, spendTokens, DAILY_CLAIM_TOKENS } from "../lib/tokens";
 import { checkProStatus } from "../lib/purchases";
 import { showRewardedAd, showInterstitialAd, initAds } from "../lib/ads";
 import { colors } from "../constants/design";
@@ -91,7 +93,6 @@ const DAILY_REVIEW_TARGET = 10;
 const WEEKLY_SAVINGS_TARGET_MB = 500;
 const FOUR_K_VIDEO_MB_PER_MINUTE = 375;
 const TIME_ATTACK_SECONDS = 60;
-const FREE_DAILY_TRIM_LIMIT = 10;
 const SELECTION_GRACE_DAYS = 7;
 const SEEN_PHOTO_LIMIT = 500;
 // Storage budget game: target a pool that totals 75-100 MB so user must pick ~50 MB to keep
@@ -243,7 +244,7 @@ function weeklyRewardState(stats: NativeStats): WeeklyRewardState {
     return {
       key,
       label: date.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 3),
-      qualified: qualifiesForDailyReward(day),
+      qualified: (stats.dailyRewardClaims[key] ?? 0) > 0,
       claimed: (stats.dailyRewardClaims[key] ?? 0) > 0,
       today: key === today,
     };
@@ -251,18 +252,17 @@ function weeklyRewardState(stats: NativeStats): WeeklyRewardState {
 
   let streak = 0;
   let cursor = new Date();
-  while (qualifiesForDailyReward(dailyFor(stats, dateKey(cursor)))) {
+  while ((stats.dailyRewardClaims[dateKey(cursor)] ?? 0) > 0) {
     streak += 1;
     cursor = addDays(cursor, -1);
   }
 
   const claimedToday = (stats.dailyRewardClaims[today] ?? 0) > 0;
-  const daySeven = streak >= 7;
   return {
     days,
-    canClaimToday: qualifiesForDailyReward(dailyFor(stats, today)) && !claimedToday,
+    canClaimToday: !claimedToday,
     claimedToday,
-    rewardAmount: daySeven ? 20 : 5,
+    rewardAmount: DAILY_CLAIM_TOKENS,
     streak: Math.min(7, streak),
   };
 }
@@ -492,12 +492,12 @@ export function NativeTrimSwipeApp() {
   const [isPro, setIsPro] = useState(false);
   const [adBusy, setAdBusy] = useState(false);
   const cleanupCompletionsRef = useRef(0);
+  const shareShotRef = useRef<View>(null);
 
   const settings = roundSettings(stats.settings);
   const top = queue[0];
   const next = queue[1];
-  const trimsToday = dailyFor(stats, dateKey()).trimmed;
-  const trimsRemainingToday = Math.max(0, FREE_DAILY_TRIM_LIMIT - trimsToday);
+  const trimCurrencyAvailable = isPro ? Number.MAX_SAFE_INTEGER : Math.max(0, tokenBalance);
 
   useEffect(() => {
     let cancelled = false;
@@ -552,11 +552,8 @@ export function NativeTrimSwipeApp() {
       },
     }));
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert("Tokens claimed", `+${reward.rewardAmount} Trim Tokens added.`);
+    Alert.alert("Tokens claimed", `+${reward.rewardAmount} tokens added.`);
   }
-
-  void REWARDED_AD_TOKENS; // silence unused if only used in handler
-  void spendTokens; // exported for future swipe/trim wiring
 
 
   function commitStats(updater: (current: NativeStats) => NativeStats) {
@@ -573,10 +570,22 @@ export function NativeTrimSwipeApp() {
 
   async function shareProgress() {
     try {
-      await Share.share({ message: progressShareText(stats) });
+      const shot = shareShotRef.current
+        ? await captureRef(shareShotRef.current, {
+            format: "png",
+            quality: 0.95,
+            result: "tmpfile",
+          })
+        : null;
+      await Share.share(
+        shot
+          ? { url: shot, message: progressShareText(stats) }
+          : { message: progressShareText(stats) },
+      );
       commitStats((current) => ({ ...current, shareCount: current.shareCount + 1 }));
     } catch (error) {
       console.log("[NativeTrimSwipe] Share failed", { error });
+      await Share.share({ message: progressShareText(stats) }).catch(() => undefined);
     }
   }
 
@@ -721,8 +730,8 @@ export function NativeTrimSwipeApp() {
       advance();
       return;
     }
-    if (trimsRemainingToday - pendingTrimsRef.current.length <= 0) {
-      Alert.alert("Daily trim limit reached", `Free accounts can trim ${FREE_DAILY_TRIM_LIMIT} photos per day. Keep reviewing or delete photos today, and trims reset tomorrow.`);
+    if (!isPro && tokenBalance - pendingTrimsRef.current.length <= 0) {
+      Alert.alert("Not enough tokens", "Claim daily tokens, watch an ad, or visit the shop to trim more photos.");
       return;
     }
     const estimated = estimateTrimSavings(photo);
@@ -740,23 +749,26 @@ export function NativeTrimSwipeApp() {
     setLoading(true);
     const requestedTrimIds = new Set(trims.map((p) => p.id));
     const requestedDeleteIds = new Set(deletes.map((p) => p.id));
+    const chargeableTrims = isPro ? trims : trims.slice(0, tokenBalance);
+    if (chargeableTrims.length < trims.length) {
+      Alert.alert("Not enough tokens", `${chargeableTrims.length}/${trims.length} selected trims can be applied with your current balance.`);
+    }
 
-    let trimmedResults: Array<{ id: string; trimmed: boolean; savedMB?: number }> = [];
-    if (trims.length > 0) {
-      setTrimmingCount((count) => count + trims.length);
-      trimmedResults = await commitTrims(trims, settings.trimQuality);
-      setTrimmingCount((count) => Math.max(0, count - trims.length));
+    if (chargeableTrims.length > 0) setTrimmingCount((count) => count + chargeableTrims.length);
+    const batch = await commitTrimsAndDeletes(deletes, chargeableTrims, settings.trimQuality);
+    if (chargeableTrims.length > 0) {
+      setTrimmingCount((count) => Math.max(0, count - chargeableTrims.length));
     }
+    const trimmedResults = batch.trimResults;
     const trimmedOkIds = new Set(trimmedResults.filter((r) => r.trimmed).map((r) => r.id));
-    const safeDeletes = deletes.filter((photo) => !trimmedOkIds.has(photo.id));
-    let deletedCount = 0;
-    if (safeDeletes.length > 0) {
-      const res = await deletePhotos(safeDeletes.map((p) => p.id));
-      deletedCount = res.deleted;
+    const deletedCount = batch.deletedCount;
+    const deletedPhotos = batch.deletedPhotos;
+
+    if (!isPro && trimmedOkIds.size > 0) {
+      await spendTokens(trimmedOkIds.size);
     }
-    const deletedPhotos = safeDeletes.slice(0, deletedCount);
     const actualTrimSaved = trimmedResults.reduce(
-      (sum, r, i) => (r.trimmed ? sum + (r.savedMB ?? estimateTrimSavings(trims[i])) : sum),
+      (sum, r, i) => (r.trimmed ? sum + (r.savedMB ?? estimateTrimSavings(chargeableTrims[i])) : sum),
       0,
     );
 
@@ -783,11 +795,11 @@ export function NativeTrimSwipeApp() {
           trimMbFreed: actualTrimSaved,
         },
       );
-      next = withRecentlySeenPhotos(next, [...deletedPhotos, ...trims.filter((p) => trimmedOkIds.has(p.id))]);
+      next = withRecentlySeenPhotos(next, [...deletedPhotos, ...chargeableTrims.filter((p) => trimmedOkIds.has(p.id))]);
       for (const p of deletedPhotos) {
         next = appendActionLog(next, createActionLogEntry(p, "delete", p.sizeMB));
       }
-      for (const p of trims.filter((tp) => trimmedOkIds.has(tp.id))) {
+      for (const p of chargeableTrims.filter((tp) => trimmedOkIds.has(tp.id))) {
         next = appendActionLog(next, createActionLogEntry(p, "trim", estimateTrimSavings(p)));
       }
       return next;
@@ -802,10 +814,10 @@ export function NativeTrimSwipeApp() {
     };
 
     setLoading(false);
-    if (deletedCount !== deletes.length || trimmedOkIds.size !== trims.length) {
+    if (deletedCount !== deletes.length || trimmedOkIds.size !== chargeableTrims.length) {
       Alert.alert(
         "Some actions skipped",
-        `${deletedCount}/${deletes.length} deleted and ${trimmedOkIds.size}/${trims.length} trimmed.`,
+        `${deletedCount}/${deletes.length} deleted and ${trimmedOkIds.size}/${chargeableTrims.length} trimmed.`,
       );
     }
     // Clear any items the user deselected from the pending queues too.
@@ -851,10 +863,10 @@ export function NativeTrimSwipeApp() {
   }
 
   async function bulkTrimPhotos(photos: NativePhoto[]) {
-    const available = Math.max(0, FREE_DAILY_TRIM_LIMIT - dailyFor(stats, dateKey()).trimmed);
+    const available = isPro ? photos.length : tokenBalance;
     const candidates = photos.filter((photo) => !photo.isCloudAsset).slice(0, available);
     if (available <= 0) {
-      Alert.alert("Daily trim limit reached", `Free accounts can trim ${FREE_DAILY_TRIM_LIMIT} photos per day.`);
+      Alert.alert("Not enough tokens", "Claim daily tokens, watch an ad, or visit the shop to trim more photos.");
       return;
     }
     if (candidates.length === 0) {
@@ -872,6 +884,7 @@ export function NativeTrimSwipeApp() {
       })),
     );
     const trimmed = results.filter((item) => item.trimmed).map((item) => item.photo);
+    if (!isPro && trimmed.length > 0) await spendTokens(trimmed.length);
     const actualSaved = results.reduce(
       (sum, item) =>
         item.trimmed ? sum + (item.savedMB ?? estimateTrimSavings(item.photo)) : sum,
@@ -905,12 +918,12 @@ export function NativeTrimSwipeApp() {
     deleted: NativePhoto[],
     toTrim: NativePhoto[],
   ): Promise<number> {
-    const available = Math.max(0, FREE_DAILY_TRIM_LIMIT - dailyFor(stats, dateKey()).trimmed);
+    const available = isPro ? toTrim.length : tokenBalance;
     const trimCandidates = toTrim.filter((photo) => !photo.isCloudAsset).slice(0, available);
     if (trimCandidates.length < toTrim.length) {
       Alert.alert(
-        "Not enough trims available",
-        `You have ${available}/${FREE_DAILY_TRIM_LIMIT} free trims left today. Cloud-only photos also cannot be trimmed until downloaded.`,
+        "Not enough tokens",
+        `${trimCandidates.length}/${toTrim.length} selected trims can be applied with your current balance. Cloud-only photos also cannot be trimmed until downloaded.`,
       );
       return 0;
     }
@@ -927,6 +940,7 @@ export function NativeTrimSwipeApp() {
             const results = await commitTrims(trimCandidates, settings.trimQuality).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
             setTrimmingCount((count) => Math.max(0, count - trimCandidates.length));
             const trimmed = trimCandidates.filter((_, index) => results[index]?.trimmed);
+            if (!isPro && trimmed.length > 0) await spendTokens(trimmed.length);
             const trimmedIds = new Set(trimmed.map((photo) => photo.id));
             const actualTrimSavings = trimCandidates.reduce(
               (sum, photo, index) =>
@@ -1013,6 +1027,7 @@ export function NativeTrimSwipeApp() {
               const trimResults = await commitTrims(toTrim, settings.trimQuality).then((rs) => toTrim.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
               setTrimmingCount((count) => Math.max(0, count - toTrim.length));
               const trimmedPhotos = toTrim.filter((_, index) => trimResults[index]?.trimmed);
+              if (!isPro && trimmedPhotos.length > 0) await spendTokens(trimmedPhotos.length);
               const trimmedIds = new Set(trimmedPhotos.map((photo) => photo.id));
               const actualTrimSavings = toTrim.reduce(
                 (sum, photo, index) =>
@@ -1095,6 +1110,7 @@ export function NativeTrimSwipeApp() {
               const trimResults = await commitTrims(toTrim, settings.trimQuality).then((rs) => toTrim.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
               setTrimmingCount((count) => Math.max(0, count - toTrim.length));
               const trimmedPhotos = toTrim.filter((_, index) => trimResults[index]?.trimmed);
+              if (!isPro && trimmedPhotos.length > 0) await spendTokens(trimmedPhotos.length);
               const trimmedIds = new Set(trimmedPhotos.map((photo) => photo.id));
               const actualTrimSavings = toTrim.reduce(
                 (sum, photo, index) =>
@@ -1154,7 +1170,8 @@ export function NativeTrimSwipeApp() {
     });
   }
 
-  function handleSingleTrimComplete(photo: NativePhoto, savedMB: number) {
+  async function handleSingleTrimComplete(photo: NativePhoto, savedMB: number) {
+    if (!isPro) await spendTokens(1);
     sessionRef.current.trimmed += 1;
     sessionRef.current.freed += savedMB;
     commitStats((current) =>
@@ -1198,7 +1215,11 @@ export function NativeTrimSwipeApp() {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar style="dark" />
-      <View style={[styles.shell, settings.highContrast && styles.shellHighContrast]}>
+      <View
+        ref={shareShotRef}
+        collapsable={false}
+        style={[styles.shell, settings.highContrast && styles.shellHighContrast]}
+      >
         {!statsLoaded ? (
           <Centered>
             <ActivityIndicator color="#f97316" size="large" />
@@ -1232,8 +1253,8 @@ export function NativeTrimSwipeApp() {
             timeLeft={timeLeft}
             largeControls={settings.largeText}
             tokens={tokenBalance}
-            trimsRemaining={trimsRemainingToday}
-            trimLimit={FREE_DAILY_TRIM_LIMIT}
+            trimsRemaining={trimCurrencyAvailable}
+            trimLimit={trimCurrencyAvailable}
             onAction={handleAction}
             onReload={loadRound}
             onOpenSettings={() => Linking.openSettings()}
@@ -1257,7 +1278,7 @@ export function NativeTrimSwipeApp() {
           <StorageBudgetScreen
             settings={settings}
             tokens={tokenBalance}
-            trimsRemaining={trimsRemainingToday}
+            trimsRemaining={trimCurrencyAvailable}
             avoidIds={recentSelectionIds(stats)}
             onBack={() => setScreen("games")}
             onConfirmOutcome={confirmStorageBudgetOutcome}
@@ -1267,15 +1288,15 @@ export function NativeTrimSwipeApp() {
             settings={settings}
             tokens={tokenBalance}
             avoidIds={recentSelectionIds(stats)}
-            trimsRemaining={trimsRemainingToday}
+            trimsRemaining={trimCurrencyAvailable}
             onBack={() => setScreen("games")}
             onConfirmOutcome={confirmMemoryLaneOutcome}
           />
         ) : screen === "trim" ? (
           <TrimScreen
             settings={settings}
-            trimsRemaining={trimsRemainingToday}
-            trimLimit={FREE_DAILY_TRIM_LIMIT}
+            trimsRemaining={trimCurrencyAvailable}
+            trimLimit={trimCurrencyAvailable}
             avoidIds={recentSelectionIds(stats)}
             isPro={isPro}
             onBack={() => setScreen("games")}
@@ -1402,7 +1423,6 @@ function SwipeScreen({
         <View style={styles.swipeStatusColumn}>
           <TokenPill tokens={tokens} />
           <Text style={styles.queuePill}>{queueCount} left</Text>
-          <Text style={styles.trimLimitPill}>{trimsRemaining}/{trimLimit} trims</Text>
           {settings.sessionMode === "time-attack" ? <Text style={styles.timerPill}>{timeLeft}s</Text> : null}
           {trimmingCount > 0 ? <Text style={styles.trimBadge}>Trimming {trimmingCount}</Text> : null}
         </View>
@@ -1744,8 +1764,8 @@ function StatsScreen({ stats, onStartRound, onOpenSettings, onShare }: {
         <Text style={styles.streakValue}>{trimsInARow}</Text>
         <View style={styles.streakDivider} />
         <View style={styles.streakCopy}>
-          <Text style={styles.challengeTitle}>{today.trimmed}/{FREE_DAILY_TRIM_LIMIT} trims today</Text>
-          <Text style={styles.mutedSmall}>Free trims reset daily.</Text>
+          <Text style={styles.challengeTitle}>{today.trimmed} trims today</Text>
+          <Text style={styles.mutedSmall}>Use your top-right balance for trims.</Text>
         </View>
       </View>
 
@@ -2499,7 +2519,6 @@ function MemoryLaneScreen({ settings, tokens, avoidIds, trimsRemaining, onBack, 
             <ActionButton label={toTrim.length >= trimsRemaining ? "Trim limit" : "Trim"} tone="trim" disabled={toTrim.length >= trimsRemaining || photo.isCloudAsset} onPress={() => decide("trim")} />
             <ActionButton label="Clear" tone="delete" onPress={() => decide("delete")} />
           </View>
-          <Text style={styles.mutedSmall}>{Math.max(0, trimsRemaining - toTrim.length)} trim tokens left</Text>
         </View>
       )}
       <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
@@ -2852,7 +2871,6 @@ const styles = StyleSheet.create({
   swipeStatusColumn: { alignItems: "flex-end", gap: 8 },
   queuePill: { overflow: "hidden", borderRadius: 999, backgroundColor: "#ffedd5", color: "#c2410c", paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, fontWeight: "900" },
   timerPill: { overflow: "hidden", borderRadius: 999, backgroundColor: "#fef3c7", color: "#b45309", paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, fontWeight: "900" },
-  trimLimitPill: { overflow: "hidden", borderRadius: 999, backgroundColor: "#ecfdf5", color: "#15803d", paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, fontWeight: "900" },
   trimBadge: { overflow: "hidden", borderRadius: 999, backgroundColor: "#fff7ed", color: "#c2410c", paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, fontWeight: "700" },
   deck: { marginTop: 18, height: 492 },
   animatedCard: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 },

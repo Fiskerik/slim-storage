@@ -77,7 +77,7 @@ export function ShopScreen({ onBack }: ShopScreenProps) {
       const res = await purchaseTokenPack(id);
       if (res.success) {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert("Tokens added", `+${res.tokensGranted} Trim Tokens added to your balance.`);
+        Alert.alert("Tokens added", `+${res.tokensGranted} tokens added to your balance.`);
       } else if (res.error && res.error !== "cancelled") {
         Alert.alert("Purchase failed", res.error);
       }
@@ -122,7 +122,7 @@ export function ShopScreen({ onBack }: ShopScreenProps) {
       const got = await showRewardedAd();
       if (got > 0) {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert("Thanks!", `+${got} Trim Tokens added.`);
+        Alert.alert("Thanks!", `+${got} tokens added.`);
       } else {
         Alert.alert("No ad available", "Try again in a moment.");
       }
@@ -215,7 +215,7 @@ export function ShopScreen({ onBack }: ShopScreenProps) {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.adTitle}>Watch a short ad</Text>
-                <Text style={styles.adSub}>Get +{REWARDED_AD_TOKENS} Trim Tokens</Text>
+                <Text style={styles.adSub}>Get +{REWARDED_AD_TOKENS} tokens</Text>
               </View>
               {adBusy ? (
                 <ActivityIndicator color={colors.sage} />
@@ -255,9 +255,7 @@ export function ShopScreen({ onBack }: ShopScreenProps) {
                         </View>
                       ) : null}
                     </View>
-                    <Text style={styles.packHint}>
-                      ~{(pack.priceAmount / Math.max(1, pack.tokens)).toFixed(3)} {pack.currency || "USD"} / token
-                    </Text>
+                    <Text style={styles.packHint}>Consumable token pack</Text>
                   </View>
                   <View style={styles.priceWrap}>
                     {busy === pack.id ? (

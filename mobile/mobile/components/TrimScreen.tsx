@@ -134,7 +134,7 @@ export function TrimScreen({
   async function applyTrim() {
     if (!photo) return;
     if (trimsRemaining <= 0) {
-      setError(`Daily trim limit reached (${trimLimit}/day). Try again tomorrow.`);
+      setError("Not enough tokens. Claim daily tokens, watch an ad, or visit the shop.");
       return;
     }
     setBusy(true);
@@ -155,8 +155,6 @@ export function TrimScreen({
       setBusy(false);
     }
   }
-
-  const trimsBarPct = Math.max(0, Math.min(1, trimsRemaining / Math.max(1, trimLimit)));
 
   return (
     <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -254,18 +252,6 @@ export function TrimScreen({
           );
         })}
       </View>
-
-      {/* Daily trims meter */}
-      <Card style={styles.meterCard}>
-        <View style={styles.meterRow}>
-          <Ionicons name="time-outline" size={16} color={colors.primary} />
-          <Text style={styles.meterLabel}>Daily free trims</Text>
-          <Text style={styles.meterValue}>{trimsRemaining}/{trimLimit}</Text>
-        </View>
-        <View style={styles.meterTrack}>
-          <View style={[styles.meterFill, { width: `${trimsBarPct * 100}%` }]} />
-        </View>
-      </Card>
 
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
 

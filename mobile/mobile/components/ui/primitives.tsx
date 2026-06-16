@@ -227,16 +227,30 @@ export function BarChart({
   data,
   height = 120,
   maxValue,
+  selectedKey,
+  onSelect,
 }: {
-  data: { label: string; value: number; sub?: number; tone?: "trim" | "delete" | "mixed" }[];
+  data: { key?: string; label: string; value: number; sub?: number; tone?: "trim" | "delete" | "mixed" }[];
   height?: number;
   maxValue?: number;
+  selectedKey?: string;
+  onSelect?: (item: { key?: string; label: string; value: number; sub?: number; tone?: "trim" | "delete" | "mixed" }) => void;
 }) {
   const top = Math.max(1, maxValue ?? Math.max(...data.map((d) => d.value), 1));
   return (
     <View style={[styles.chart, { height: height + 28 }]}>
       {data.map((d) => (
-        <BarColumn key={d.label} label={d.label} value={d.value} sub={d.sub} max={top} height={height} tone={d.tone} />
+        <BarColumn
+          key={d.key ?? d.label}
+          label={d.label}
+          value={d.value}
+          sub={d.sub}
+          max={top}
+          height={height}
+          tone={d.tone}
+          selected={(d.key ?? d.label) === selectedKey}
+          onPress={onSelect ? () => onSelect(d) : undefined}
+        />
       ))}
     </View>
   );
@@ -249,6 +263,8 @@ function BarColumn({
   max,
   height,
   tone = "mixed",
+  selected,
+  onPress,
 }: {
   label: string;
   value: number;
@@ -256,6 +272,8 @@ function BarColumn({
   max: number;
   height: number;
   tone?: "trim" | "delete" | "mixed";
+  selected?: boolean;
+  onPress?: () => void;
 }) {
   const grow = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -272,20 +290,23 @@ function BarColumn({
   const subH = grow.interpolate({ inputRange: [0, 1], outputRange: [0, subTarget * height] });
   const color =
     tone === "trim" ? colors.sage : tone === "delete" ? colors.danger : colors.primaryBright;
+  const subColor = tone === "mixed" ? colors.sage : color;
+  const displayValue = value >= 100 ? Math.round(value).toString() : value > 0 ? value.toFixed(1) : "0";
   return (
-    <View style={styles.chartCol}>
-      <View style={[styles.chartTrack, { height }]}>
+    <Pressable disabled={!onPress} onPress={onPress} style={styles.chartCol}>
+      <Text style={[styles.chartValue, selected && styles.chartValueSelected]}>{displayValue}</Text>
+      <View style={[styles.chartTrack, { height }, selected && styles.chartTrackSelected]}>
         <Animated.View
           style={[styles.chartBar, { height: barH, backgroundColor: color + "55", borderColor: color }]}
         />
         {sub != null ? (
           <Animated.View
-            style={[styles.chartBar, { height: subH, backgroundColor: color }]}
+            style={[styles.chartBar, { height: subH, backgroundColor: subColor }]}
           />
         ) : null}
       </View>
       <Text style={styles.chartLabel}>{label}</Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -304,6 +325,7 @@ export function DonutSplit({
 }) {
   const total = trim + del;
   const trimShare = total > 0 ? trim / total : 0;
+  const deleteShare = total > 0 ? del / total : 0;
   return (
     <ProgressRing
       progress={trimShare}
@@ -312,10 +334,12 @@ export function DonutSplit({
       trackColor={colors.danger + "55"}
       fillColor={colors.sage}
     >
-      <Text style={{ fontSize: 16, fontWeight: "900", color: colors.text }}>
-        {Math.round(trimShare * 100)}%
+      <Text style={{ fontSize: 14, fontWeight: "900", color: colors.sage }}>
+        {Math.round(trimShare * 100)}% trim
       </Text>
-      <Text style={{ fontSize: 10, color: colors.textMuted, fontWeight: "700" }}>TRIM</Text>
+      <Text style={{ fontSize: 11, color: colors.danger, fontWeight: "900", marginTop: 2 }}>
+        {Math.round(deleteShare * 100)}% delete
+      </Text>
     </ProgressRing>
   );
 }
@@ -535,6 +559,8 @@ const styles = StyleSheet.create({
 
   chart: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: 8 },
   chartCol: { flex: 1, alignItems: "center", gap: 6 },
+  chartValue: { fontSize: 9, color: colors.textMuted, fontWeight: "800" },
+  chartValueSelected: { color: colors.primary },
   chartTrack: {
     width: "100%",
     backgroundColor: "#fff7ed",
@@ -544,6 +570,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderSoft,
   },
+  chartTrackSelected: { borderColor: colors.primary, borderWidth: 1 },
   chartBar: {
     position: "absolute",
     left: 0,

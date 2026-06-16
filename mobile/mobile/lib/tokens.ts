@@ -4,7 +4,7 @@
 import * as FileSystem from "expo-file-system/legacy";
 
 const TOKENS_FILE = "trimswipe-tokens-v1.json";
-const STARTING_TOKENS = 10; // free trial allowance
+const STARTING_TOKENS = 25; // first-install allowance
 
 type TokenState = {
   tokens: number;
@@ -128,5 +128,6 @@ export const TOKEN_PACKS: Record<string, number> = {
 };
 
 export const REWARDED_AD_TOKENS = 5;
+export const DAILY_CLAIM_TOKENS = 10;
 
 export type { TokenState };

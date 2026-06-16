@@ -13,6 +13,13 @@
       "distribution": "internal",
       "node": "22.12.0"
     },
+    "adtest": {
+      "autoIncrement": true,
+      "node": "22.12.0",
+      "env": {
+        "EXPO_PUBLIC_ADMOB_USE_TEST_ADS": "true"
+      }
+    },
     "production": {
       "autoIncrement": true,
       "node": "22.12.0"

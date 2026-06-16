@@ -24,6 +24,7 @@ function envValue(key: string): string | undefined {
 }
 
 const IS_DEV = envValue("NODE_ENV") !== "production";
+const USE_TEST_ADS = envValue("EXPO_PUBLIC_ADMOB_USE_TEST_ADS") === "true";
 
 function loadModule(): RewardedAdModule | null {
   if (modTried) return mod;
@@ -41,7 +42,7 @@ function loadModule(): RewardedAdModule | null {
 function rewardedUnitId(): string | null {
   const m = loadModule();
   if (!m) return null;
-  if (IS_DEV) return m.TestIds.REWARDED;
+  if (IS_DEV || USE_TEST_ADS) return m.TestIds.REWARDED;
   if (Platform.OS === "ios") return envValue("EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID") ?? null;
   if (Platform.OS === "android") return envValue("EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID") ?? null;
   return null;
@@ -50,7 +51,7 @@ function rewardedUnitId(): string | null {
 function interstitialUnitId(): string | null {
   const m = loadModule();
   if (!m) return null;
-  if (IS_DEV) return (m.TestIds as { INTERSTITIAL?: string }).INTERSTITIAL ?? null;
+  if (IS_DEV || USE_TEST_ADS) return (m.TestIds as { INTERSTITIAL?: string }).INTERSTITIAL ?? null;
   if (Platform.OS === "ios") return envValue("EXPO_PUBLIC_ADMOB_IOS_INTERSTITIAL_ID") ?? null;
   if (Platform.OS === "android") return envValue("EXPO_PUBLIC_ADMOB_ANDROID_INTERSTITIAL_ID") ?? null;
   return null;

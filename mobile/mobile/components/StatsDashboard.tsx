@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -40,6 +40,7 @@ export function StatsDashboard({
   const weekRing = Math.min(1, week.mbFreed / WEEKLY_TARGET_MB);
   const streak = currentStreak(stats);
   const level = levelInfo(stats);
+  const [selectedDayKey, setSelectedDayKey] = useState<string | undefined>(() => dateKey());
 
   const chartData = useMemo(
     () =>
@@ -48,13 +49,17 @@ export function StatsDashboard({
         const key = dateKey(d);
         const day = dailyFor(stats, key);
         return {
+          key,
           label: d.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 1),
+          dayLabel: d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }),
           value: day.mbFreed,
           sub: day.trimMbFreed,
+          deleteMbFreed: day.deleteMbFreed,
         };
       }),
     [stats],
   );
+  const selectedDay = chartData.find((day) => day.key === selectedDayKey) ?? chartData[chartData.length - 1];
 
   const topHogs = useMemo(
     () =>
@@ -99,11 +104,24 @@ export function StatsDashboard({
       {/* 7-day chart */}
       <SectionHeader title="7-day savings" action={<Text style={styles.action}>MB freed / day</Text>} />
       <Card>
-        <BarChart data={chartData} height={120} />
+        <BarChart
+          data={chartData}
+          height={120}
+          selectedKey={selectedDay?.key}
+          onSelect={(day) => setSelectedDayKey(day.key)}
+        />
         <View style={styles.legend}>
           <LegendDot color={colors.primaryBright} label="Total" />
           <LegendDot color={colors.sage} label="From trim" />
         </View>
+        {selectedDay ? (
+          <View style={styles.dayBreakdown}>
+            <Text style={styles.dayBreakdownTitle}>{selectedDay.dayLabel}</Text>
+            <BreakdownPill color={colors.primaryBright} label="Total" value={formatMB(selectedDay.value)} />
+            <BreakdownPill color={colors.sage} label="Trim" value={formatMB(selectedDay.sub ?? 0)} />
+            <BreakdownPill color={colors.danger} label="Delete" value={formatMB(selectedDay.deleteMbFreed)} />
+          </View>
+        ) : null}
       </Card>
 
       {/* Trim vs Delete donut */}
@@ -111,9 +129,9 @@ export function StatsDashboard({
       <Card style={styles.donutRow}>
         <DonutSplit trim={stats.trimMbFreed} del={stats.deleteMbFreed} size={120} thickness={14} />
         <View style={{ flex: 1, gap: spacing.sm }}>
-          <SplitRow color={colors.sage} label="Trim" value={formatMB(stats.trimMbFreed)} count={stats.trimmed} />
-          <SplitRow color={colors.danger} label="Delete" value={formatMB(stats.deleteMbFreed)} count={stats.deleted} />
-          <SplitRow color={colors.primaryBright} label="Total" value={formatMB(stats.mbFreed)} count={stats.reviewed} />
+          <SplitRow color={colors.sage} label="Trim" value={formatMB(stats.trimMbFreed)} count={stats.trimmed} total={stats.trimMbFreed + stats.deleteMbFreed} rawValue={stats.trimMbFreed} />
+          <SplitRow color={colors.danger} label="Delete" value={formatMB(stats.deleteMbFreed)} count={stats.deleted} total={stats.trimMbFreed + stats.deleteMbFreed} rawValue={stats.deleteMbFreed} />
+          <SplitRow color={colors.primaryBright} label="Total" value={formatMB(stats.trimMbFreed + stats.deleteMbFreed)} count={stats.trimmed + stats.deleted} />
         </View>
       </Card>
 
@@ -168,6 +186,16 @@ function LegendDot({ color, label }: { color: string; label: string }) {
   );
 }
 
+function BreakdownPill({ color, label, value }: { color: string; label: string; value: string }) {
+  return (
+    <View style={styles.breakdownPill}>
+      <View style={[styles.dotBlock, { backgroundColor: color }]} />
+      <Text style={styles.breakdownLabel}>{label}</Text>
+      <Text style={styles.breakdownValue}>{value}</Text>
+    </View>
+  );
+}
+
 function SmallStat({
   icon,
   tint,
@@ -193,17 +221,22 @@ function SplitRow({
   label,
   value,
   count,
+  total,
+  rawValue,
 }: {
   color: string;
   label: string;
   value: string;
   count: number;
+  total?: number;
+  rawValue?: number;
 }) {
+  const pct = total && rawValue != null && total > 0 ? ` (${Math.round((rawValue / total) * 100)}%)` : "";
   return (
     <View style={styles.splitRow}>
       <View style={[styles.dotBlock, { backgroundColor: color }]} />
       <Text style={styles.splitLabel}>{label}</Text>
-      <Text style={styles.splitValue}>{value}</Text>
+      <Text style={styles.splitValue}>{value}{pct}</Text>
       <Text style={styles.splitCount}>· {count}</Text>
     </View>
   );
@@ -414,6 +447,17 @@ const styles = StyleSheet.create({
   legendDot: { flexDirection: "row", gap: 6, alignItems: "center" },
   dotBlock: { width: 10, height: 10, borderRadius: 5 },
   legendLabel: { fontSize: 11, fontWeight: "700", color: colors.textMuted },
+  dayBreakdown: {
+    marginTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.borderSoft,
+    paddingTop: spacing.md,
+    gap: 8,
+  },
+  dayBreakdownTitle: { fontSize: 13, fontWeight: "900", color: colors.text },
+  breakdownPill: { flexDirection: "row", alignItems: "center", gap: 8 },
+  breakdownLabel: { flex: 1, fontSize: 12, fontWeight: "800", color: colors.text },
+  breakdownValue: { fontSize: 12, fontWeight: "900", color: colors.text },
 
   donutRow: { flexDirection: "row", alignItems: "center", gap: spacing.lg },
   splitRow: { flexDirection: "row", alignItems: "center", gap: 8 },

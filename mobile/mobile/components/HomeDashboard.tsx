@@ -187,7 +187,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.adBannerTitle}>Watch a short ad</Text>
-              <Text style={styles.adBannerSub}>Earn +5 Trim Tokens</Text>
+              <Text style={styles.adBannerSub}>Earn +5 tokens</Text>
             </View>
             <Ionicons
               name={adBusy ? "hourglass-outline" : "add-circle"}
@@ -207,6 +207,10 @@ export function HomeDashboard(props: HomeDashboardProps) {
             <View style={styles.pillRow}>
               <Pill icon="flame" value={String(streakOf(stats))} label="streak" tone="honey" />
               <Pill icon="checkmark-done" value={String(stats.reviewed)} label="reviewed" tone="sage" />
+            </View>
+            <View style={styles.heroBreakdown}>
+              <BreakdownLine color={colors.sage} label="Trim" value={formatMB(stats.trimMbFreed)} />
+              <BreakdownLine color={colors.danger} label="Delete" value={formatMB(stats.deleteMbFreed)} />
             </View>
           </View>
           <Animated.View style={{ transform: [{ translateY: floatY }] }}>
@@ -258,8 +262,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
         </Card>
 
         <SectionHeader
-          title="Weekly login"
-          action={<Text style={styles.sectionAction}>{weeklyReward.streak}/7 active</Text>}
+          title="Daily tokens"
+          action={<Text style={styles.sectionAction}>{weeklyReward.streak}/7 claimed</Text>}
         />
         <Card style={styles.weeklyCard}>
           <View style={styles.weeklyDays}>
@@ -292,11 +296,11 @@ export function HomeDashboard(props: HomeDashboardProps) {
                 {weeklyReward.claimedToday
                   ? "Reward claimed"
                   : weeklyReward.canClaimToday
-                    ? `Claim ${weeklyReward.rewardAmount} Trim Tokens`
-                    : "Play or clean to unlock today"}
+                    ? `Claim ${weeklyReward.rewardAmount} tokens`
+                    : "Come back tomorrow"}
               </Text>
               <Text style={styles.goalHint}>
-                5 tokens daily. Day 7 pays 20 after a full active streak.
+                Claim once per day. Missed days cannot be collected later.
               </Text>
             </View>
             <Pressable
@@ -458,6 +462,16 @@ function TodayStat({
   );
 }
 
+function BreakdownLine({ color, label, value }: { color: string; label: string; value: string }) {
+  return (
+    <View style={styles.breakdownLine}>
+      <View style={[styles.breakdownDot, { backgroundColor: color }]} />
+      <Text style={styles.breakdownLabel}>{label}</Text>
+      <Text style={styles.breakdownValue}>{value}</Text>
+    </View>
+  );
+}
+
 function RecentList({ entries }: { entries: NativeActionLogEntry[] }) {
   if (entries.length === 0) {
     return (
@@ -609,6 +623,11 @@ const styles = StyleSheet.create({
   heroFreed: { ...type.display, color: colors.primary, marginTop: 4 },
   heroSub: { ...type.body, color: colors.textMuted, marginTop: -2 },
   pillRow: { flexDirection: "row", gap: 8, marginTop: spacing.md, flexWrap: "wrap" },
+  heroBreakdown: { marginTop: 4, gap: 4 },
+  breakdownLine: { flexDirection: "row", alignItems: "center", gap: 6 },
+  breakdownDot: { width: 8, height: 8, borderRadius: 4 },
+  breakdownLabel: { flex: 1, fontSize: 11, fontWeight: "800", color: colors.textMuted },
+  breakdownValue: { fontSize: 11, fontWeight: "900", color: colors.text },
   thumbStack: { flexDirection: "row", alignItems: "center" },
   thumbStackImg: {
     width: 32,
