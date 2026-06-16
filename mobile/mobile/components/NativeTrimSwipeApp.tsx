@@ -25,10 +25,13 @@ import {
   commitTrimsAndDeletes,
   deletePhotos,
   estimateTrimSavings,
+  loadCleanupPlan,
   loadRelatedPhotoPairs,
   loadPhotoRound,
   requestPhotoPermission,
   scanPhotoLibrary,
+  type NativeCleanupCategory,
+  type NativeCleanupPlan,
   type NativeLibraryScan,
   type NativeLibraryScanProgress,
   type NativePhoto,
@@ -57,6 +60,11 @@ import { addTokens, subscribeTokens, spendTokens, DAILY_CLAIM_TOKENS } from "../
 import { checkProStatus } from "../lib/purchases";
 import { showRewardedAd, showInterstitialAd, initAds } from "../lib/ads";
 import { colors } from "../constants/design";
+import {
+  ensureCleanupNotifications,
+  notifyCleanupProgress,
+  registerCleanupBackgroundTask,
+} from "../lib/progress-notifications";
 
 type Screen =
   | "home"
@@ -68,6 +76,7 @@ type Screen =
   | "stats"
   | "trim"
   | "shop"
+  | "cleanup-plan"
   | "settings";
 
 type Action = "keep" | "trim" | "delete";
@@ -112,6 +121,8 @@ const FOUR_K_VIDEO_MB_PER_MINUTE = 375;
 const TIME_ATTACK_SECONDS = 60;
 const SELECTION_GRACE_DAYS = 7;
 const SEEN_PHOTO_LIMIT = 500;
+const APP_STORE_URL =
+  process.env.EXPO_PUBLIC_APP_STORE_URL ?? "https://apps.apple.com/app/id6764543618";
 // Storage budget game: target a pool that totals 75-100 MB so user must pick ~50 MB to keep
 const BUDGET_TARGET_POOL_MB = 90;
 const BUDGET_KEEP_LIMIT_MB = 50;
@@ -139,6 +150,8 @@ function targetLabel(settings: NativeSettings): string {
   }
   if (settings.targetMode === "similar") return "Similar photos";
   if (settings.targetMode === "screenshots") return "Screenshots";
+  if (settings.targetMode === "live-photos") return "Live Photos";
+  if (settings.targetMode === "bursts") return "Bursts";
   if (settings.targetMode === "icloud") return "iCloud-heavy";
   if (settings.targetMode === "mistakes") return "Likely mistakes";
   return `${settings.minSizeMB}+ MB or ${settings.minAgeYears}+ yrs`;
@@ -385,10 +398,12 @@ function withRecentlySeenPhotos(stats: NativeStats, photos: NativePhoto[]): Nati
 
 function progressShareText(stats: NativeStats): string {
   const week = sumDays(stats, 7);
+  const month = monthStats(stats);
   return [
-    `I reclaimed ${formatMB(stats.mbFreed)} with TrimSwipe.`,
+    `I freed ${formatMB(month.mbFreed)} this month with TrimSwipe.`,
     `${stats.reviewed} photos reviewed, ${stats.trimmed} trimmed, ${stats.deleted} deleted.`,
     `This week: ${formatMB(week.mbFreed)} saved.`,
+    APP_STORE_URL,
   ].join("\n");
 }
 
@@ -501,6 +516,8 @@ export function NativeTrimSwipeApp() {
   const [scanBusy, setScanBusy] = useState(false);
   const [scanComplete, setScanComplete] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [cleanupPlan, setCleanupPlan] = useState<NativeCleanupPlan | null>(null);
+  const [cleanupPlanBusy, setCleanupPlanBusy] = useState(false);
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
   const pendingDeletesRef = useRef<NativePhoto[]>([]);
   const pendingTrimsRef = useRef<NativePhoto[]>([]);
@@ -583,6 +600,8 @@ export function NativeTrimSwipeApp() {
     const unsub = subscribeTokens((s) => setTokenBalance(s.tokens));
     void checkProStatus().then(setIsPro).catch(() => {});
     void initAds().catch(() => {});
+    void registerCleanupBackgroundTask();
+    void ensureCleanupNotifications();
     return () => unsub();
   }, []);
 
@@ -674,10 +693,15 @@ export function NativeTrimSwipeApp() {
       }
       setPermissionDenied(false);
       setPermissionLimited(permission.limited);
+      await notifyCleanupProgress("TrimSwipe scan started", "Looking for easy storage wins.");
       const result = await scanPhotoLibrary(setScanProgress);
       setLibraryScan(result);
       setScanProgress(null);
       setScanComplete(true);
+      await notifyCleanupProgress(
+        "TrimSwipe scan ready",
+        `Found about ${formatMB(result.trimSavingsMB + result.deleteSavingsMB + result.burstDeleteSavingsMB)} to review.`,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not scan the photo library";
       setScanError(message);
@@ -829,7 +853,16 @@ export function NativeTrimSwipeApp() {
     }
 
     if (chargeableTrims.length > 0) setTrimmingCount((count) => count + chargeableTrims.length);
-    const batch = await commitTrimsAndDeletes(deletes, chargeableTrims, settings.trimQuality);
+    const totalActions = deletes.length + chargeableTrims.length;
+    if (totalActions >= 5) {
+      await notifyCleanupProgress("Cleanup started", `Applying ${totalActions} selected actions.`);
+    }
+    const batch = await commitTrimsAndDeletes(
+      deletes,
+      chargeableTrims,
+      settings.trimQuality,
+      settings.trimOutputMode === "replace",
+    );
     if (chargeableTrims.length > 0) {
       setTrimmingCount((count) => Math.max(0, count - chargeableTrims.length));
     }
@@ -905,6 +938,9 @@ export function NativeTrimSwipeApp() {
     setPendingDeletes(pendingDeletesRef.current);
     setPendingTrims(pendingTrimsRef.current);
     setRecap({ ...sessionRef.current });
+    if (totalActions >= 5) {
+      await notifyCleanupProgress("Cleanup complete", `Saved about ${formatMB(sessionRef.current.freed)}.`);
+    }
     maybeShowInterstitialAfterCleanup(deletedCount + trimmedOkIds.size);
   }
 
@@ -937,6 +973,103 @@ export function NativeTrimSwipeApp() {
     void loadRound(nextSettings);
   }
 
+  async function openCleanupCategory(category: NativeCleanupCategory) {
+    setCleanupPlanBusy(true);
+    setCleanupPlan(null);
+    setScreen("cleanup-plan");
+    try {
+      const permission = await requestPhotoPermission();
+      if (!permission.granted) {
+        setPermissionDenied(true);
+        showToast("Photo access needed", "Open iOS Settings to preview cleanup folders.", "warning");
+        return;
+      }
+      setPermissionDenied(false);
+      const avoidIds = recentSelectionIds(stats);
+      if (category === "screenshots") {
+        const [screens, duplicates, bursts] = await Promise.all([
+          loadCleanupPlan("screenshots", 18, settings, { avoidIds }),
+          loadCleanupPlan("duplicates", 18, settings, { avoidIds }),
+          loadCleanupPlan("bursts", 18, settings, { avoidIds }),
+        ]);
+        const byId = new Map<string, NativePhoto>();
+        [...screens.deleteCandidates, ...duplicates.deleteCandidates.slice(1), ...bursts.deleteCandidates.slice(1)]
+          .forEach((photo) => byId.set(photo.id, photo));
+        const deleteCandidates = [...byId.values()];
+        setCleanupPlan({
+          category: "screenshots",
+          title: "One-tap cleanup",
+          candidates: deleteCandidates,
+          deleteCandidates,
+          trimCandidates: [],
+          estimatedDeleteSavingsMB: +deleteCandidates.reduce((sum, photo) => sum + photo.sizeMB, 0).toFixed(2),
+          estimatedTrimSavingsMB: 0,
+        });
+        return;
+      }
+
+      const plan = await loadCleanupPlan(category, 24, settings, { avoidIds });
+      if (category === "duplicates" || category === "bursts") {
+        const deleteCandidates = plan.deleteCandidates.slice(1);
+        setCleanupPlan({
+          ...plan,
+          deleteCandidates,
+          estimatedDeleteSavingsMB: +deleteCandidates.reduce((sum, photo) => sum + photo.sizeMB, 0).toFixed(2),
+        });
+      } else {
+        setCleanupPlan(plan);
+      }
+    } catch (error) {
+      showToast("Preview failed", error instanceof Error ? error.message : "Could not build this cleanup folder.", "error");
+    } finally {
+      setCleanupPlanBusy(false);
+    }
+  }
+
+  async function openDeepClean() {
+    if (!isPro) {
+      showToast("Deep Clean is Pro", "Lifetime Pro unlocks the guided full-library scan.", "info");
+      setScreen("shop");
+      return;
+    }
+    setCleanupPlanBusy(true);
+    setCleanupPlan(null);
+    setScreen("cleanup-plan");
+    try {
+      await runLibraryScan();
+      const avoidIds = recentSelectionIds(stats);
+      const [large, old, screenshots, duplicates, bursts] = await Promise.all([
+        loadCleanupPlan("large", 18, settings, { avoidIds }),
+        loadCleanupPlan("old", 18, settings, { avoidIds }),
+        loadCleanupPlan("screenshots", 18, settings, { avoidIds }),
+        loadCleanupPlan("duplicates", 18, settings, { avoidIds }),
+        loadCleanupPlan("bursts", 18, settings, { avoidIds }),
+      ]);
+      const trimById = new Map<string, NativePhoto>();
+      [...large.trimCandidates, ...old.trimCandidates].forEach((photo) => trimById.set(photo.id, photo));
+      const deleteById = new Map<string, NativePhoto>();
+      [...screenshots.deleteCandidates, ...duplicates.deleteCandidates.slice(1), ...bursts.deleteCandidates.slice(1)]
+        .forEach((photo) => {
+          if (!trimById.has(photo.id)) deleteById.set(photo.id, photo);
+        });
+      const trimCandidates = [...trimById.values()];
+      const deleteCandidates = [...deleteById.values()];
+      setCleanupPlan({
+        category: "mistakes",
+        title: "Deep Clean",
+        candidates: [...deleteCandidates, ...trimCandidates],
+        deleteCandidates,
+        trimCandidates,
+        estimatedDeleteSavingsMB: +deleteCandidates.reduce((sum, photo) => sum + photo.sizeMB, 0).toFixed(2),
+        estimatedTrimSavingsMB: +trimCandidates.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0).toFixed(2),
+      });
+    } catch (error) {
+      showToast("Deep Clean failed", error instanceof Error ? error.message : "Could not build a Deep Clean preview.", "error");
+    } finally {
+      setCleanupPlanBusy(false);
+    }
+  }
+
   async function bulkTrimPhotos(photos: NativePhoto[]) {
     const available = isPro ? photos.length : tokenBalance;
     const candidates = photos.filter(canAttemptTrim).slice(0, available);
@@ -950,7 +1083,10 @@ export function NativeTrimSwipeApp() {
     }
     setBulkBusy(true);
     setTrimmingCount((count) => count + candidates.length);
-    const results = await commitTrims(candidates, settings.trimQuality).then((rs) =>
+    if (candidates.length >= 5) {
+      await notifyCleanupProgress("Trim batch started", `Optimizing ${candidates.length} photos.`);
+    }
+    const results = await commitTrims(candidates, settings.trimQuality, settings.trimOutputMode === "replace").then((rs) =>
       candidates.map((p, i) => ({
         photo: p,
         trimmed: rs[i]?.trimmed === true,
@@ -983,6 +1119,9 @@ export function NativeTrimSwipeApp() {
     });
     setTrimmingCount((count) => Math.max(0, count - candidates.length));
     setBulkBusy(false);
+    if (candidates.length >= 5) {
+      await notifyCleanupProgress("Trim batch complete", `Optimized ${trimmed.length} photos.`);
+    }
     maybeShowInterstitialAfterCleanup(trimmed.length);
     if (trimmed.length !== candidates.length) {
       showToast("Trim incomplete", `${trimmed.length}/${candidates.length} photos trimmed. ${trimFailureSummary(results.map((item) => ({ id: item.photo.id, trimmed: item.trimmed, error: item.error })))}`.trim(), "warning");
@@ -1013,7 +1152,7 @@ export function NativeTrimSwipeApp() {
             const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
             const deletedPhotos = deleted.slice(0, deleteResult.deleted);
             setTrimmingCount((count) => count + trimCandidates.length);
-            const results = await commitTrims(trimCandidates, settings.trimQuality).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
+            const results = await commitTrims(trimCandidates, settings.trimQuality, settings.trimOutputMode === "replace").then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
             setTrimmingCount((count) => Math.max(0, count - trimCandidates.length));
             const trimmed = trimCandidates.filter((_, index) => results[index]?.trimmed);
             if (!isPro && trimmed.length > 0) await spendTokens(trimmed.length);
@@ -1098,7 +1237,7 @@ export function NativeTrimSwipeApp() {
               const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
               const deletedPhotos = deleted.slice(0, deleteResult.deleted);
               setTrimmingCount((count) => count + toTrim.length);
-              const trimResults = await commitTrims(toTrim, settings.trimQuality).then((rs) => toTrim.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
+              const trimResults = await commitTrims(toTrim, settings.trimQuality, settings.trimOutputMode === "replace").then((rs) => toTrim.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
               setTrimmingCount((count) => Math.max(0, count - toTrim.length));
               const trimmedPhotos = toTrim.filter((_, index) => trimResults[index]?.trimmed);
               if (!isPro && trimmedPhotos.length > 0) await spendTokens(trimmedPhotos.length);
@@ -1175,7 +1314,7 @@ export function NativeTrimSwipeApp() {
               const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
               const deletedPhotos = deleted.slice(0, deleteResult.deleted);
               setTrimmingCount((count) => count + toTrim.length);
-              const trimResults = await commitTrims(toTrim, settings.trimQuality).then((rs) => toTrim.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
+              const trimResults = await commitTrims(toTrim, settings.trimQuality, settings.trimOutputMode === "replace").then((rs) => toTrim.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
               setTrimmingCount((count) => Math.max(0, count - toTrim.length));
               const trimmedPhotos = toTrim.filter((_, index) => trimResults[index]?.trimmed);
               if (!isPro && trimmedPhotos.length > 0) await spendTokens(trimmedPhotos.length);
@@ -1292,16 +1431,7 @@ export function NativeTrimSwipeApp() {
             <Text style={styles.muted}>Preparing TrimSwipe...</Text>
           </Centered>
         ) : !stats.onboardingComplete ? (
-          <OnboardingCarousel
-            scan={libraryScan}
-            scanBusy={scanBusy}
-            scanError={scanError}
-            scanProgress={scanProgress}
-            permissionDenied={permissionDenied}
-            permissionLimited={permissionLimited}
-            onScan={runLibraryScan}
-            onDone={completeOnboarding}
-          />
+          <OnboardingCarousel onDone={completeOnboarding} />
         ) : screen === "swipe" ? (
           <SwipeScreen
             top={top}
@@ -1369,6 +1499,19 @@ export function NativeTrimSwipeApp() {
             onBack={() => setScreen("games")}
             onTrimmed={handleSingleTrimComplete}
           />
+        ) : screen === "cleanup-plan" ? (
+          <CleanupPlanScreen
+            plan={cleanupPlan}
+            loading={cleanupPlanBusy}
+            isPro={isPro}
+            onBack={() => setScreen("home")}
+            onConfirm={async (deletes, trims) => {
+              await confirmActions(deletes, trims);
+              setCleanupPlan(null);
+              setScreen("swipe");
+            }}
+            onOpenShop={() => setScreen("shop")}
+          />
         ) : screen === "shop" ? (
           <ShopScreen onBack={() => setScreen("games")} onToast={showToast} />
         ) : screen === "games" ? (
@@ -1390,6 +1533,7 @@ export function NativeTrimSwipeApp() {
             recentPhotos={recentPhotosForHero}
             totalFreedMB={stats.mbFreed}
             potentialMB={potentialFromScan}
+            scan={libraryScan}
             scanBusy={scanBusy}
             scanComplete={scanComplete}
             scanInProgressText={scanProgress?.total ? `Scanning ${scanProgress.scanned}/${scanProgress.total}` : scanProgress ? `Scanning ${scanProgress.scanned}` : undefined}
@@ -1403,8 +1547,13 @@ export function NativeTrimSwipeApp() {
             onOpenShop={() => setScreen("shop")}
             onWatchAd={handleWatchAd}
             onQuickScan={runLibraryScan}
+            onDeepClean={openDeepClean}
+            onOptimizeStorage={() => {
+              showToast("Open Settings", "Go to Photos > Optimize iPhone Storage.", "info");
+              void Linking.openSettings();
+            }}
             onClaimWeeklyReward={claimWeeklyReward}
-            onPickCategory={pickCategoryStart}
+            onPickCategory={openCleanupCategory}
             onShare={shareProgress}
           />
         ) : (
@@ -1422,6 +1571,89 @@ export function NativeTrimSwipeApp() {
 function canAttemptTrim(photo: NativePhoto): boolean {
   const source = photo.localUri || photo.uri;
   return !photo.isCloudAsset && Boolean(source) && !source.startsWith("ph://");
+}
+
+function CleanupPlanScreen({
+  plan,
+  loading,
+  isPro,
+  onBack,
+  onConfirm,
+  onOpenShop,
+}: {
+  plan: NativeCleanupPlan | null;
+  loading: boolean;
+  isPro: boolean;
+  onBack: () => void;
+  onConfirm: (deletes: NativePhoto[], trims: NativePhoto[]) => Promise<void> | void;
+  onOpenShop: () => void;
+}) {
+  if (loading) {
+    return (
+      <Centered>
+        <ActivityIndicator color="#f97316" size="large" />
+        <Text style={styles.heroTitle}>Building preview</Text>
+        <Text style={styles.centerText}>Finding the photos that will make the biggest dent.</Text>
+      </Centered>
+    );
+  }
+
+  if (!plan) {
+    return (
+      <Centered>
+        <Text style={styles.heroTitle}>No cleanup preview</Text>
+        <Text style={styles.centerText}>Run a scan or pick another smart folder.</Text>
+        <PrimaryButton label="Back home" onPress={onBack} />
+      </Centered>
+    );
+  }
+
+  const trimMB = plan.estimatedTrimSavingsMB;
+  const deleteMB = plan.estimatedDeleteSavingsMB;
+  const total = trimMB + deleteMB;
+  const bestKept =
+    (plan.category === "duplicates" || plan.category === "bursts") && plan.candidates.length > 0
+      ? plan.candidates[0]
+      : null;
+  const deepCleanLocked = plan.title === "Deep Clean" && !isPro;
+
+  if (deepCleanLocked) {
+    return (
+      <Centered>
+        <Text style={styles.heroTitle}>Deep Clean is Pro</Text>
+        <Text style={styles.centerText}>Lifetime Pro unlocks the guided full-library scan and auto-action preview.</Text>
+        <PrimaryButton label="Open Lifetime Pro" onPress={onOpenShop} />
+        <SecondaryButton label="Back home" onPress={onBack} />
+      </Centered>
+    );
+  }
+
+  return (
+    <ConfirmActionsReview
+      title={plan.title}
+      detail={
+        bestKept
+          ? `Best kept: ${bestKept.title}. Review the rest before applying.`
+          : `Preview ${plan.deleteCandidates.length + plan.trimCandidates.length} actions before anything changes.`
+      }
+      beforeAfter={
+        <>
+          <View style={styles.beforeAfterCard}>
+            <Text style={styles.beforeAfterLabel}>Before</Text>
+            <Text style={styles.beforeAfterValueRed}>+{formatMB(deleteMB)} clutter</Text>
+          </View>
+          <View style={styles.beforeAfterCard}>
+            <Text style={styles.beforeAfterLabel}>After</Text>
+            <Text style={styles.beforeAfterValueGreen}>Save ~{formatMB(total)}</Text>
+          </View>
+        </>
+      }
+      deletes={plan.deleteCandidates}
+      trims={plan.trimCandidates}
+      onConfirm={onConfirm}
+      onCancel={onBack}
+    />
+  );
 }
 
 
@@ -1584,11 +1816,17 @@ function PhotoCard({ photo, stacked, onOpenFull }: { photo: NativePhoto; stacked
 // Lets the user deselect any items they no longer want to delete or trim
 // before applying the actions in a single batch (one iOS confirmation).
 function ConfirmActionsReview({
+  title = "Confirm actions",
+  detail,
+  beforeAfter,
   deletes,
   trims,
   onConfirm,
   onCancel,
 }: {
+  title?: string;
+  detail?: string;
+  beforeAfter?: ReactNode;
   deletes: NativePhoto[];
   trims: NativePhoto[];
   onConfirm: (deletes: NativePhoto[], trims: NativePhoto[]) => void;
@@ -1677,7 +1915,9 @@ function ConfirmActionsReview({
 
   return (
     <View style={styles.content}>
-      <Text style={styles.heroTitle}>Confirm actions</Text>
+      <Text style={styles.heroTitle}>{title}</Text>
+      {detail ? <Text style={styles.centerText}>{detail}</Text> : null}
+      {beforeAfter ? <View style={styles.beforeAfterRow}>{beforeAfter}</View> : null}
       <Text style={styles.muted}>
         Tap rows to deselect. Use the bin/scissors to move photos between Delete and Trim. {chosenDeletes.length} to delete - {chosenTrims.length} to trim - ~{formatMB(total)} saved.
       </Text>
@@ -2961,6 +3201,12 @@ function SettingsScreen({ settings, samplePhoto, onChange, onReload }: { setting
         </>
       ) : null}
       <SettingStepper label="Trim quality" value={Math.round(settings.trimQuality * 100)} suffix="%" min={65} max={98} step={1} onChange={(quality) => onChange({ trimQuality: quality / 100 })} />
+      <Segmented
+        label="Trim output"
+        value={settings.trimOutputMode}
+        options={[["replace", "Replace originals"], ["save-new", "Save as new"]]}
+        onChange={(trimOutputMode) => onChange({ trimOutputMode })}
+      />
       <QualityPreview photo={samplePhoto} currentQuality={settings.trimQuality} />
       <BooleanSetting label="Larger controls" detail="Roomier buttons and key text for easier one-handed use." value={settings.largeText} onChange={(largeText) => onChange({ largeText })} />
       <BooleanSetting label="High contrast" detail="Deepens the app background and panel borders." value={settings.highContrast} onChange={(highContrast) => onChange({ highContrast })} />

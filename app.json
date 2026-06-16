@@ -2,7 +2,7 @@
   "expo": {
     "name": "Trimswipe",
     "slug": "slim-storage",
-    "version": "1.0.5",
+    "version": "1.0.7",
     "icon": "mobile/mobile/assets/images/icon.png",
     "ios": {
       "bundleIdentifier": "com.fiskerik.trimswipe",
@@ -10,7 +10,13 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSPhotoLibraryUsageDescription": "Trimswipe needs access to your photo library so you can swipe through your photos and free up storage.",
-        "NSPhotoLibraryAddUsageDescription": "Trimswipe may save optimized versions of your photos."
+        "NSPhotoLibraryAddUsageDescription": "Trimswipe may save optimized versions of your photos.",
+        "UIBackgroundModes": [
+          "processing"
+        ],
+        "BGTaskSchedulerPermittedIdentifiers": [
+          "trimswipe-cleanup-maintenance"
+        ]
       }
     },
     "plugins": [
@@ -22,7 +28,9 @@
           "isAccessMediaLocationEnabled": true
         }
       ],
-      "expo-router"
+      "expo-router",
+      "expo-notifications",
+      "expo-background-task"
     ],
     "extra": {
       "eas": {

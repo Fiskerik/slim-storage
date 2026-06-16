@@ -3,7 +3,7 @@ import type { ExpoConfig } from "expo/config";
 const config: ExpoConfig = {
   name: "Trimswipe",
   slug: "slim-storage",
-  version: "1.0.6",
+  version: "1.0.7",
   icon: "./assets/images/icon.png",
   orientation: "portrait",
   scheme: "trimswipe",
@@ -20,6 +20,8 @@ const config: ExpoConfig = {
       NSUserTrackingUsageDescription:
         "This identifier will be used to deliver personalized ads to you.",
       ITSAppUsesNonExemptEncryption: false,
+      UIBackgroundModes: ["processing"],
+      BGTaskSchedulerPermittedIdentifiers: ["trimswipe-cleanup-maintenance"],
     },
   },
   android: {
@@ -46,6 +48,8 @@ const config: ExpoConfig = {
       },
     ],
     "expo-web-browser",
+    "expo-notifications",
+    "expo-background-task",
     [
       "react-native-google-mobile-ads",
       {

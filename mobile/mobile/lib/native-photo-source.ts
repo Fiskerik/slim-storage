@@ -2,6 +2,15 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library";
 import type { NativeSettings } from "./native-store";
 
+export type NativeCleanupCategory =
+  | "large"
+  | "old"
+  | "screenshots"
+  | "live"
+  | "duplicates"
+  | "bursts"
+  | "mistakes";
+
 export type NativePhoto = {
   id: string;
   uri: string;
@@ -46,7 +55,26 @@ export type NativeLibraryScan = {
   duplicateRemovalCount: number;
   mistakeCount: number;
   screenshotCount: number;
+  largeCount: number;
+  oldCount: number;
+  livePhotoCount: number;
+  burstCount: number;
+  largeSavingsMB: number;
+  oldSavingsMB: number;
+  screenshotSavingsMB: number;
+  livePhotoSavingsMB: number;
+  burstDeleteSavingsMB: number;
   scannedAt: string;
+};
+
+export type NativeCleanupPlan = {
+  category: NativeCleanupCategory;
+  title: string;
+  candidates: NativePhoto[];
+  deleteCandidates: NativePhoto[];
+  trimCandidates: NativePhoto[];
+  estimatedDeleteSavingsMB: number;
+  estimatedTrimSavingsMB: number;
 };
 
 type PhotoMetadataCache = {
@@ -104,6 +132,10 @@ function duplicateKey(asset: MediaLibrary.Asset): string {
   return `${Math.round(asset.creationTime / 3000)}:${asset.width}x${asset.height}`;
 }
 
+function burstKey(asset: MediaLibrary.Asset): string {
+  return `${Math.round(asset.creationTime / 1000)}:${asset.width}x${asset.height}`;
+}
+
 function buildDuplicateLookup(assets: MediaLibrary.Asset[]): Set<string> {
   const counts = new Map<string, number>();
   assets.forEach((asset) => {
@@ -141,6 +173,10 @@ function matchesPhotoSettings(
       return includesReason(photo, "Similar");
     case "screenshots":
       return includesReason(photo, "Screenshot");
+    case "live-photos":
+      return includesReason(photo, "Live Photo");
+    case "bursts":
+      return includesReason(photo, "Burst") || includesReason(photo, "Similar");
     case "icloud":
       return photo.isCloudAsset;
     case "mistakes":
@@ -154,6 +190,12 @@ function matchesPhotoSettings(
 function assetLooksLikeScreenshot(asset: MediaLibrary.Asset): boolean {
   const filename = asset.filename?.toLowerCase() ?? "";
   return filename.includes("screenshot") || filename.includes("screen shot");
+}
+
+function assetLooksLikeLivePhoto(asset: MediaLibrary.Asset): boolean {
+  const subtypes = (asset as MediaLibrary.Asset & { mediaSubtypes?: string[] }).mediaSubtypes ?? [];
+  const filename = asset.filename?.toLowerCase() ?? "";
+  return subtypes.some((subtype) => subtype.toLowerCase().includes("live")) || filename.includes("live");
 }
 
 function assetLooksLikeMistake(asset: MediaLibrary.Asset): boolean {
@@ -191,6 +233,10 @@ function matchesAssetSettings(
       return duplicateLookup.has(duplicateKey(asset));
     case "screenshots":
       return assetLooksLikeScreenshot(asset);
+    case "live-photos":
+      return assetLooksLikeLivePhoto(asset);
+    case "bursts":
+      return duplicateLookup.has(duplicateKey(asset));
     case "icloud":
       return assetSizeMB(asset) === 0;
     case "mistakes":
@@ -249,6 +295,8 @@ function classifyAsset(
   if (sizeMB >= 4) reasons.add("Large");
   if (duplicateLookup.has(duplicateKey(asset))) reasons.add("Similar");
   if (assetLooksLikeScreenshot(asset)) reasons.add("Screenshot");
+  if (assetLooksLikeLivePhoto(asset)) reasons.add("Live Photo");
+  if (duplicateLookup.has(duplicateKey(asset))) reasons.add("Burst");
   if (filename.includes("blur")) reasons.add("Blurry");
   if (filename.includes("dark") || filename.includes("night")) reasons.add("Dark");
   if (ratio > 2.2 || sizeMB < 0.35 || filename.includes("pocket")) reasons.add("Mistake?");
@@ -521,19 +569,26 @@ export async function scanPhotoLibrary(
 ): Promise<NativeLibraryScan> {
   const [assets, storage] = await Promise.all([fetchAllPhotoAssets(onProgress), readDeviceStorageMB()]);
   const groups = new Map<string, Array<{ id: string; sizeMB: number }>>();
+  const burstGroups = new Map<string, Array<{ id: string; sizeMB: number }>>();
   const summaries = assets.map((asset) => {
     const measuredSizeMB = assetSizeMB(asset);
     const sizeMB = estimatedAssetSizeMB(asset);
     const key = duplicateKey(asset);
+    const burst = burstKey(asset);
     const summary = {
       id: asset.id,
       key,
+      burst,
       sizeMB,
       measured: measuredSizeMB > 0,
       mistake: assetLooksLikeMistake(asset),
       screenshot: assetLooksLikeScreenshot(asset),
+      large: sizeMB >= 5,
+      old: ageYears(asset.creationTime) >= 1,
+      live: assetLooksLikeLivePhoto(asset),
     };
     groups.set(key, [...(groups.get(key) ?? []), { id: asset.id, sizeMB }]);
+    burstGroups.set(burst, [...(burstGroups.get(burst) ?? []), { id: asset.id, sizeMB }]);
     return summary;
   });
 
@@ -551,6 +606,17 @@ export async function scanPhotoLibrary(
     });
   });
 
+  let burstDeleteSavingsMB = 0;
+  let burstCount = 0;
+  burstGroups.forEach((items) => {
+    if (items.length < 3) return;
+    const removable = [...items].sort((a, b) => b.sizeMB - a.sizeMB).slice(1);
+    burstCount += removable.length;
+    removable.forEach((item) => {
+      if (!duplicateRemovalIds.has(item.id)) burstDeleteSavingsMB += item.sizeMB;
+    });
+  });
+
   const totalSizeMB = summaries.reduce((sum, item) => sum + item.sizeMB, 0);
   const trimSavingsMB = summaries.reduce(
     (sum, item) => sum + estimateTrimSavings({ sizeMB: item.sizeMB, hasGPS: false }),
@@ -560,6 +626,18 @@ export async function scanPhotoLibrary(
     .filter((item) => item.mistake && !duplicateRemovalIds.has(item.id))
     .reduce((sum, item) => sum + item.sizeMB, 0);
   const deleteSavingsMB = duplicateDeleteSavingsMB + mistakeDeleteSavingsMB;
+  const largeSavingsMB = summaries
+    .filter((item) => item.large)
+    .reduce((sum, item) => sum + estimateTrimSavings({ sizeMB: item.sizeMB, hasGPS: false }), 0);
+  const oldSavingsMB = summaries
+    .filter((item) => item.old)
+    .reduce((sum, item) => sum + estimateTrimSavings({ sizeMB: item.sizeMB, hasGPS: false }), 0);
+  const screenshotSavingsMB = summaries
+    .filter((item) => item.screenshot)
+    .reduce((sum, item) => sum + item.sizeMB, 0);
+  const livePhotoSavingsMB = summaries
+    .filter((item) => item.live)
+    .reduce((sum, item) => sum + estimateTrimSavings({ sizeMB: item.sizeMB, hasGPS: false }), 0);
 
   return {
     assetCount: assets.length,
@@ -575,7 +653,68 @@ export async function scanPhotoLibrary(
     duplicateRemovalCount,
     mistakeCount: summaries.filter((item) => item.mistake).length,
     screenshotCount: summaries.filter((item) => item.screenshot).length,
+    largeCount: summaries.filter((item) => item.large).length,
+    oldCount: summaries.filter((item) => item.old).length,
+    livePhotoCount: summaries.filter((item) => item.live).length,
+    burstCount,
+    largeSavingsMB: +largeSavingsMB.toFixed(2),
+    oldSavingsMB: +oldSavingsMB.toFixed(2),
+    screenshotSavingsMB: +screenshotSavingsMB.toFixed(2),
+    livePhotoSavingsMB: +livePhotoSavingsMB.toFixed(2),
+    burstDeleteSavingsMB: +burstDeleteSavingsMB.toFixed(2),
     scannedAt: new Date().toISOString(),
+  };
+}
+
+export async function loadCleanupPlan(
+  category: NativeCleanupCategory,
+  count: number,
+  settings: NativeSettings,
+  options: NativePhotoRoundOptions = {},
+): Promise<NativeCleanupPlan> {
+  const targetModeByCategory: Record<NativeCleanupCategory, NativeSettings["targetMode"]> = {
+    large: "big-only",
+    old: "old-only",
+    screenshots: "screenshots",
+    live: "live-photos",
+    duplicates: "similar",
+    bursts: "bursts",
+    mistakes: "mistakes",
+  };
+  const candidates = await loadPhotoRound(
+    count,
+    {
+      ...settings,
+      targetMode: targetModeByCategory[category],
+      cardsPerRound: count,
+      minSizeMB: category === "large" ? 5 : settings.minSizeMB,
+      minAgeYears: category === "old" ? 1 : settings.minAgeYears,
+    },
+    options,
+  );
+  const deleteCategories = new Set<NativeCleanupCategory>(["screenshots", "duplicates", "bursts", "mistakes"]);
+  const deleteCandidates = deleteCategories.has(category) ? candidates : [];
+  const trimCandidates = deleteCategories.has(category) ? [] : candidates.filter((photo) => !photo.isCloudAsset);
+  const estimatedDeleteSavingsMB = deleteCandidates.reduce((sum, photo) => sum + photo.sizeMB, 0);
+  const estimatedTrimSavingsMB = trimCandidates.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0);
+  const titleByCategory: Record<NativeCleanupCategory, string> = {
+    large: "Photos >5MB",
+    old: "Photos >1 year old",
+    screenshots: "Screenshots",
+    live: "Live Photos",
+    duplicates: "Duplicates",
+    bursts: "Bursts",
+    mistakes: "Likely mistakes",
+  };
+
+  return {
+    category,
+    title: titleByCategory[category],
+    candidates,
+    deleteCandidates,
+    trimCandidates,
+    estimatedDeleteSavingsMB: +estimatedDeleteSavingsMB.toFixed(2),
+    estimatedTrimSavingsMB: +estimatedTrimSavingsMB.toFixed(2),
   };
 }
 
@@ -762,9 +901,13 @@ export async function deletePhotos(ids: string[]): Promise<{ deleted: number }> 
 export async function trimPhoto(
   photo: NativePhoto,
   quality: number,
+  replaceOriginal = true,
 ): Promise<{ trimmed: boolean; newAssetId?: string; savedMB?: number; error?: string }> {
   const created = await createTrimmedAsset(photo, quality);
   if (!created.success) return { trimmed: false, error: created.error };
+  if (!replaceOriginal) {
+    return { trimmed: true, newAssetId: created.newAssetId, savedMB: created.savedMB };
+  }
   try {
     await MediaLibrary.deleteAssetsAsync([photo.id]);
     await removeCacheIds([photo.id]);
@@ -819,6 +962,7 @@ async function createTrimmedAsset(photo: NativePhoto, quality: number): Promise<
 export async function commitTrims(
   photos: NativePhoto[],
   quality: number,
+  replaceOriginal = true,
 ): Promise<Array<{ id: string; trimmed: boolean; savedMB?: number; error?: string }>> {
   if (photos.length === 0) return [];
   const results: CreatedTrim[] = [];
@@ -828,7 +972,7 @@ export async function commitTrims(
     results.push(await createTrimmedAsset(p, quality));
   }
   const created = results.filter((r): r is Extract<CreatedTrim, { success: true }> => r.success);
-  if (created.length > 0) {
+  if (replaceOriginal && created.length > 0) {
     try {
       await MediaLibrary.deleteAssetsAsync(created.map((c) => c.originalId));
       await removeCacheIds(created.map((c) => c.originalId));
@@ -852,6 +996,7 @@ export async function commitTrimsAndDeletes(
   deletes: NativePhoto[],
   trims: NativePhoto[],
   quality: number,
+  replaceTrimOriginals = true,
 ): Promise<{
   deletedCount: number;
   deletedPhotos: NativePhoto[];
@@ -870,9 +1015,23 @@ export async function commitTrimsAndDeletes(
   const createdTrims = trimCreates.filter(
     (result): result is Extract<CreatedTrim, { success: true }> => result.success,
   );
-  const idsToDelete = [...deleteIds, ...createdTrims.map((result) => result.originalId)];
+  const idsToDelete = [
+    ...deleteIds,
+    ...(replaceTrimOriginals ? createdTrims.map((result) => result.originalId) : []),
+  ];
 
   if (idsToDelete.length === 0) {
+    if (!replaceTrimOriginals && createdTrims.length > 0) {
+      return {
+        deletedCount: 0,
+        deletedPhotos: [],
+        trimResults: trimCreates.map((result) =>
+          result.success
+            ? { id: result.originalId, trimmed: true, savedMB: result.savedMB }
+            : { id: result.originalId, trimmed: false, error: result.error },
+        ),
+      };
+    }
     return {
       deletedCount: 0,
       deletedPhotos: [],

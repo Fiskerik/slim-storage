@@ -21,7 +21,11 @@ import {
   SectionHeader,
   Skeleton,
 } from "./ui/primitives";
-import type { NativePhoto } from "../lib/native-photo-source";
+import type {
+  NativeCleanupCategory,
+  NativeLibraryScan,
+  NativePhoto,
+} from "../lib/native-photo-source";
 import type {
   NativeActionLogEntry,
   NativeDailyStats,
@@ -29,7 +33,7 @@ import type {
 } from "../lib/native-store";
 
 type Category = {
-  key: "large" | "old" | "screenshots" | "similar";
+  key: NativeCleanupCategory;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   count: number;
@@ -60,6 +64,7 @@ export type HomeDashboardProps = {
   recentPhotos: NativePhoto[];
   totalFreedMB: number;
   potentialMB: number;
+  scan: NativeLibraryScan | null;
   scanBusy: boolean;
   scanComplete: boolean;
   scanInProgressText?: string;
@@ -73,17 +78,21 @@ export type HomeDashboardProps = {
   onOpenShop: () => void;
   onWatchAd: () => void;
   onQuickScan: () => void;
+  onDeepClean: () => void;
+  onOptimizeStorage: () => void;
   onClaimWeeklyReward: () => void;
   onPickCategory: (key: Category["key"]) => void;
   onShare: () => void;
 };
 
 
-const CAT_DEFS: { key: Category["key"]; label: string; icon: keyof typeof Ionicons.glyphMap; match: (p: NativePhoto) => boolean; estPerPhoto?: number }[] = [
-  { key: "large", label: "Large", icon: "albums-outline", match: (p) => p.sizeMB >= 4 },
-  { key: "old", label: "Old", icon: "time-outline", match: (p) => Date.now() - p.creationTime > 5 * 365.25 * 24 * 3600 * 1000 },
+const CAT_DEFS: { key: Category["key"]; label: string; icon: keyof typeof Ionicons.glyphMap; match: (p: NativePhoto) => boolean }[] = [
+  { key: "large", label: ">5MB", icon: "albums-outline", match: (p) => p.sizeMB >= 5 },
+  { key: "old", label: ">1 year", icon: "time-outline", match: (p) => Date.now() - p.creationTime > 365.25 * 24 * 3600 * 1000 },
   { key: "screenshots", label: "Screens", icon: "phone-portrait-outline", match: (p) => p.cleanupReasons.includes("Screenshot") || p.title.toLowerCase().includes("screen") },
-  { key: "similar", label: "Similar", icon: "copy-outline", match: (p) => p.cleanupReasons.includes("Similar") },
+  { key: "live", label: "Live", icon: "radio-button-on-outline", match: (p) => p.cleanupReasons.includes("Live Photo") },
+  { key: "duplicates", label: "Dupes", icon: "copy-outline", match: (p) => p.cleanupReasons.includes("Similar") },
+  { key: "bursts", label: "Bursts", icon: "sparkles-outline", match: (p) => p.cleanupReasons.includes("Burst") || p.cleanupReasons.includes("Similar") },
 ];
 
 export function HomeDashboard(props: HomeDashboardProps) {
@@ -94,6 +103,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
     recentPhotos,
     totalFreedMB,
     potentialMB,
+    scan,
     scanBusy,
     scanComplete,
     tokens,
@@ -106,6 +116,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
     onOpenShop,
     onWatchAd,
     onQuickScan,
+    onDeepClean,
+    onOptimizeStorage,
     onClaimWeeklyReward,
     onPickCategory,
     onShare,
@@ -128,16 +140,17 @@ export function HomeDashboard(props: HomeDashboardProps) {
       CAT_DEFS.map((def) => {
         const matched = queue.filter(def.match);
         const sumMB = matched.reduce((s, p) => s + p.sizeMB, 0);
+        const scanEstimate = scan ? estimateCategoryFromScan(scan, def.key) : null;
         return {
           key: def.key,
           label: def.label,
           icon: def.icon,
-          count: matched.length || estimateCountFor(stats, def.key),
-          estMB: sumMB || estimateMBFor(stats, def.key),
+          count: matched.length || scanEstimate?.count || estimateCountFor(stats, def.key),
+          estMB: sumMB || scanEstimate?.mb || estimateMBFor(stats, def.key),
           thumb: matched[0]?.uri,
         };
       }),
-    [queue, stats],
+    [queue, scan, stats],
   );
 
   const target = Math.max(potentialMB, totalFreedMB + 200, 1);
@@ -156,6 +169,16 @@ export function HomeDashboard(props: HomeDashboardProps) {
       : "Find savings";
   const scanBg = scanComplete ? colors.sageSoft : "#ffe6cc";
   const scanAccent = scanComplete ? colors.sageDeep : tiles.scan.accent;
+  const healthScore = libraryHealthScore(stats, scan, today);
+  const projectedFreed = scan
+    ? scan.trimSavingsMB + scan.deleteSavingsMB + scan.burstDeleteSavingsMB
+    : potentialMB;
+  const oneTapCount = scan
+    ? scan.screenshotCount + scan.duplicateRemovalCount + scan.burstCount
+    : Math.max(0, Math.round(stats.reviewed * 0.2));
+  const oneTapSavings = scan
+    ? scan.screenshotSavingsMB + scan.duplicateDeleteSavingsMB + scan.burstDeleteSavingsMB
+    : Math.max(50, stats.mbFreed * 0.25);
 
   return (
     <View style={{ flex: 1 }}>
@@ -239,6 +262,46 @@ export function HomeDashboard(props: HomeDashboardProps) {
             </ProgressRing>
           </Animated.View>
         </Card>
+
+        <SectionHeader
+          title="Library health"
+          action={<Text style={styles.sectionAction}>{healthScore}/100</Text>}
+        />
+        <Card style={styles.healthCard}>
+          <ProgressRing progress={healthScore / 100} size={92} thickness={8}>
+            <Text style={styles.healthValue}>{healthScore}</Text>
+            <Text style={styles.healthLabel}>score</Text>
+          </ProgressRing>
+          <View style={styles.healthCopy}>
+            <Text style={styles.goalTitle}>
+              {healthScore >= 82 ? "Looking tidy" : "Easy wins are waiting"}
+            </Text>
+            <Text style={styles.goalHint}>
+              Projected savings: {formatMB(projectedFreed)}. Top hogs: large photos, screenshots, and duplicate bursts.
+            </Text>
+          </View>
+        </Card>
+
+        <SectionHeader title="One-tap cleanup" />
+        <Pressable onPress={() => onPickCategory("screenshots")} style={styles.cleanupHero}>
+          <View style={styles.cleanupIcon}>
+            <Ionicons name="trash-outline" size={26} color={colors.white} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cleanupTitle}>Nuke {oneTapCount} screenshots + duplicates</Text>
+            <Text style={styles.cleanupHint}>Preview first. Undo before commit. Save ~{formatMB(oneTapSavings)}.</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={colors.danger} />
+        </Pressable>
+
+        <Pressable onPress={onOptimizeStorage} style={styles.optimizeCard}>
+          <Ionicons name="cloud-outline" size={22} color={colors.info} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.goalTitle}>Optimize iPhone Storage</Text>
+            <Text style={styles.goalHint}>Use Apple’s built-in iCloud setting when local storage is tight.</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.info} />
+        </Pressable>
 
         <SectionHeader
           title="Daily goal"
@@ -348,13 +411,13 @@ export function HomeDashboard(props: HomeDashboardProps) {
           <View style={styles.tileRow}>
             <IconTile
               icon="bag-outline"
-              label="Shop"
-              hint="Tokens and Pro"
+              label="Deep Clean"
+              hint={isPro ? "Guided full scan" : "Pro guided scan"}
               bg={tiles.trim.bg}
               accent={tiles.trim.accent}
               onPress={() => {
                 void Haptics.selectionAsync();
-                onOpenShop();
+                onDeepClean();
               }}
             />
             <IconTile
@@ -387,7 +450,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
         </Card>
 
         {/* Categories carousel */}
-        <SectionHeader title="Problem photos" action={<Text style={styles.sectionAction}>Tap to swipe →</Text>} />
+        <SectionHeader title="Smart folders" action={<Text style={styles.sectionAction}>Tap to preview</Text>} />
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -531,6 +594,26 @@ function formatMB(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return "0 MB";
   return value >= 1024 ? `${(value / 1024).toFixed(2)} GB` : `${value.toFixed(1)} MB`;
 }
+function estimateCategoryFromScan(scan: NativeLibraryScan, key: NativeCleanupCategory): { count: number; mb: number } {
+  const map: Record<NativeCleanupCategory, { count: number; mb: number }> = {
+    large: { count: scan.largeCount, mb: scan.largeSavingsMB },
+    old: { count: scan.oldCount, mb: scan.oldSavingsMB },
+    screenshots: { count: scan.screenshotCount, mb: scan.screenshotSavingsMB },
+    live: { count: scan.livePhotoCount, mb: scan.livePhotoSavingsMB },
+    duplicates: { count: scan.duplicateRemovalCount, mb: scan.duplicateDeleteSavingsMB },
+    bursts: { count: scan.burstCount, mb: scan.burstDeleteSavingsMB },
+    mistakes: { count: scan.mistakeCount, mb: scan.mistakeDeleteSavingsMB },
+  };
+  return map[key];
+}
+function libraryHealthScore(stats: NativeStats, scan: NativeLibraryScan | null, today: NativeDailyStats): number {
+  const scanBurden = scan
+    ? Math.min(32, (scan.deleteSavingsMB + scan.trimSavingsMB) / Math.max(1, scan.totalSizeMB) * 100)
+    : 18;
+  const momentum = Math.min(22, today.reviewed * 1.4 + streakOf(stats) * 3);
+  const reclaimed = Math.min(24, stats.mbFreed / 80);
+  return Math.round(Math.max(32, Math.min(99, 46 - scanBurden + momentum + reclaimed)));
+}
 function actionLabel(a: string) {
   if (a === "delete") return "Deleted";
   if (a === "trim") return "Trimmed";
@@ -638,6 +721,47 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cardSoft,
   },
   ringPct: { marginTop: 6, fontSize: 12, fontWeight: "800", color: colors.text },
+
+  healthCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.lg,
+  },
+  healthCopy: { flex: 1, gap: 4 },
+  healthValue: { color: colors.primary, fontSize: 24, fontWeight: "900" },
+  healthLabel: { color: colors.textMuted, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
+  cleanupHero: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.dangerSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.danger,
+    padding: spacing.lg,
+    ...shadow.soft,
+  },
+  cleanupIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.danger,
+  },
+  cleanupTitle: { color: colors.text, fontSize: 16, fontWeight: "900" },
+  cleanupHint: { color: "#991b1b", fontSize: 12, fontWeight: "700", marginTop: 2 },
+  optimizeCard: {
+    marginTop: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.infoSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.info,
+    padding: spacing.lg,
+  },
 
   tileGrid: { gap: spacing.md },
   tileRow: { flexDirection: "row", gap: spacing.md },

@@ -8,12 +8,16 @@ export type NativeTargetMode =
   | "old-only"
   | "similar"
   | "screenshots"
+  | "live-photos"
+  | "bursts"
   | "icloud"
   | "mistakes";
 
 export type NativeSessionMode = "classic" | "endless" | "time-attack";
 
 export type NativeActionType = "keep" | "trim" | "delete";
+
+export type NativeTrimOutputMode = "replace" | "save-new";
 
 export type NativeSettings = {
   cardsPerRound: number;
@@ -22,6 +26,7 @@ export type NativeSettings = {
   minSizeMB: number;
   minAgeYears: number;
   trimQuality: number;
+  trimOutputMode: NativeTrimOutputMode;
   largeText: boolean;
   highContrast: boolean;
 };
@@ -79,6 +84,7 @@ export const DEFAULT_NATIVE_SETTINGS: NativeSettings = {
   minSizeMB: 8,
   minAgeYears: 4,
   trimQuality: 0.9,
+  trimOutputMode: "replace",
   largeText: false,
   highContrast: false,
 };
@@ -166,10 +172,16 @@ function normalizeTargetMode(value: unknown): NativeTargetMode {
     "old-only",
     "similar",
     "screenshots",
+    "live-photos",
+    "bursts",
     "icloud",
     "mistakes",
   ];
   return modes.includes(value as NativeTargetMode) ? (value as NativeTargetMode) : "big-or-old";
+}
+
+function normalizeTrimOutputMode(value: unknown): NativeTrimOutputMode {
+  return value === "save-new" ? "save-new" : "replace";
 }
 
 function normalizeSessionMode(value: unknown): NativeSessionMode {
@@ -242,6 +254,7 @@ function normalizeStats(value: unknown): NativeStats {
       minSizeMB: Math.min(50, Math.max(1, safeNumber(rawSettings.minSizeMB, 8))),
       minAgeYears: Math.min(30, Math.max(1, safeNumber(rawSettings.minAgeYears, 4))),
       trimQuality: Math.min(0.98, Math.max(0.65, safeNumber(rawSettings.trimQuality, 0.9))),
+      trimOutputMode: normalizeTrimOutputMode(rawSettings.trimOutputMode),
       largeText: Boolean(rawSettings.largeText),
       highContrast: Boolean(rawSettings.highContrast),
     },

@@ -140,7 +140,7 @@ export function TrimScreen({
     setBusy(true);
     setError(null);
     try {
-      const result = await trimPhoto(photo, effectiveQuality);
+      const result = await trimPhoto(photo, effectiveQuality, settings.trimOutputMode === "replace");
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       const saved = result.savedMB ?? estSaved;
       if (result.trimmed) {
@@ -205,6 +205,9 @@ export function TrimScreen({
             <Text style={styles.metaTitle} numberOfLines={1}>{photo.title}</Text>
             <Text style={styles.metaSub}>
               {photo.month} {photo.year} · {photo.sizeMB.toFixed(1)} MB
+            </Text>
+            <Text style={styles.metaMode}>
+              {settings.trimOutputMode === "replace" ? "Replaces original" : "Saves as new copy"}
             </Text>
           </View>
           <Pill icon="sparkles-outline" value={`~${estSaved.toFixed(1)} MB`} label="save" tone="primary" />
@@ -319,6 +322,7 @@ const styles = StyleSheet.create({
   },
   metaTitle: { ...type.subtitle, color: colors.text },
   metaSub: { ...type.body, color: colors.textMuted, marginTop: 2 },
+  metaMode: { marginTop: 3, color: colors.sageDeep, fontSize: 12, fontWeight: "800" },
   actionLink: { fontSize: 12, color: colors.primary, fontWeight: "700" },
 
   presetGrid: { gap: spacing.sm },
