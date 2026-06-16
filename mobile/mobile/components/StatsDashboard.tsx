@@ -235,7 +235,7 @@ function SplitRow({
   return (
     <View style={styles.splitRow}>
       <View style={[styles.dotBlock, { backgroundColor: color }]} />
-      <Text style={styles.splitLabel}>{label}</Text>
+      <Text style={styles.splitLabel} numberOfLines={1}>{label}</Text>
       <Text style={styles.splitValue}>{value}{pct}</Text>
       <Text style={styles.splitCount}>· {count}</Text>
     </View>
@@ -460,10 +460,10 @@ const styles = StyleSheet.create({
   breakdownValue: { fontSize: 12, fontWeight: "900", color: colors.text },
 
   donutRow: { flexDirection: "row", alignItems: "center", gap: spacing.lg },
-  splitRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  splitLabel: { fontSize: 13, fontWeight: "800", color: colors.text, flex: 1 },
-  splitValue: { fontSize: 13, fontWeight: "900", color: colors.text },
-  splitCount: { fontSize: 11, color: colors.textMuted, fontWeight: "700" },
+  splitRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  splitLabel: { fontSize: 11, fontWeight: "800", color: colors.text, width: 42 },
+  splitValue: { flex: 1, fontSize: 11, fontWeight: "900", color: colors.text },
+  splitCount: { fontSize: 10, color: colors.textMuted, fontWeight: "700" },
 
   action: { fontSize: 12, fontWeight: "700", color: colors.primary },
 

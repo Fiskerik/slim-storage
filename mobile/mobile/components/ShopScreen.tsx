@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -30,11 +29,12 @@ import { showRewardedAd } from "../lib/ads";
 
 export type ShopScreenProps = {
   onBack: () => void;
+  onToast?: (title: string, detail?: string, tone?: "info" | "success" | "warning" | "error") => void;
 };
 
 const TOKEN_ORDER = ["tokens_50", "tokens_100", "tokens_200", "tokens_500"];
 
-export function ShopScreen({ onBack }: ShopScreenProps) {
+export function ShopScreen({ onBack, onToast }: ShopScreenProps) {
   const [products, setProducts] = useState<ShopProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -77,9 +77,9 @@ export function ShopScreen({ onBack }: ShopScreenProps) {
       const res = await purchaseTokenPack(id);
       if (res.success) {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert("Tokens added", `+${res.tokensGranted} tokens added to your balance.`);
+        onToast?.("Tokens added", `+${res.tokensGranted} tokens added to your balance.`, "success");
       } else if (res.error && res.error !== "cancelled") {
-        Alert.alert("Purchase failed", res.error);
+        onToast?.("Purchase failed", res.error, "error");
       }
     } finally {
       setBusy(null);
@@ -95,9 +95,9 @@ export function ShopScreen({ onBack }: ShopScreenProps) {
       if (res.success && res.isPro) {
         setIsPro(true);
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert("Welcome to Pro!", "Unlimited trims and an ad-free experience are unlocked.");
+        onToast?.("Welcome to Pro", "Unlimited trims and an ad-free experience are unlocked.", "success");
       } else if (res.error && res.error !== "cancelled") {
-        Alert.alert("Purchase failed", res.error);
+        onToast?.("Purchase failed", res.error, "error");
       }
     } finally {
       setBusy(null);
@@ -109,7 +109,11 @@ export function ShopScreen({ onBack }: ShopScreenProps) {
     try {
       const pro = await restorePurchasesPublic();
       setIsPro(pro);
-      Alert.alert(pro ? "Restored" : "Nothing to restore", pro ? "Lifetime Pro restored." : "No previous purchases were found for this Apple ID.");
+      onToast?.(
+        pro ? "Restored" : "Nothing to restore",
+        pro ? "Lifetime Pro restored." : "No previous purchases were found for this Apple ID.",
+        pro ? "success" : "warning",
+      );
     } finally {
       setBusy(null);
     }
@@ -122,9 +126,9 @@ export function ShopScreen({ onBack }: ShopScreenProps) {
       const got = await showRewardedAd();
       if (got > 0) {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert("Thanks!", `+${got} tokens added.`);
+        onToast?.("Tokens added", `+${got} tokens added.`, "success");
       } else {
-        Alert.alert("No ad available", "Try again in a moment.");
+        onToast?.("No ad available", "Try again in a moment.", "warning");
       }
     } finally {
       setAdBusy(false);

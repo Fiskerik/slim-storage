@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   Easing,
   Image,
@@ -85,6 +84,24 @@ type Achievement = {
   detail: string;
   progress: number;
   unlocked: boolean;
+};
+
+type ToastMessage = {
+  id: number;
+  title: string;
+  detail?: string;
+  tone?: "info" | "success" | "warning" | "error";
+};
+
+type ConfirmRequest = {
+  id: number;
+  title: string;
+  detail: string;
+  cancelLabel: string;
+  confirmLabel: string;
+  danger?: boolean;
+  onCancel: () => void;
+  onConfirm: () => Promise<void>;
 };
 
 const SWIPE_THRESHOLD = 110;
@@ -493,11 +510,64 @@ export function NativeTrimSwipeApp() {
   const [adBusy, setAdBusy] = useState(false);
   const cleanupCompletionsRef = useRef(0);
   const shareShotRef = useRef<View>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
 
   const settings = roundSettings(stats.settings);
   const top = queue[0];
   const next = queue[1];
   const trimCurrencyAvailable = isPro ? Number.MAX_SAFE_INTEGER : Math.max(0, tokenBalance);
+
+  function showToast(title: string, detail?: string, tone: ToastMessage["tone"] = "info") {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ id: Date.now(), title, detail, tone });
+    toastTimerRef.current = setTimeout(() => setToast(null), 3800);
+  }
+
+  function requestConfirmation({
+    title,
+    detail,
+    cancelLabel = "Cancel",
+    confirmLabel = "Apply",
+    danger,
+    onConfirm,
+  }: {
+    title: string;
+    detail: string;
+    cancelLabel?: string;
+    confirmLabel?: string;
+    danger?: boolean;
+    onConfirm: () => Promise<number>;
+  }): Promise<number> {
+    return new Promise((resolve) => {
+      const close = (value: number) => {
+        setConfirmBusy(false);
+        setConfirmRequest(null);
+        resolve(value);
+      };
+      setConfirmBusy(false);
+      setConfirmRequest({
+        id: Date.now(),
+        title,
+        detail,
+        cancelLabel,
+        confirmLabel,
+        danger,
+        onCancel: () => close(0),
+        onConfirm: async () => {
+          setConfirmBusy(true);
+          try {
+            close(await onConfirm());
+          } catch (err) {
+            close(0);
+            showToast("Apply failed", err instanceof Error ? err.message : "Please try again.", "error");
+          }
+        },
+      });
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -522,9 +592,9 @@ export function NativeTrimSwipeApp() {
     try {
       const got = await showRewardedAd();
       if (got > 0) {
-        Alert.alert("Thanks!", `+${got} Trim Tokens added.`);
+        showToast("Tokens added", `+${got} tokens added.`, "success");
       } else {
-        Alert.alert("No ad available", "Please try again in a moment.");
+        showToast("No ad available", "Please try again in a moment.", "warning");
       }
     } finally {
       setAdBusy(false);
@@ -552,7 +622,7 @@ export function NativeTrimSwipeApp() {
       },
     }));
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert("Tokens claimed", `+${reward.rewardAmount} tokens added.`);
+    showToast("Tokens claimed", `+${reward.rewardAmount} tokens added.`, "success");
   }
 
 
@@ -731,7 +801,11 @@ export function NativeTrimSwipeApp() {
       return;
     }
     if (!isPro && tokenBalance - pendingTrimsRef.current.length <= 0) {
-      Alert.alert("Not enough tokens", "Claim daily tokens, watch an ad, or visit the shop to trim more photos.");
+      showToast("Not enough tokens", "Claim daily tokens, watch an ad, or visit the shop.", "warning");
+      return;
+    }
+    if (!canAttemptTrim(photo)) {
+      showToast("Cannot trim this photo", "The original is not downloaded locally. Keep or delete it instead.", "warning");
       return;
     }
     const estimated = estimateTrimSavings(photo);
@@ -751,7 +825,7 @@ export function NativeTrimSwipeApp() {
     const requestedDeleteIds = new Set(deletes.map((p) => p.id));
     const chargeableTrims = isPro ? trims : trims.slice(0, tokenBalance);
     if (chargeableTrims.length < trims.length) {
-      Alert.alert("Not enough tokens", `${chargeableTrims.length}/${trims.length} selected trims can be applied with your current balance.`);
+      showToast("Not enough tokens", `${chargeableTrims.length}/${trims.length} selected trims can be applied.`, "warning");
     }
 
     if (chargeableTrims.length > 0) setTrimmingCount((count) => count + chargeableTrims.length);
@@ -795,7 +869,7 @@ export function NativeTrimSwipeApp() {
           trimMbFreed: actualTrimSaved,
         },
       );
-      next = withRecentlySeenPhotos(next, [...deletedPhotos, ...chargeableTrims.filter((p) => trimmedOkIds.has(p.id))]);
+      next = withRecentlySeenPhotos(next, [...deletedPhotos, ...chargeableTrims]);
       for (const p of deletedPhotos) {
         next = appendActionLog(next, createActionLogEntry(p, "delete", p.sizeMB));
       }
@@ -815,9 +889,10 @@ export function NativeTrimSwipeApp() {
 
     setLoading(false);
     if (deletedCount !== deletes.length || trimmedOkIds.size !== chargeableTrims.length) {
-      Alert.alert(
+      showToast(
         "Some actions skipped",
-        `${deletedCount}/${deletes.length} deleted and ${trimmedOkIds.size}/${chargeableTrims.length} trimmed.`,
+        `${deletedCount}/${deletes.length} deleted and ${trimmedOkIds.size}/${chargeableTrims.length} trimmed. ${trimFailureSummary(trimmedResults)}`.trim(),
+        "warning",
       );
     }
     // Clear any items the user deselected from the pending queues too.
@@ -864,13 +939,13 @@ export function NativeTrimSwipeApp() {
 
   async function bulkTrimPhotos(photos: NativePhoto[]) {
     const available = isPro ? photos.length : tokenBalance;
-    const candidates = photos.filter((photo) => !photo.isCloudAsset).slice(0, available);
+    const candidates = photos.filter(canAttemptTrim).slice(0, available);
     if (available <= 0) {
-      Alert.alert("Not enough tokens", "Claim daily tokens, watch an ad, or visit the shop to trim more photos.");
+      showToast("Not enough tokens", "Claim daily tokens, watch an ad, or visit the shop.", "warning");
       return;
     }
     if (candidates.length === 0) {
-      Alert.alert("Nothing local to trim", "This deck only has iCloud-only or unavailable photos.");
+      showToast("Nothing local to trim", "This deck only has iCloud-only or unavailable photos.", "warning");
       return;
     }
     setBulkBusy(true);
@@ -893,11 +968,12 @@ export function NativeTrimSwipeApp() {
     sessionRef.current.trimmed += trimmed.length;
     sessionRef.current.freed += actualSaved;
     commitStats((current) => {
+      const attempted = results.map((item) => item.photo);
       const next = withDailyActivity(
         { ...current, reviewed: current.reviewed + trimmed.length, trimmed: current.trimmed + trimmed.length, mbFreed: +(current.mbFreed + actualSaved).toFixed(2), trimMbFreed: +(current.trimMbFreed + actualSaved).toFixed(2) },
         { reviewed: trimmed.length, trimmed: trimmed.length, mbFreed: actualSaved, trimMbFreed: actualSaved },
       );
-      return trimmed.reduce((sf, photo) => appendActionLog(sf, createActionLogEntry(photo, "trim", estimateTrimSavings(photo))), withRecentlySeenPhotos(next, trimmed));
+      return trimmed.reduce((sf, photo) => appendActionLog(sf, createActionLogEntry(photo, "trim", estimateTrimSavings(photo))), withRecentlySeenPhotos(next, attempted));
     });
     setQueue((current) => {
       const trimmedIds = new Set(trimmed.map((photo) => photo.id));
@@ -909,7 +985,7 @@ export function NativeTrimSwipeApp() {
     setBulkBusy(false);
     maybeShowInterstitialAfterCleanup(trimmed.length);
     if (trimmed.length !== candidates.length) {
-      Alert.alert("Trim incomplete", `${trimmed.length}/${candidates.length} photos trimmed.`);
+      showToast("Trim incomplete", `${trimmed.length}/${candidates.length} photos trimmed. ${trimFailureSummary(results.map((item) => ({ id: item.photo.id, trimmed: item.trimmed, error: item.error })))}`.trim(), "warning");
     }
   }
 
@@ -919,21 +995,21 @@ export function NativeTrimSwipeApp() {
     toTrim: NativePhoto[],
   ): Promise<number> {
     const available = isPro ? toTrim.length : tokenBalance;
-    const trimCandidates = toTrim.filter((photo) => !photo.isCloudAsset).slice(0, available);
+    const trimCandidates = toTrim.filter(canAttemptTrim).slice(0, available);
     if (trimCandidates.length < toTrim.length) {
-      Alert.alert(
+      showToast(
         "Not enough tokens",
-        `${trimCandidates.length}/${toTrim.length} selected trims can be applied with your current balance. Cloud-only photos also cannot be trimmed until downloaded.`,
+        `${trimCandidates.length}/${toTrim.length} selected trims can be applied. Cloud-only photos cannot be trimmed until downloaded.`,
+        "warning",
       );
       return 0;
     }
 
-    return new Promise((resolve) => {
-      Alert.alert("Apply This or That choices?", `Delete ${deleted.length} and trim ${toTrim.length} photo${deleted.length + toTrim.length === 1 ? "" : "s"}.`, [
-        { text: "Cancel", style: "cancel", onPress: () => resolve(0) },
-        {
-          text: "Apply",
-          onPress: async () => {
+    return requestConfirmation({
+      title: "Apply This or That choices?",
+      detail: `Delete ${deleted.length} and trim ${toTrim.length} photo${deleted.length + toTrim.length === 1 ? "" : "s"}.`,
+      danger: deleted.length > 0,
+      onConfirm: async () => {
             const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
             const deletedPhotos = deleted.slice(0, deleteResult.deleted);
             setTrimmingCount((count) => count + trimCandidates.length);
@@ -989,17 +1065,19 @@ export function NativeTrimSwipeApp() {
               });
             }
             if (deleteResult.deleted !== deleted.length || trimmed.length !== trimCandidates.length) {
-              Alert.alert("Apply incomplete", `${deleteResult.deleted}/${deleted.length} deleted and ${trimmed.length}/${trimCandidates.length} trimmed.`);
+              showToast(
+                "Apply incomplete",
+                `${deleteResult.deleted}/${deleted.length} deleted and ${trimmed.length}/${trimCandidates.length} trimmed. ${trimFailureSummary(results.map((result, index) => ({ id: trimCandidates[index]?.id ?? String(index), trimmed: result.trimmed, error: result.error })))}`.trim(),
+                "warning",
+              );
             }
             console.log("[NativeTrimSwipe] This-or-That trim result", {
               requested: trimCandidates.length,
               trimmed: trimmed.length,
             });
             maybeShowInterstitialAfterCleanup(reviewed.length);
-            resolve(reviewed.length);
+            return reviewed.length;
           },
-        },
-      ]);
     });
   }
 
@@ -1012,15 +1090,11 @@ export function NativeTrimSwipeApp() {
     const trimSavings = toTrim.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0);
     if (kept.length + deleted.length + toTrim.length === 0) return 0;
 
-    return new Promise((resolve) => {
-      Alert.alert(
-        "Apply your budget choices?",
-        `Delete ${deleted.length} and trim ${toTrim.length} photo${deleted.length + toTrim.length === 1 ? "" : "s"} for about ${formatMB(deleteSavings + trimSavings)} saved.`,
-        [
-          { text: "Cancel", style: "cancel", onPress: () => resolve(0) },
-          {
-            text: "Apply",
-            onPress: async () => {
+    return requestConfirmation({
+      title: "Apply your budget choices?",
+      detail: `Delete ${deleted.length} and trim ${toTrim.length} photo${deleted.length + toTrim.length === 1 ? "" : "s"} for about ${formatMB(deleteSavings + trimSavings)} saved.`,
+      danger: deleted.length > 0,
+      onConfirm: async () => {
               const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
               const deletedPhotos = deleted.slice(0, deleteResult.deleted);
               setTrimmingCount((count) => count + toTrim.length);
@@ -1073,17 +1147,15 @@ export function NativeTrimSwipeApp() {
               });
 
               if (deleteResult.deleted !== deleted.length || trimmedPhotos.length !== toTrim.length) {
-                Alert.alert(
+                showToast(
                   "Budget partly applied",
-                  `${deleteResult.deleted}/${deleted.length} deleted and ${trimmedPhotos.length}/${toTrim.length} trimmed.`,
+                  `${deleteResult.deleted}/${deleted.length} deleted and ${trimmedPhotos.length}/${toTrim.length} trimmed. ${trimFailureSummary(trimResults.map((result, index) => ({ id: toTrim[index]?.id ?? String(index), trimmed: result.trimmed, error: result.error })))}`.trim(),
+                  "warning",
                 );
               }
               maybeShowInterstitialAfterCleanup(deletedPhotos.length + trimmedPhotos.length);
-              resolve(deletedPhotos.length + trimmedPhotos.length + kept.length);
+              return deletedPhotos.length + trimmedPhotos.length + kept.length;
             },
-          },
-        ],
-      );
     });
   }
 
@@ -1095,15 +1167,11 @@ export function NativeTrimSwipeApp() {
     const deleteSavings = deleted.reduce((sum, photo) => sum + photo.sizeMB, 0);
     const trimSavings = toTrim.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0);
 
-    return new Promise((resolve) => {
-      Alert.alert(
-        "Apply Memory Lane choices?",
-        `Delete ${deleted.length} and trim ${toTrim.length} photo${deleted.length + toTrim.length === 1 ? "" : "s"} for about ${formatMB(deleteSavings + trimSavings)} saved.`,
-        [
-          { text: "Cancel", style: "cancel", onPress: () => resolve(0) },
-          {
-            text: "Apply",
-            onPress: async () => {
+    return requestConfirmation({
+      title: "Apply Memory Lane choices?",
+      detail: `Delete ${deleted.length} and trim ${toTrim.length} photo${deleted.length + toTrim.length === 1 ? "" : "s"} for about ${formatMB(deleteSavings + trimSavings)} saved.`,
+      danger: deleted.length > 0,
+      onConfirm: async () => {
               const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
               const deletedPhotos = deleted.slice(0, deleteResult.deleted);
               setTrimmingCount((count) => count + toTrim.length);
@@ -1156,17 +1224,15 @@ export function NativeTrimSwipeApp() {
               });
 
               if (deleteResult.deleted !== deleted.length || trimmedPhotos.length !== toTrim.length) {
-                Alert.alert(
+                showToast(
                   "Memory Lane partly applied",
-                  `${deleteResult.deleted}/${deleted.length} deleted and ${trimmedPhotos.length}/${toTrim.length} trimmed.`,
+                  `${deleteResult.deleted}/${deleted.length} deleted and ${trimmedPhotos.length}/${toTrim.length} trimmed. ${trimFailureSummary(trimResults.map((result, index) => ({ id: toTrim[index]?.id ?? String(index), trimmed: result.trimmed, error: result.error })))}`.trim(),
+                  "warning",
                 );
               }
               maybeShowInterstitialAfterCleanup(deletedPhotos.length + trimmedPhotos.length);
-              resolve(reviewed.length);
+              return reviewed.length;
             },
-          },
-        ],
-      );
     });
   }
 
@@ -1281,6 +1347,7 @@ export function NativeTrimSwipeApp() {
             trimsRemaining={trimCurrencyAvailable}
             avoidIds={recentSelectionIds(stats)}
             onBack={() => setScreen("games")}
+            onToast={showToast}
             onConfirmOutcome={confirmStorageBudgetOutcome}
           />
         ) : screen === "memory-lane" ? (
@@ -1303,7 +1370,7 @@ export function NativeTrimSwipeApp() {
             onTrimmed={handleSingleTrimComplete}
           />
         ) : screen === "shop" ? (
-          <ShopScreen onBack={() => setScreen("games")} />
+          <ShopScreen onBack={() => setScreen("games")} onToast={showToast} />
         ) : screen === "games" ? (
           <GamesScreen
             stats={stats}
@@ -1345,9 +1412,16 @@ export function NativeTrimSwipeApp() {
         )}
 
         {statsLoaded && stats.onboardingComplete ? <BottomNav screen={screen} onChange={setScreen} /> : null}
+        <ConfirmSheet request={confirmRequest} busy={confirmBusy} />
+        <Toast toast={toast} />
       </View>
     </SafeAreaView>
   );
+}
+
+function canAttemptTrim(photo: NativePhoto): boolean {
+  const source = photo.localUri || photo.uri;
+  return !photo.isCloudAsset && Boolean(source) && !source.startsWith("ph://");
 }
 
 
@@ -1440,6 +1514,20 @@ function SwipeScreen({
       <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </View>
   );
+}
+
+function trimFailureSummary(
+  results: Array<{ id: string; trimmed: boolean; error?: string }>,
+): string {
+  const failed = results.filter((result) => !result.trimmed);
+  if (failed.length === 0) return "";
+  const reasons = new Set(
+    failed
+      .map((result) => result.error)
+      .filter((reason): reason is string => Boolean(reason)),
+  );
+  if (reasons.size === 0) return `${failed.length} photo${failed.length === 1 ? "" : "s"} could not be trimmed.`;
+  return [...reasons].slice(0, 2).join(" ");
 }
 
 function SwipeablePhotoCard({ photo, onAction, onOpenFull }: { photo: NativePhoto; onAction: (action: Action) => void; onOpenFull: () => void }) {
@@ -2251,8 +2339,9 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
 
 // ─── Storage Budget (FIX 3) ───────────────────────────────────────────────────
 
-function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBack, onConfirmOutcome }: {
+function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBack, onToast, onConfirmOutcome }: {
   settings: NativeSettings; tokens: number; trimsRemaining: number; avoidIds: string[]; onBack: () => void;
+  onToast: (title: string, detail?: string, tone?: ToastMessage["tone"]) => void;
   onConfirmOutcome: (kept: NativePhoto[], deleted: NativePhoto[], toTrim: NativePhoto[]) => Promise<number>;
 }) {
   const [photos, setPhotos] = useState<NativePhoto[]>([]);
@@ -2261,6 +2350,9 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
   const [busy, setBusy] = useState(false);
   const scrollY = useRef(new Animated.Value(0)).current;
   const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
+  const [step, setStep] = useState<"select" | "unkept" | "kept">("select");
+  const [unkeptAction, setUnkeptAction] = useState<"delete" | "trim">("delete");
+  const [keptAction, setKeptAction] = useState<"keep" | "trim">("keep");
 
   // FIX 3: Load enough photos to total ~75-100 MB pool so user must make real choices
   async function loadBoard() {
@@ -2288,6 +2380,9 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
       const finalPool = pool.length > 0 ? pool : sorted.slice(0, 12);
       setPhotos(finalPool);
       setKeptIds(new Set());
+      setStep("select");
+      setUnkeptAction("delete");
+      setKeptAction("keep");
     } finally { setLoadingPhotos(false); }
   }
 
@@ -2295,9 +2390,15 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
 
   const keptPhotos = photos.filter((photo) => keptIds.has(photo.id));
   const notKeptPhotos = photos.filter((photo) => !keptIds.has(photo.id));
-  // Not-kept photos: delete those not local (cloud), trim those that are local (if tokens allow)
-  const toDelete = notKeptPhotos.filter((photo) => photo.isCloudAsset || trimsRemaining <= 0);
-  const toTrim = notKeptPhotos.filter((photo) => !photo.isCloudAsset && trimsRemaining > 0).slice(0, trimsRemaining);
+  const unkeptTrimCandidates = notKeptPhotos.filter(canAttemptTrim);
+  const keptTrimCandidates = keptPhotos.filter(canAttemptTrim);
+  const plannedUnkeptTrims = unkeptAction === "trim" ? unkeptTrimCandidates.slice(0, trimsRemaining) : [];
+  const remainingAfterUnkept = Math.max(0, trimsRemaining - plannedUnkeptTrims.length);
+  const plannedKeptTrims = keptAction === "trim" ? keptTrimCandidates.slice(0, remainingAfterUnkept) : [];
+  const plannedKeptTrimIds = new Set(plannedKeptTrims.map((photo) => photo.id));
+  const keptAsIs = keptPhotos.filter((photo) => !plannedKeptTrimIds.has(photo.id));
+  const toDelete = unkeptAction === "delete" ? notKeptPhotos : notKeptPhotos.filter((photo) => !canAttemptTrim(photo));
+  const toTrim = [...plannedUnkeptTrims, ...plannedKeptTrims];
   const usedMB = keptPhotos.reduce((sum, photo) => sum + photo.sizeMB, 0);
   const overBudget = usedMB > BUDGET_KEEP_LIMIT_MB;
   const deleteSavings = toDelete.reduce((sum, photo) => sum + photo.sizeMB, 0);
@@ -2317,11 +2418,15 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
 
   async function lockBudget() {
     if (overBudget) {
-      Alert.alert("Over budget", `Remove ${formatMB(usedMB - BUDGET_KEEP_LIMIT_MB)} from your kept photos before locking.`);
+      onToast("Over budget", `Remove ${formatMB(usedMB - BUDGET_KEEP_LIMIT_MB)} from your kept photos before continuing.`, "warning");
       return;
     }
+    setStep("unkept");
+  }
+
+  async function applyBudgetPlan() {
     setBusy(true);
-    const count = await onConfirmOutcome(keptPhotos, toDelete, toTrim);
+    const count = await onConfirmOutcome(keptAsIs, toDelete, toTrim);
     setBusy(false);
     if (count > 0 || toDelete.length === 0) void loadBoard();
   }
@@ -2351,22 +2456,54 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
           <View style={[styles.storageFill, overBudget ? styles.storageFillDelete : styles.storageFillTrim, { width: progressWidth(Math.min(1, usedMB / BUDGET_KEEP_LIMIT_MB)) }]} />
         </View>
         <Text style={styles.dashboardCopy}>
-          Tap photos you want to keep. Everything outside the budget can be deleted after confirmation.
+          Tap photos you want to keep. Then choose what happens to unkept photos and kept photos.
         </Text>
         <Text style={styles.mutedSmall}>
-          Pool: {formatMB(totalPoolMB)} total · {toTrim.length > 0 ? `${toTrim.length} will be trimmed` : ""}
+          Pool: {formatMB(totalPoolMB)} total
         </Text>
       </View>
-      <View style={styles.budgetGrid}>
-        {photos.map((photo) => (
-          <BudgetPhotoTile key={photo.id} photo={photo} kept={keptIds.has(photo.id)} onPress={() => toggle(photo)} onLongPress={() => setFullPhoto(photo)} />
-        ))}
-      </View>
-      <PrimaryButton
-        label={busy ? "Applying..." : `Lock budget, save ${formatMB(deleteSavings + trimSavings)}`}
-        disabled={busy || photos.length === 0}
-        onPress={lockBudget}
-      />
+      {step === "select" ? (
+        <>
+          <View style={styles.budgetGrid}>
+            {photos.map((photo) => (
+              <BudgetPhotoTile key={photo.id} photo={photo} kept={keptIds.has(photo.id)} onPress={() => toggle(photo)} onLongPress={() => setFullPhoto(photo)} />
+            ))}
+          </View>
+          <PrimaryButton
+            label={busy ? "Applying..." : `Continue with ${keptPhotos.length} kept`}
+            disabled={busy || photos.length === 0}
+            onPress={lockBudget}
+          />
+        </>
+      ) : step === "unkept" ? (
+        <BudgetDecisionStep
+          title="Unkept photos"
+          detail={`${notKeptPhotos.length} photos outside your keep set`}
+          options={[
+            { key: "delete", label: "Delete", detail: `Free ${formatMB(notKeptPhotos.reduce((sum, photo) => sum + photo.sizeMB, 0))}` },
+            { key: "trim", label: "Trim", detail: `Try to save ~${formatMB(unkeptTrimCandidates.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0))}` },
+          ]}
+          value={unkeptAction}
+          onChange={(value) => setUnkeptAction(value as "delete" | "trim")}
+          onBack={() => setStep("select")}
+          onNext={() => setStep("kept")}
+        />
+      ) : (
+        <BudgetDecisionStep
+          title="Kept photos"
+          detail={`${keptPhotos.length} selected photos`}
+          options={[
+            { key: "keep", label: "Keep", detail: "Leave originals as they are" },
+            { key: "trim", label: "Trim", detail: `Try to save ~${formatMB(keptTrimCandidates.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0))}` },
+          ]}
+          value={keptAction}
+          onChange={(value) => setKeptAction(value as "keep" | "trim")}
+          onBack={() => setStep("unkept")}
+          onNext={applyBudgetPlan}
+          nextLabel={busy ? "Applying..." : `Apply, save ~${formatMB(deleteSavings + trimSavings)}`}
+          disabled={busy}
+        />
+      )}
       </Animated.ScrollView>
       <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
       <Animated.View style={[styles.floatingBudget, { transform: [{ translateY: budgetTranslateY }, { scale: budgetScale }] }]}>
@@ -2516,7 +2653,7 @@ function MemoryLaneScreen({ settings, tokens, avoidIds, trimsRemaining, onBack, 
           </Text>
           <View style={styles.actions}>
             <ActionButton label="Keep" tone="keep" onPress={() => decide("keep")} />
-            <ActionButton label={toTrim.length >= trimsRemaining ? "Trim limit" : "Trim"} tone="trim" disabled={toTrim.length >= trimsRemaining || photo.isCloudAsset} onPress={() => decide("trim")} />
+            <ActionButton label={toTrim.length >= trimsRemaining ? "No tokens" : canAttemptTrim(photo) ? "Trim" : "Unavailable"} tone="trim" disabled={toTrim.length >= trimsRemaining || !canAttemptTrim(photo)} onPress={() => decide("trim")} />
             <ActionButton label="Clear" tone="delete" onPress={() => decide("delete")} />
           </View>
         </View>
@@ -2546,6 +2683,100 @@ function TokenPill({ tokens }: { tokens: number }) {
     <View style={styles.tokenPill}>
       <Ionicons name="flash" size={14} color="#92400e" />
       <Text style={styles.tokenPillText}>{tokens}</Text>
+    </View>
+  );
+}
+
+function BudgetDecisionStep({
+  title,
+  detail,
+  options,
+  value,
+  onChange,
+  onBack,
+  onNext,
+  nextLabel = "Continue",
+  disabled,
+}: {
+  title: string;
+  detail: string;
+  options: Array<{ key: string; label: string; detail: string }>;
+  value: string;
+  onChange: (value: string) => void;
+  onBack: () => void;
+  onNext: () => void;
+  nextLabel?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <View style={styles.budgetDecisionCard}>
+      <Text style={styles.eyebrow}>{detail}</Text>
+      <Text style={styles.budgetDecisionTitle}>{title}</Text>
+      <View style={styles.budgetChoiceRow}>
+        {options.map((option) => {
+          const selected = value === option.key;
+          return (
+            <Pressable
+              key={option.key}
+              onPress={() => onChange(option.key)}
+              style={[styles.budgetChoice, selected && styles.budgetChoiceSelected]}
+            >
+              <Text style={[styles.budgetChoiceTitle, selected && styles.budgetChoiceTitleSelected]}>
+                {option.label}
+              </Text>
+              <Text style={styles.budgetChoiceDetail}>{option.detail}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <View style={styles.budgetDecisionActions}>
+        <SecondaryButton label="Back" onPress={onBack} />
+        <PrimaryButton label={nextLabel} disabled={disabled} onPress={onNext} />
+      </View>
+    </View>
+  );
+}
+
+function ConfirmSheet({ request, busy }: { request: ConfirmRequest | null; busy: boolean }) {
+  if (!request) return null;
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={request.onCancel}>
+      <View style={styles.confirmBackdrop}>
+        <View style={styles.confirmSheet}>
+          <View style={styles.confirmIcon}>
+            <Ionicons name={request.danger ? "trash" : "checkmark"} size={24} color={request.danger ? "#dc2626" : "#c2410c"} />
+          </View>
+          <Text style={styles.confirmTitle}>{request.title}</Text>
+          <Text style={styles.confirmDetail}>{request.detail}</Text>
+          <View style={styles.confirmActions}>
+            <SecondaryButton label={request.cancelLabel} onPress={request.onCancel} />
+            <PrimaryButton label={busy ? "Applying..." : request.confirmLabel} danger={request.danger} disabled={busy} onPress={request.onConfirm} />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function Toast({ toast }: { toast: ToastMessage | null }) {
+  if (!toast) return null;
+  const icon =
+    toast.tone === "success"
+      ? "checkmark-circle"
+      : toast.tone === "error"
+        ? "alert-circle"
+        : toast.tone === "warning"
+          ? "warning"
+          : "information-circle";
+  return (
+    <View pointerEvents="none" style={styles.toastWrap}>
+      <View style={[styles.toast, toast.tone === "success" && styles.toastSuccess, toast.tone === "warning" && styles.toastWarning, toast.tone === "error" && styles.toastError]}>
+        <Ionicons name={icon} size={18} color="#1f2937" />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.toastTitle}>{toast.title}</Text>
+          {toast.detail ? <Text style={styles.toastDetail}>{toast.detail}</Text> : null}
+        </View>
+      </View>
     </View>
   );
 }
@@ -2861,6 +3092,19 @@ const styles = StyleSheet.create({
   insightText: { color: "#c2410c", fontSize: 14, fontWeight: "800", lineHeight: 20, textAlign: "center" },
   eyebrow: { color: "#f97316", fontSize: 11, fontWeight: "700", letterSpacing: 1.6, textTransform: "uppercase" },
   warning: { marginTop: 12, borderRadius: 14, backgroundColor: "#fff7ed", color: "#9a3412", padding: 12, fontSize: 12 },
+  toastWrap: { position: "absolute", top: 58, left: 18, right: 18, zIndex: 1000 },
+  toast: { flexDirection: "row", alignItems: "flex-start", gap: 10, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#fed7aa", padding: 14, shadowColor: "#1f2937", shadowOpacity: 0.12, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 4 },
+  toastSuccess: { borderColor: "#86efac", backgroundColor: "#f0fdf4" },
+  toastWarning: { borderColor: "#fdba74", backgroundColor: "#fff7ed" },
+  toastError: { borderColor: "#fca5a5", backgroundColor: "#fef2f2" },
+  toastTitle: { color: "#1f2937", fontSize: 13, fontWeight: "900" },
+  toastDetail: { marginTop: 2, color: "#64748b", fontSize: 12, lineHeight: 16, fontWeight: "600" },
+  confirmBackdrop: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20, backgroundColor: "rgba(31, 41, 55, 0.34)" },
+  confirmSheet: { width: "100%", maxWidth: 420, borderRadius: 26, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#fed7aa", padding: 20, gap: 12, shadowColor: "#1f2937", shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 16 }, elevation: 8 },
+  confirmIcon: { width: 52, height: 52, alignItems: "center", justifyContent: "center", borderRadius: 18, backgroundColor: "#ffedd5", borderWidth: 1, borderColor: "#fed7aa" },
+  confirmTitle: { color: "#111827", fontSize: 21, fontWeight: "900" },
+  confirmDetail: { color: "#64748b", fontSize: 13, lineHeight: 19, fontWeight: "700" },
+  confirmActions: { marginTop: 4, gap: 10 },
 
   // Swipe
   swipeHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 14, borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16 },
@@ -3092,6 +3336,15 @@ const styles = StyleSheet.create({
   budgetStatus: { position: "absolute", top: 6, left: 6, overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(254, 226, 226, 0.92)", color: "#b91c1c", paddingHorizontal: 7, paddingVertical: 3, fontSize: 10, fontWeight: "900" },
   budgetStatusKept: { backgroundColor: "rgba(220, 252, 231, 0.92)", color: "#15803d" },
   budgetSize: { position: "absolute", left: 6, right: 6, bottom: 6, color: "#ffffff", fontSize: 11, fontWeight: "900" },
+  budgetDecisionCard: { gap: 14, borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16 },
+  budgetDecisionTitle: { color: "#1f2937", fontSize: 21, fontWeight: "900" },
+  budgetChoiceRow: { gap: 10 },
+  budgetChoice: { borderRadius: 18, borderWidth: 1, borderColor: "#fed7aa", backgroundColor: "#fff7ed", padding: 14 },
+  budgetChoiceSelected: { borderColor: "#f97316", backgroundColor: "#ffedd5" },
+  budgetChoiceTitle: { color: "#1f2937", fontSize: 15, fontWeight: "900" },
+  budgetChoiceTitleSelected: { color: "#c2410c" },
+  budgetChoiceDetail: { marginTop: 3, color: "#64748b", fontSize: 12, fontWeight: "700" },
+  budgetDecisionActions: { gap: 10 },
 
   fullPhotoOverlay: { flex: 1, backgroundColor: "rgba(15, 23, 42, 0.96)", alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
   fullPhotoClose: { position: "absolute", top: 54, right: 22, zIndex: 2, width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.14)" },
