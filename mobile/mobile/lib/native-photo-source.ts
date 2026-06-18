@@ -30,6 +30,7 @@ export type NativePhoto = {
 export type NativePhotoTrimState = {
   applied: NativeTrimKind[];
   updatedAt: string;
+  blockedReason?: "already-optimized";
 };
 
 export type NativePhotoPermission = {
@@ -158,10 +159,12 @@ function normalizeTrimState(value: unknown): NativePhotoTrimState | undefined {
   if (!value || typeof value !== "object") return undefined;
   const raw = value as Partial<NativePhotoTrimState>;
   const applied = normalizeTrimKinds(raw.applied);
-  if (applied.length === 0) return undefined;
+  const blockedReason = raw.blockedReason === "already-optimized" ? "already-optimized" : undefined;
+  if (applied.length === 0 && !blockedReason) return undefined;
   return {
     applied,
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : new Date().toISOString(),
+    blockedReason,
   };
 }
 
@@ -208,6 +211,12 @@ async function writeTrimTags(tags: Record<string, NativePhotoTrimState>): Promis
 
 async function setTrimTag(id: string, state: NativePhotoTrimState): Promise<void> {
   const tags = await readTrimTags();
+  if (memoryCache) {
+    memoryCache = {
+      ...memoryCache,
+      photos: memoryCache.photos.map((photo) => (photo.id === id ? { ...photo, trimState: state } : photo)),
+    };
+  }
   await writeTrimTags({ ...tags, [id]: state });
 }
 
@@ -218,6 +227,15 @@ async function removeTrimTagIds(ids: string[]): Promise<void> {
   ids.forEach((id) => {
     delete next[id];
   });
+  if (memoryCache) {
+    const idSet = new Set(ids);
+    memoryCache = {
+      ...memoryCache,
+      photos: memoryCache.photos.map((photo) =>
+        idSet.has(photo.id) ? { ...photo, trimState: undefined } : photo,
+      ),
+    };
+  }
   await writeTrimTags(next);
 }
 
@@ -250,6 +268,17 @@ export function getTrimStatus(
 } {
   const enabled = trimKindsForSettings(trimKinds);
   const applied = normalizeTrimKinds(photo.trimState?.applied);
+  const blockedReason = photo.trimState?.blockedReason;
+  if (blockedReason === "already-optimized") {
+    return {
+      canTrim: false,
+      applied,
+      strippedLabels: [...applied.map((kind) => stripKindLabel(kind, quality)), "Already optimized"],
+      nextKinds: [],
+      nextLabel: "Already optimized",
+      statusLabel: "Already optimized",
+    };
+  }
   const appliedSet = new Set(applied);
   const pendingStrip = enabled.filter(
     (kind) =>
@@ -1127,7 +1156,16 @@ async function createTrimmedAsset(
     const originalBytes = Math.max(0, photo.sizeMB * 1024 * 1024);
     if (!fileInfo.exists || trimmedBytes <= 0 || (originalBytes > 0 && trimmedBytes >= originalBytes)) {
       await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
-      return { success: false, originalId: photo.id, error: "Trim did not produce a smaller image" };
+      await setTrimTag(photo.id, {
+        applied: status.applied,
+        updatedAt: new Date().toISOString(),
+        blockedReason: "already-optimized",
+      });
+      return {
+        success: false,
+        originalId: photo.id,
+        error: "Already optimized: this photo would not get smaller with the current Trim settings",
+      };
     }
     const created = await MediaLibrary.createAssetAsync(result.uri);
     await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);

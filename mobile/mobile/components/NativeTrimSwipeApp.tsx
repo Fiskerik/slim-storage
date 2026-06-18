@@ -1804,11 +1804,35 @@ function trimFailureSummary(
 ): string {
   const failed = results.filter((result) => !result.trimmed);
   if (failed.length === 0) return "";
-  const reasons = new Set(
-    failed
-      .map((result) => result.error)
-      .filter((reason): reason is string => Boolean(reason)),
-  );
+  const optimized = failed.filter((result) =>
+    result.error?.toLowerCase().includes("optimized") ||
+    result.error?.toLowerCase().includes("not produce a smaller image"),
+  ).length;
+  const cloud = failed.filter((result) => result.error?.toLowerCase().includes("not downloaded")).length;
+  const maxed = failed.filter((result) => result.error?.toLowerCase().includes("all selected trims")).length;
+  const reasons = new Set<string>();
+  if (optimized > 0) {
+    reasons.add(
+      `${optimized} already optimized: they would not get smaller with the current Trim settings.`,
+    );
+  }
+  if (cloud > 0) {
+    reasons.add(`${cloud} not local: download from iCloud before trimming.`);
+  }
+  if (maxed > 0) {
+    reasons.add(`${maxed} already has all selected trims.`);
+  }
+  failed
+    .map((result) => result.error)
+    .filter((reason): reason is string => Boolean(reason))
+    .filter(
+      (reason) =>
+        !reason.toLowerCase().includes("optimized") &&
+        !reason.toLowerCase().includes("not produce a smaller image") &&
+        !reason.toLowerCase().includes("not downloaded") &&
+        !reason.toLowerCase().includes("all selected trims"),
+    )
+    .forEach((reason) => reasons.add(reason));
   if (reasons.size === 0) return `${failed.length} photo${failed.length === 1 ? "" : "s"} could not be trimmed.`;
   return [...reasons].slice(0, 2).join(" ");
 }
@@ -1895,6 +1919,7 @@ function ConfirmActionsReview({
   const [selectedTrims, setSelectedTrims] = useState<Set<string>>(
     () => new Set(trims.map((p) => p.id)),
   );
+  const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
 
   const chosenDeletes = deleteList.filter((p) => selectedDeletes.has(p.id));
   const chosenTrims = trimList.filter((p) => selectedTrims.has(p.id));
@@ -1940,7 +1965,23 @@ function ConfirmActionsReview({
   function renderRow(photo: NativePhoto, selected: boolean, onToggle: () => void, hint: string, move: "delete" | "trim") {
     const moveDisabled = move === "trim" && !canAttemptTrim(photo, settings.trimKinds);
     return (
-      <Pressable key={photo.id} onPress={onToggle} style={styles.reviewRow}>
+      <Pressable
+        key={photo.id}
+        onPress={onToggle}
+        onLongPress={() => setFullPhoto(photo)}
+        delayLongPress={350}
+        style={styles.reviewRow}
+      >
+        <Pressable
+          onPress={(event) => {
+            event.stopPropagation();
+            onToggle();
+          }}
+          hitSlop={8}
+          style={[styles.checkbox, selected && styles.checkboxOn]}
+        >
+          {selected ? <Text style={styles.checkboxMark}>✓</Text> : null}
+        </Pressable>
         <Image source={{ uri: photo.uri }} style={[styles.reviewThumb, !selected && { opacity: 0.4 }]} resizeMode="cover" />
         <View style={styles.reviewCopy}>
           <Text style={[styles.reviewTitle, !selected && { textDecorationLine: "line-through", color: "#9ca3af" }]} numberOfLines={1}>
@@ -1964,9 +2005,7 @@ function ConfirmActionsReview({
             color={moveDisabled ? "#94a3b8" : move === "delete" ? "#dc2626" : "#c2410c"}
           />
         </Pressable>
-        <View style={[styles.checkbox, selected && styles.checkboxOn]}>
-          {selected ? <Text style={styles.checkboxMark}>✓</Text> : null}
-        </View>
+
       </Pressable>
     );
   }
@@ -1977,7 +2016,7 @@ function ConfirmActionsReview({
       {detail ? <Text style={styles.centerText}>{detail}</Text> : null}
       {beforeAfter ? <View style={styles.beforeAfterRow}>{beforeAfter}</View> : null}
       <Text style={styles.muted}>
-        Tap rows to deselect. Use the bin/scissors to move photos between Delete and Trim. {chosenDeletes.length} to delete - {chosenTrims.length} to trim - ~{formatMB(total)} saved.
+        Untick the left checkmark to skip. Long-press a row to view full size. Use the bin/scissors to move photos between Delete and Trim. {chosenDeletes.length} to delete - {chosenTrims.length} to trim - ~{formatMB(total)} saved.
       </Text>
       <ScrollView style={styles.reviewList} contentContainerStyle={styles.reviewListContent}>
         {trimList.length > 0 ? (
@@ -2016,6 +2055,7 @@ function ConfirmActionsReview({
         onPress={() => onConfirm(chosenDeletes, chosenTrims)}
       />
       <SecondaryButton label="Keep them all" onPress={onCancel} />
+      <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </View>
   );
 }
