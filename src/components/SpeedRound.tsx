@@ -23,6 +23,7 @@ export function SpeedRound() {
   const [queue, setQueue] = useState<LibraryPhoto[]>([]);
   const [time, setTime] = useState(DURATION);
   const [decisions, setDecisions] = useState<Decision[]>([]);
+  const [fullPhoto, setFullPhoto] = useState<LibraryPhoto | null>(null);
   const tickRef = useRef<number | null>(null);
   const completedRoundLoggedRef = useRef(false);
   const preloadedQueueRef = useRef<Promise<LibraryPhoto[]> | null>(null);
