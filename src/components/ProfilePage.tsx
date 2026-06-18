@@ -48,6 +48,12 @@ export function ProfilePage() {
   const freedLabel = freed >= 1024 ? `${(freed / 1024).toFixed(2)} GB` : `${freed.toFixed(1)} MB`;
   const reviewed = stats.cleaned + stats.deleted + stats.slimmed;
 
+  const startedDate = new Date(stats.startedAt + "T00:00:00").toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
   function saveName() {
     updateSettings({ displayName: name.trim() || "You" });
     setEditingName(false);
