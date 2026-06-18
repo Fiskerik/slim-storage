@@ -16,6 +16,7 @@ import { colors, radius, shadow, spacing, type } from "../constants/design";
 import { Card, Pill, SectionHeader } from "./ui/primitives";
 import {
   estimateTrimSavings,
+  getTrimStatus,
   loadPhotoRound,
   requestPhotoPermission,
   trimPhoto,
@@ -83,7 +84,7 @@ export function TrimScreen({
         { ...settings, cardsPerRound: 6, targetMode: "big-or-old" },
         { avoidIds },
       );
-      const candidate = photos.find((p) => !p.isCloudAsset) ?? photos[0] ?? null;
+      const candidate = photos.find((p) => getTrimStatus(p, settings.trimKinds).canTrim) ?? photos[0] ?? null;
       setPhoto(candidate);
       if (!candidate) setError("No local photos available to trim right now.");
     } catch (e) {
@@ -100,15 +101,16 @@ export function TrimScreen({
 
   const selected = PRESETS.filter((p) => selectedKeys.has(p.key));
   const effectivePresets = selected.length > 0 ? selected : [PRESETS[0]];
-  const baseline = photo ? estimateTrimSavings(photo) : 0;
+  // Apply the strongest (lowest quality) preset when multiple are stacked.
+  const effectiveQuality = Math.min(...effectivePresets.map((p) => p.quality));
+  const trimStatus = photo ? getTrimStatus(photo, settings.trimKinds, effectiveQuality) : null;
+  const baseline = photo ? estimateTrimSavings(photo, settings.trimKinds) : 0;
   // Combined estimate: sum multipliers but cap at 3x baseline so we don't oversell.
   const combinedMultiplier = Math.min(
     3,
     effectivePresets.reduce((sum, p) => sum + p.multiplier, 0),
   );
   const estSaved = +(baseline * combinedMultiplier).toFixed(2);
-  // Apply the strongest (lowest quality) preset when multiple are stacked.
-  const effectiveQuality = Math.min(...effectivePresets.map((p) => p.quality));
   const width = Dimensions.get("window").width - 40;
   const height = Math.round(width * 1.05);
 
@@ -140,7 +142,11 @@ export function TrimScreen({
     setBusy(true);
     setError(null);
     try {
-      const result = await trimPhoto(photo, effectiveQuality, settings.trimOutputMode === "replace");
+      if (!trimStatus?.canTrim) {
+        setError("This photo already has all selected trims. Keep it as-is or delete it from another game.");
+        return;
+      }
+      const result = await trimPhoto(photo, effectiveQuality, settings.trimOutputMode === "replace", settings.trimKinds);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       const saved = result.savedMB ?? estSaved;
       if (result.trimmed) {
@@ -195,6 +201,13 @@ export function TrimScreen({
                 <Text style={styles.trimmedBadgeText}>Trimmed</Text>
               </View>
             ) : null}
+            {trimStatus && trimStatus.strippedLabels.length > 0 ? (
+              <View style={styles.strippedStack}>
+                {trimStatus.strippedLabels.map((label) => (
+                  <Text key={label} style={styles.strippedBadge}>{label}</Text>
+                ))}
+              </View>
+            ) : null}
           </View>
         )}
       </View>
@@ -207,10 +220,10 @@ export function TrimScreen({
               {photo.month} {photo.year} · {photo.sizeMB.toFixed(1)} MB
             </Text>
             <Text style={styles.metaMode}>
-              {settings.trimOutputMode === "replace" ? "Replaces original" : "Saves as new copy"}
+              {trimStatus?.canTrim ? trimStatus.nextLabel : "Not-trimmable"}
             </Text>
           </View>
-          <Pill icon="sparkles-outline" value={`~${estSaved.toFixed(1)} MB`} label="save" tone="primary" />
+          <Pill icon="sparkles-outline" value={trimStatus?.canTrim ? `~${estSaved.toFixed(1)} MB` : "Done"} label="save" tone="primary" />
         </View>
       ) : null}
 
@@ -266,11 +279,11 @@ export function TrimScreen({
           <Text style={styles.ghostText}>Cancel</Text>
         </Pressable>
         <Pressable
-          disabled={busy || !photo || trimsRemaining <= 0}
+          disabled={busy || !photo || trimsRemaining <= 0 || !trimStatus?.canTrim}
           onPress={() => void applyTrim()}
           style={[
             styles.primaryBtn,
-            (busy || !photo || trimsRemaining <= 0) && styles.primaryDisabled,
+            (busy || !photo || trimsRemaining <= 0 || !trimStatus?.canTrim) && styles.primaryDisabled,
           ]}
         >
           {busy ? (
@@ -278,7 +291,9 @@ export function TrimScreen({
           ) : (
             <>
               <Ionicons name="cut-outline" size={18} color={colors.white} />
-              <Text style={styles.primaryText}>Trim · save ~{estSaved.toFixed(1)} MB</Text>
+              <Text style={styles.primaryText}>
+                {trimStatus?.canTrim ? `Trim - save ~${estSaved.toFixed(1)} MB` : "Not-trimmable"}
+              </Text>
             </>
           )}
         </Pressable>
@@ -420,4 +435,23 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
   },
   trimmedBadgeText: { color: colors.white, fontWeight: "800", fontSize: 12 },
+  strippedStack: {
+    position: "absolute",
+    top: 52,
+    left: 12,
+    right: 12,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  strippedBadge: {
+    overflow: "hidden",
+    borderRadius: radius.pill,
+    backgroundColor: "rgba(15, 23, 42, 0.72)",
+    color: colors.white,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    fontSize: 11,
+    fontWeight: "800",
+  },
 });

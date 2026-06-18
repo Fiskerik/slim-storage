@@ -19,6 +19,8 @@ export type NativeActionType = "keep" | "trim" | "delete";
 
 export type NativeTrimOutputMode = "replace" | "save-new";
 
+export type NativeTrimKind = "metadata" | "location" | "compression";
+
 export type NativeSettings = {
   cardsPerRound: number;
   targetMode: NativeTargetMode;
@@ -27,6 +29,7 @@ export type NativeSettings = {
   minAgeYears: number;
   trimQuality: number;
   trimOutputMode: NativeTrimOutputMode;
+  trimKinds: NativeTrimKind[];
   largeText: boolean;
   highContrast: boolean;
 };
@@ -85,6 +88,7 @@ export const DEFAULT_NATIVE_SETTINGS: NativeSettings = {
   minAgeYears: 4,
   trimQuality: 0.9,
   trimOutputMode: "replace",
+  trimKinds: ["metadata", "location", "compression"],
   largeText: false,
   highContrast: false,
 };
@@ -184,6 +188,13 @@ function normalizeTrimOutputMode(value: unknown): NativeTrimOutputMode {
   return value === "save-new" ? "save-new" : "replace";
 }
 
+function normalizeTrimKinds(value: unknown): NativeTrimKind[] {
+  const allowed: NativeTrimKind[] = ["metadata", "location", "compression"];
+  if (!Array.isArray(value)) return DEFAULT_NATIVE_SETTINGS.trimKinds;
+  const kinds = value.filter((item): item is NativeTrimKind => allowed.includes(item as NativeTrimKind));
+  return kinds.length > 0 ? [...new Set(kinds)] : DEFAULT_NATIVE_SETTINGS.trimKinds;
+}
+
 function normalizeSessionMode(value: unknown): NativeSessionMode {
   const modes: NativeSessionMode[] = ["classic", "endless", "time-attack"];
   return modes.includes(value as NativeSessionMode) ? (value as NativeSessionMode) : "classic";
@@ -255,6 +266,7 @@ function normalizeStats(value: unknown): NativeStats {
       minAgeYears: Math.min(30, Math.max(1, safeNumber(rawSettings.minAgeYears, 4))),
       trimQuality: Math.min(0.98, Math.max(0.65, safeNumber(rawSettings.trimQuality, 0.9))),
       trimOutputMode: normalizeTrimOutputMode(rawSettings.trimOutputMode),
+      trimKinds: normalizeTrimKinds(rawSettings.trimKinds),
       largeText: Boolean(rawSettings.largeText),
       highContrast: Boolean(rawSettings.highContrast),
     },

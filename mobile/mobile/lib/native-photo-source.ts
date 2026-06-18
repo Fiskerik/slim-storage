@@ -1,6 +1,6 @@
 import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library";
-import type { NativeSettings } from "./native-store";
+import type { NativeSettings, NativeTrimKind } from "./native-store";
 
 export type NativeCleanupCategory =
   | "large"
@@ -24,6 +24,12 @@ export type NativePhoto = {
   isCloudAsset: boolean;
   creationTime: number;
   cleanupReasons: string[];
+  trimState?: NativePhotoTrimState;
+};
+
+export type NativePhotoTrimState = {
+  applied: NativeTrimKind[];
+  updatedAt: string;
 };
 
 export type NativePhotoPermission = {
@@ -87,13 +93,20 @@ type MediaAlbum = Awaited<ReturnType<typeof MediaLibrary.getAlbumsAsync>>[number
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const CACHE_FILE = "trimswipe-native-photo-cache-v1.json";
+const TRIM_TAGS_FILE = "trimswipe-native-trim-tags-v1.json";
 const CACHE_LIMIT = 700;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_TRIM_KINDS: NativeTrimKind[] = ["metadata", "location", "compression"];
 
 let memoryCache: PhotoMetadataCache | null | undefined;
+let memoryTrimTags: Record<string, NativePhotoTrimState> | null | undefined;
 
 function cacheUri(): string | null {
   return FileSystem.documentDirectory ? `${FileSystem.documentDirectory}${CACHE_FILE}` : null;
+}
+
+function trimTagsUri(): string | null {
+  return FileSystem.documentDirectory ? `${FileSystem.documentDirectory}${TRIM_TAGS_FILE}` : null;
 }
 
 function shuffle<T>(items: T[]): T[] {
@@ -126,6 +139,151 @@ function estimatedAssetSizeMB(asset: MediaLibrary.Asset): number {
   const megapixels = (width * height) / 1_000_000;
   const multiplier = filename.endsWith(".heic") || filename.endsWith(".heif") ? 0.22 : 0.34;
   return +Math.max(0.35, Math.min(25, megapixels * multiplier)).toFixed(2);
+}
+
+function normalizeTrimKinds(value: unknown, fallback: NativeTrimKind[] = []): NativeTrimKind[] {
+  const allowed: NativeTrimKind[] = ["metadata", "location", "compression"];
+  if (!Array.isArray(value)) return fallback;
+  const kinds = value.filter((item): item is NativeTrimKind => allowed.includes(item as NativeTrimKind));
+  return [...new Set(kinds)];
+}
+
+function trimKindsForSettings(settings?: Pick<NativeSettings, "trimKinds"> | NativeTrimKind[]): NativeTrimKind[] {
+  const value = Array.isArray(settings) ? settings : settings?.trimKinds;
+  const kinds = normalizeTrimKinds(value, DEFAULT_TRIM_KINDS);
+  return kinds.length > 0 ? kinds : DEFAULT_TRIM_KINDS;
+}
+
+function normalizeTrimState(value: unknown): NativePhotoTrimState | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Partial<NativePhotoTrimState>;
+  const applied = normalizeTrimKinds(raw.applied);
+  if (applied.length === 0) return undefined;
+  return {
+    applied,
+    updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : new Date().toISOString(),
+  };
+}
+
+async function readTrimTags(): Promise<Record<string, NativePhotoTrimState>> {
+  if (memoryTrimTags != null) return memoryTrimTags;
+
+  const uri = trimTagsUri();
+  if (!uri) {
+    memoryTrimTags = {};
+    return memoryTrimTags;
+  }
+
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    if (!info.exists) {
+      memoryTrimTags = {};
+      return memoryTrimTags;
+    }
+    const parsed = JSON.parse(await FileSystem.readAsStringAsync(uri)) as Record<string, unknown>;
+    memoryTrimTags = Object.fromEntries(
+      Object.entries(parsed)
+        .map(([id, state]) => [id, normalizeTrimState(state)] as const)
+        .filter((entry): entry is [string, NativePhotoTrimState] => Boolean(entry[1])),
+    );
+    return memoryTrimTags;
+  } catch (error) {
+    console.log("[NativePhotoSource] Could not read trim tags", { error });
+    memoryTrimTags = {};
+    return memoryTrimTags;
+  }
+}
+
+async function writeTrimTags(tags: Record<string, NativePhotoTrimState>): Promise<void> {
+  const uri = trimTagsUri();
+  memoryTrimTags = tags;
+  if (!uri) return;
+
+  try {
+    await FileSystem.writeAsStringAsync(uri, JSON.stringify(tags));
+  } catch (error) {
+    console.log("[NativePhotoSource] Could not write trim tags", { error });
+  }
+}
+
+async function setTrimTag(id: string, state: NativePhotoTrimState): Promise<void> {
+  const tags = await readTrimTags();
+  await writeTrimTags({ ...tags, [id]: state });
+}
+
+async function removeTrimTagIds(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const tags = await readTrimTags();
+  const next = { ...tags };
+  ids.forEach((id) => {
+    delete next[id];
+  });
+  await writeTrimTags(next);
+}
+
+function stripKindLabel(kind: NativeTrimKind, quality?: number): string {
+  if (kind === "metadata") return "Metadata stripped";
+  if (kind === "location") return "Location stripped";
+  return `Compressed${quality ? ` ${Math.round(quality * 100)}%` : ""}`;
+}
+
+function nextKindLabel(kinds: NativeTrimKind[], quality?: number): string {
+  if (kinds.length === 0) return "Not-trimmable";
+  if (kinds.includes("metadata") && kinds.includes("location")) return "Strip metadata + location";
+  if (kinds.includes("metadata")) return "Strip metadata";
+  if (kinds.includes("location")) return "Strip location";
+  if (kinds.includes("compression")) return `Compress ${Math.round((quality ?? 0.75) * 100)}%`;
+  return "Trim";
+}
+
+export function getTrimStatus(
+  photo: Pick<NativePhoto, "hasGPS" | "isCloudAsset" | "sizeMB" | "trimState">,
+  trimKinds: NativeTrimKind[] = DEFAULT_TRIM_KINDS,
+  quality?: number,
+): {
+  canTrim: boolean;
+  applied: NativeTrimKind[];
+  strippedLabels: string[];
+  nextKinds: NativeTrimKind[];
+  nextLabel: string;
+  statusLabel: string;
+} {
+  const enabled = trimKindsForSettings(trimKinds);
+  const applied = normalizeTrimKinds(photo.trimState?.applied);
+  const appliedSet = new Set(applied);
+  const pendingStrip = enabled.filter(
+    (kind) =>
+      (kind === "metadata" || (kind === "location" && (photo.hasGPS || appliedSet.has("location")))) &&
+      !appliedSet.has(kind),
+  );
+  const nextKinds =
+    pendingStrip.length > 0
+      ? pendingStrip
+      : enabled.includes("compression") && !appliedSet.has("compression")
+        ? (["compression"] as NativeTrimKind[])
+        : [];
+  const strippedLabels = applied.map((kind) => stripKindLabel(kind, quality));
+  return {
+    canTrim: !photo.isCloudAsset && nextKinds.length > 0 && photo.sizeMB > 0,
+    applied,
+    strippedLabels,
+    nextKinds,
+    nextLabel: nextKindLabel(nextKinds, quality),
+    statusLabel: nextKinds.length > 0 ? nextKindLabel(nextKinds, quality) : "Not-trimmable",
+  };
+}
+
+function estimateTrimKindSavings(
+  photo: Pick<NativePhoto, "sizeMB" | "hasGPS">,
+  kind: NativeTrimKind,
+): number {
+  if (kind === "metadata") {
+    return Math.max(photo.hasGPS ? 0.18 : 0.08, Math.min(photo.sizeMB * 0.08, 0.85));
+  }
+  if (kind === "location") {
+    return photo.hasGPS ? Math.max(0.1, Math.min(photo.sizeMB * 0.035, 0.45)) : 0;
+  }
+  return Math.max(photo.sizeMB * 0.18, Math.min(photo.sizeMB * 0.45, photo.sizeMB * 0.28));
 }
 
 function duplicateKey(asset: MediaLibrary.Asset): string {
@@ -331,6 +489,11 @@ function isNativePhoto(value: unknown): value is NativePhoto {
   return typeof item.id === "string" && typeof item.uri === "string" && typeof item.creationTime === "number";
 }
 
+function normalizeCachedPhoto(photo: NativePhoto): NativePhoto {
+  const trimState = normalizeTrimState(photo.trimState);
+  return trimState ? { ...photo, trimState } : { ...photo, trimState: undefined };
+}
+
 async function readCache(): Promise<PhotoMetadataCache> {
   if (memoryCache != null) return memoryCache;
 
@@ -349,10 +512,16 @@ async function readCache(): Promise<PhotoMetadataCache> {
 
     const raw = await FileSystem.readAsStringAsync(uri);
     const parsed = JSON.parse(raw) as Partial<PhotoMetadataCache>;
+    const trimTags = await readTrimTags();
     memoryCache = {
       version: 1,
       updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : 0,
-      photos: Array.isArray(parsed.photos) ? parsed.photos.filter(isNativePhoto) : [],
+      photos: Array.isArray(parsed.photos)
+        ? parsed.photos
+            .filter(isNativePhoto)
+            .map(normalizeCachedPhoto)
+            .map((photo) => (trimTags[photo.id] ? { ...photo, trimState: trimTags[photo.id] } : photo))
+        : [],
     };
     return memoryCache;
   } catch (error) {
@@ -418,6 +587,8 @@ async function assetToPhoto(
   }
 
   const created = new Date(asset.creationTime);
+  const trimTags = await readTrimTags();
+  const trimState = trimTags[asset.id];
   return {
     id: asset.id,
     uri: candidateUri,
@@ -434,6 +605,7 @@ async function assetToPhoto(
     isCloudAsset: !localUri || localUri.startsWith("ph://") || sizeMB === 0,
     creationTime: asset.creationTime,
     cleanupReasons: classifyAsset(asset, info, sizeMB, duplicateLookup),
+    trimState,
   };
 }
 
@@ -694,9 +866,14 @@ export async function loadCleanupPlan(
   );
   const deleteCategories = new Set<NativeCleanupCategory>(["screenshots", "duplicates", "bursts", "mistakes"]);
   const deleteCandidates = deleteCategories.has(category) ? candidates : [];
-  const trimCandidates = deleteCategories.has(category) ? [] : candidates.filter((photo) => !photo.isCloudAsset);
+  const trimCandidates = deleteCategories.has(category)
+    ? []
+    : candidates.filter((photo) => !photo.isCloudAsset && getTrimStatus(photo, settings.trimKinds).canTrim);
   const estimatedDeleteSavingsMB = deleteCandidates.reduce((sum, photo) => sum + photo.sizeMB, 0);
-  const estimatedTrimSavingsMB = trimCandidates.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0);
+  const estimatedTrimSavingsMB = trimCandidates.reduce(
+    (sum, photo) => sum + estimateTrimSavings(photo, settings.trimKinds),
+    0,
+  );
   const titleByCategory: Record<NativeCleanupCategory, string> = {
     large: "Photos >5MB",
     old: "Photos >1 year old",
@@ -891,6 +1068,7 @@ export async function deletePhotos(ids: string[]): Promise<{ deleted: number }> 
   try {
     await MediaLibrary.deleteAssetsAsync(ids);
     await removeCacheIds(ids);
+    await removeTrimTagIds(ids);
     return { deleted: ids.length };
   } catch (error) {
     console.log("[NativePhotoSource] Delete failed", { error });
@@ -902,8 +1080,9 @@ export async function trimPhoto(
   photo: NativePhoto,
   quality: number,
   replaceOriginal = true,
+  trimKinds: NativeTrimKind[] = DEFAULT_TRIM_KINDS,
 ): Promise<{ trimmed: boolean; newAssetId?: string; savedMB?: number; error?: string }> {
-  const created = await createTrimmedAsset(photo, quality);
+  const created = await createTrimmedAsset(photo, quality, trimKinds);
   if (!created.success) return { trimmed: false, error: created.error };
   if (!replaceOriginal) {
     return { trimmed: true, newAssetId: created.newAssetId, savedMB: created.savedMB };
@@ -911,6 +1090,7 @@ export async function trimPhoto(
   try {
     await MediaLibrary.deleteAssetsAsync([photo.id]);
     await removeCacheIds([photo.id]);
+    await removeTrimTagIds([photo.id]);
     return { trimmed: true, newAssetId: created.newAssetId, savedMB: created.savedMB };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -919,18 +1099,27 @@ export async function trimPhoto(
 }
 
 type CreatedTrim =
-  | { success: true; originalId: string; newAssetId: string; savedMB: number }
+  | { success: true; originalId: string; newAssetId: string; savedMB: number; appliedTrimKinds: NativeTrimKind[] }
   | { success: false; originalId: string; error: string };
 
-async function createTrimmedAsset(photo: NativePhoto, quality: number): Promise<CreatedTrim> {
+async function createTrimmedAsset(
+  photo: NativePhoto,
+  quality: number,
+  trimKinds: NativeTrimKind[] = DEFAULT_TRIM_KINDS,
+): Promise<CreatedTrim> {
   const sourceUri = photo.localUri || photo.uri;
   if (!sourceUri || sourceUri.startsWith("ph://")) {
     return { success: false, originalId: photo.id, error: "Photo is not downloaded locally" };
   }
+  const status = getTrimStatus(photo, trimKinds, quality);
+  if (!status.canTrim) {
+    return { success: false, originalId: photo.id, error: "Photo already has all selected trims" };
+  }
+  const effectiveQuality = status.nextKinds.includes("compression") ? quality : Math.max(quality, 0.94);
   try {
     const imageManipulator = await import("expo-image-manipulator");
     const result = await imageManipulator.manipulateAsync(sourceUri, [], {
-      compress: quality,
+      compress: effectiveQuality,
       format: imageManipulator.SaveFormat.JPEG,
     });
     const fileInfo = await FileSystem.getInfoAsync(result.uri);
@@ -942,11 +1131,17 @@ async function createTrimmedAsset(photo: NativePhoto, quality: number): Promise<
     }
     const created = await MediaLibrary.createAssetAsync(result.uri);
     await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
+    const appliedTrimKinds = [...new Set([...status.applied, ...status.nextKinds])];
+    await setTrimTag(created.id, {
+      applied: appliedTrimKinds,
+      updatedAt: new Date().toISOString(),
+    });
     return {
       success: true,
       originalId: photo.id,
       newAssetId: created.id,
       savedMB: +((originalBytes - trimmedBytes) / (1024 * 1024)).toFixed(2),
+      appliedTrimKinds,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -963,19 +1158,20 @@ export async function commitTrims(
   photos: NativePhoto[],
   quality: number,
   replaceOriginal = true,
+  trimKinds: NativeTrimKind[] = DEFAULT_TRIM_KINDS,
 ): Promise<Array<{ id: string; trimmed: boolean; savedMB?: number; error?: string }>> {
   if (photos.length === 0) return [];
   const results: CreatedTrim[] = [];
   for (const p of photos) {
-    // sequential to avoid hitting expo-image-manipulator concurrency limits
-    // eslint-disable-next-line no-await-in-loop
-    results.push(await createTrimmedAsset(p, quality));
+    // Sequential to avoid hitting expo-image-manipulator concurrency limits.
+    results.push(await createTrimmedAsset(p, quality, trimKinds));
   }
   const created = results.filter((r): r is Extract<CreatedTrim, { success: true }> => r.success);
   if (replaceOriginal && created.length > 0) {
     try {
       await MediaLibrary.deleteAssetsAsync(created.map((c) => c.originalId));
       await removeCacheIds(created.map((c) => c.originalId));
+      await removeTrimTagIds(created.map((c) => c.originalId));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return results.map((r) => ({
@@ -997,6 +1193,7 @@ export async function commitTrimsAndDeletes(
   trims: NativePhoto[],
   quality: number,
   replaceTrimOriginals = true,
+  trimKinds: NativeTrimKind[] = DEFAULT_TRIM_KINDS,
 ): Promise<{
   deletedCount: number;
   deletedPhotos: NativePhoto[];
@@ -1007,9 +1204,8 @@ export async function commitTrimsAndDeletes(
   const trimCreates: CreatedTrim[] = [];
 
   for (const photo of trimCandidates) {
-    // sequential to avoid hitting expo-image-manipulator concurrency limits
-    // eslint-disable-next-line no-await-in-loop
-    trimCreates.push(await createTrimmedAsset(photo, quality));
+    // Sequential to avoid hitting expo-image-manipulator concurrency limits.
+    trimCreates.push(await createTrimmedAsset(photo, quality, trimKinds));
   }
 
   const createdTrims = trimCreates.filter(
@@ -1046,6 +1242,7 @@ export async function commitTrimsAndDeletes(
   try {
     await MediaLibrary.deleteAssetsAsync(idsToDelete);
     await removeCacheIds(idsToDelete);
+    await removeTrimTagIds(idsToDelete);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
@@ -1070,11 +1267,20 @@ export async function commitTrimsAndDeletes(
   };
 }
 
-export function estimateTrimSavings(photo: Pick<NativePhoto, "sizeMB" | "hasGPS">): number {
-  const metadataSavings = photo.hasGPS ? 0.18 : 0.08;
-  const compressionSavings = photo.sizeMB * 0.28;
-  return +Math.max(
-    metadataSavings,
-    Math.min(photo.sizeMB * 0.45, metadataSavings + compressionSavings),
-  ).toFixed(2);
+export function estimateTrimSavings(
+  photo: Pick<NativePhoto, "sizeMB" | "hasGPS"> & Partial<Pick<NativePhoto, "isCloudAsset" | "trimState">>,
+  trimKinds: NativeTrimKind[] = DEFAULT_TRIM_KINDS,
+): number {
+  const status = getTrimStatus(
+    {
+      ...photo,
+      isCloudAsset: photo.isCloudAsset ?? false,
+      trimState: photo.trimState,
+    },
+    trimKinds,
+  );
+  if (!status.canTrim) return 0;
+  return +status.nextKinds
+    .reduce((sum, kind) => sum + estimateTrimKindSavings(photo, kind), 0)
+    .toFixed(2);
 }

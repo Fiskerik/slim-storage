@@ -25,6 +25,7 @@ import {
   commitTrimsAndDeletes,
   deletePhotos,
   estimateTrimSavings,
+  getTrimStatus,
   loadCleanupPlan,
   loadRelatedPhotoPairs,
   loadPhotoRound,
@@ -49,6 +50,7 @@ import {
   type NativeSettings,
   type NativeStats,
   type NativeTargetMode,
+  type NativeTrimKind,
 } from "../lib/native-store";
 import { HomeDashboard } from "./HomeDashboard";
 import type { WeeklyRewardState } from "./HomeDashboard";
@@ -132,12 +134,16 @@ function formatMB(value: number): string {
 }
 
 function roundSettings(settings: NativeSettings): NativeSettings {
+  const trimKinds = settings.trimKinds.filter(
+    (kind): kind is NativeTrimKind => kind === "metadata" || kind === "location" || kind === "compression",
+  );
   return {
     ...settings,
     cardsPerRound: Math.min(30, Math.max(5, Math.round(settings.cardsPerRound) || 10)),
     minSizeMB: Math.min(50, Math.max(1, settings.minSizeMB)),
     minAgeYears: Math.min(30, Math.max(1, settings.minAgeYears)),
     trimQuality: Math.min(0.98, Math.max(0.65, settings.trimQuality)),
+    trimKinds: trimKinds.length > 0 ? [...new Set(trimKinds)] : ["metadata", "location", "compression"],
   };
 }
 
@@ -828,11 +834,18 @@ export function NativeTrimSwipeApp() {
       showToast("Not enough tokens", "Claim daily tokens, watch an ad, or visit the shop.", "warning");
       return;
     }
-    if (!canAttemptTrim(photo)) {
-      showToast("Cannot trim this photo", "The original is not downloaded locally. Keep or delete it instead.", "warning");
+    if (!canAttemptTrim(photo, settings.trimKinds)) {
+      const status = getTrimStatus(photo, settings.trimKinds, settings.trimQuality);
+      showToast(
+        status.nextKinds.length === 0 ? "Already fully trimmed" : "Cannot trim this photo",
+        status.nextKinds.length === 0
+          ? "All selected trim data has already been removed. Keep or delete it instead."
+          : "The original is not downloaded locally. Keep or delete it instead.",
+        "warning",
+      );
       return;
     }
-    const estimated = estimateTrimSavings(photo);
+    const estimated = estimateTrimSavings(photo, settings.trimKinds);
     session.trimmed += 1;
     session.freed += estimated;
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -862,6 +875,7 @@ export function NativeTrimSwipeApp() {
       chargeableTrims,
       settings.trimQuality,
       settings.trimOutputMode === "replace",
+      settings.trimKinds,
     );
     if (chargeableTrims.length > 0) {
       setTrimmingCount((count) => Math.max(0, count - chargeableTrims.length));
@@ -875,7 +889,7 @@ export function NativeTrimSwipeApp() {
       await spendTokens(trimmedOkIds.size);
     }
     const actualTrimSaved = trimmedResults.reduce(
-      (sum, r, i) => (r.trimmed ? sum + (r.savedMB ?? estimateTrimSavings(chargeableTrims[i])) : sum),
+      (sum, r, i) => (r.trimmed ? sum + (r.savedMB ?? estimateTrimSavings(chargeableTrims[i], settings.trimKinds)) : sum),
       0,
     );
 
@@ -907,7 +921,7 @@ export function NativeTrimSwipeApp() {
         next = appendActionLog(next, createActionLogEntry(p, "delete", p.sizeMB));
       }
       for (const p of chargeableTrims.filter((tp) => trimmedOkIds.has(tp.id))) {
-        next = appendActionLog(next, createActionLogEntry(p, "trim", estimateTrimSavings(p)));
+        next = appendActionLog(next, createActionLogEntry(p, "trim", estimateTrimSavings(p, settings.trimKinds)));
       }
       return next;
     });
@@ -1061,7 +1075,7 @@ export function NativeTrimSwipeApp() {
         deleteCandidates,
         trimCandidates,
         estimatedDeleteSavingsMB: +deleteCandidates.reduce((sum, photo) => sum + photo.sizeMB, 0).toFixed(2),
-        estimatedTrimSavingsMB: +trimCandidates.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0).toFixed(2),
+        estimatedTrimSavingsMB: +trimCandidates.reduce((sum, photo) => sum + estimateTrimSavings(photo, settings.trimKinds), 0).toFixed(2),
       });
     } catch (error) {
       showToast("Deep Clean failed", error instanceof Error ? error.message : "Could not build a Deep Clean preview.", "error");
@@ -1072,7 +1086,7 @@ export function NativeTrimSwipeApp() {
 
   async function bulkTrimPhotos(photos: NativePhoto[]) {
     const available = isPro ? photos.length : tokenBalance;
-    const candidates = photos.filter(canAttemptTrim).slice(0, available);
+    const candidates = photos.filter((photo) => canAttemptTrim(photo, settings.trimKinds)).slice(0, available);
     if (available <= 0) {
       showToast("Not enough tokens", "Claim daily tokens, watch an ad, or visit the shop.", "warning");
       return;
@@ -1086,7 +1100,7 @@ export function NativeTrimSwipeApp() {
     if (candidates.length >= 5) {
       await notifyCleanupProgress("Trim batch started", `Optimizing ${candidates.length} photos.`);
     }
-    const results = await commitTrims(candidates, settings.trimQuality, settings.trimOutputMode === "replace").then((rs) =>
+    const results = await commitTrims(candidates, settings.trimQuality, settings.trimOutputMode === "replace", settings.trimKinds).then((rs) =>
       candidates.map((p, i) => ({
         photo: p,
         trimmed: rs[i]?.trimmed === true,
@@ -1098,7 +1112,7 @@ export function NativeTrimSwipeApp() {
     if (!isPro && trimmed.length > 0) await spendTokens(trimmed.length);
     const actualSaved = results.reduce(
       (sum, item) =>
-        item.trimmed ? sum + (item.savedMB ?? estimateTrimSavings(item.photo)) : sum,
+        item.trimmed ? sum + (item.savedMB ?? estimateTrimSavings(item.photo, settings.trimKinds)) : sum,
       0,
     );
     sessionRef.current.trimmed += trimmed.length;
@@ -1109,7 +1123,7 @@ export function NativeTrimSwipeApp() {
         { ...current, reviewed: current.reviewed + trimmed.length, trimmed: current.trimmed + trimmed.length, mbFreed: +(current.mbFreed + actualSaved).toFixed(2), trimMbFreed: +(current.trimMbFreed + actualSaved).toFixed(2) },
         { reviewed: trimmed.length, trimmed: trimmed.length, mbFreed: actualSaved, trimMbFreed: actualSaved },
       );
-      return trimmed.reduce((sf, photo) => appendActionLog(sf, createActionLogEntry(photo, "trim", estimateTrimSavings(photo))), withRecentlySeenPhotos(next, attempted));
+      return trimmed.reduce((sf, photo) => appendActionLog(sf, createActionLogEntry(photo, "trim", estimateTrimSavings(photo, settings.trimKinds))), withRecentlySeenPhotos(next, attempted));
     });
     setQueue((current) => {
       const trimmedIds = new Set(trimmed.map((photo) => photo.id));
@@ -1134,7 +1148,7 @@ export function NativeTrimSwipeApp() {
     toTrim: NativePhoto[],
   ): Promise<number> {
     const available = isPro ? toTrim.length : tokenBalance;
-    const trimCandidates = toTrim.filter(canAttemptTrim).slice(0, available);
+    const trimCandidates = toTrim.filter((photo) => canAttemptTrim(photo, settings.trimKinds)).slice(0, available);
     if (trimCandidates.length < toTrim.length) {
       showToast(
         "Not enough tokens",
@@ -1152,14 +1166,14 @@ export function NativeTrimSwipeApp() {
             const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
             const deletedPhotos = deleted.slice(0, deleteResult.deleted);
             setTrimmingCount((count) => count + trimCandidates.length);
-            const results = await commitTrims(trimCandidates, settings.trimQuality, settings.trimOutputMode === "replace").then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
+            const results = await commitTrims(trimCandidates, settings.trimQuality, settings.trimOutputMode === "replace", settings.trimKinds).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
             setTrimmingCount((count) => Math.max(0, count - trimCandidates.length));
             const trimmed = trimCandidates.filter((_, index) => results[index]?.trimmed);
             if (!isPro && trimmed.length > 0) await spendTokens(trimmed.length);
             const trimmedIds = new Set(trimmed.map((photo) => photo.id));
             const actualTrimSavings = trimCandidates.reduce(
               (sum, photo, index) =>
-                results[index]?.trimmed ? sum + (results[index]?.savedMB ?? estimateTrimSavings(photo)) : sum,
+                results[index]?.trimmed ? sum + (results[index]?.savedMB ?? estimateTrimSavings(photo, settings.trimKinds)) : sum,
               0,
             );
             const deleteSavings = deletedPhotos.reduce((sum, photo) => sum + photo.sizeMB, 0);
@@ -1197,7 +1211,7 @@ export function NativeTrimSwipeApp() {
                     createActionLogEntry(
                       photo,
                       isDeleted ? "delete" : isTrimmed ? "trim" : "keep",
-                      isDeleted ? photo.sizeMB : isTrimmed ? estimateTrimSavings(photo) : 0,
+                      isDeleted ? photo.sizeMB : isTrimmed ? estimateTrimSavings(photo, settings.trimKinds) : 0,
                     ),
                   );
                 }, withCooldown);
@@ -1226,7 +1240,7 @@ export function NativeTrimSwipeApp() {
     toTrim: NativePhoto[],
   ): Promise<number> {
     const deleteSavings = deleted.reduce((sum, photo) => sum + photo.sizeMB, 0);
-    const trimSavings = toTrim.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0);
+    const trimSavings = toTrim.reduce((sum, photo) => sum + estimateTrimSavings(photo, settings.trimKinds), 0);
     if (kept.length + deleted.length + toTrim.length === 0) return 0;
 
     return requestConfirmation({
@@ -1237,14 +1251,14 @@ export function NativeTrimSwipeApp() {
               const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
               const deletedPhotos = deleted.slice(0, deleteResult.deleted);
               setTrimmingCount((count) => count + toTrim.length);
-              const trimResults = await commitTrims(toTrim, settings.trimQuality, settings.trimOutputMode === "replace").then((rs) => toTrim.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
+              const trimResults = await commitTrims(toTrim, settings.trimQuality, settings.trimOutputMode === "replace", settings.trimKinds).then((rs) => toTrim.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
               setTrimmingCount((count) => Math.max(0, count - toTrim.length));
               const trimmedPhotos = toTrim.filter((_, index) => trimResults[index]?.trimmed);
               if (!isPro && trimmedPhotos.length > 0) await spendTokens(trimmedPhotos.length);
               const trimmedIds = new Set(trimmedPhotos.map((photo) => photo.id));
               const actualTrimSavings = toTrim.reduce(
                 (sum, photo, index) =>
-                  trimResults[index]?.trimmed ? sum + (trimResults[index]?.savedMB ?? estimateTrimSavings(photo)) : sum,
+                  trimResults[index]?.trimmed ? sum + (trimResults[index]?.savedMB ?? estimateTrimSavings(photo, settings.trimKinds)) : sum,
                 0,
               );
               const actualDeleteSavings = deletedPhotos.reduce((sum, photo) => sum + photo.sizeMB, 0);
@@ -1280,7 +1294,7 @@ export function NativeTrimSwipeApp() {
                     : trimmedIds.has(photo.id)
                       ? "trim"
                       : "keep";
-                  const mbFreed = action === "delete" ? photo.sizeMB : action === "trim" ? estimateTrimSavings(photo) : 0;
+                  const mbFreed = action === "delete" ? photo.sizeMB : action === "trim" ? estimateTrimSavings(photo, settings.trimKinds) : 0;
                   return appendActionLog(sf, createActionLogEntry(photo, action, mbFreed));
                 }, withCooldown);
               });
@@ -1304,7 +1318,7 @@ export function NativeTrimSwipeApp() {
     toTrim: NativePhoto[],
   ): Promise<number> {
     const deleteSavings = deleted.reduce((sum, photo) => sum + photo.sizeMB, 0);
-    const trimSavings = toTrim.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0);
+    const trimSavings = toTrim.reduce((sum, photo) => sum + estimateTrimSavings(photo, settings.trimKinds), 0);
 
     return requestConfirmation({
       title: "Apply Memory Lane choices?",
@@ -1314,14 +1328,14 @@ export function NativeTrimSwipeApp() {
               const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
               const deletedPhotos = deleted.slice(0, deleteResult.deleted);
               setTrimmingCount((count) => count + toTrim.length);
-              const trimResults = await commitTrims(toTrim, settings.trimQuality, settings.trimOutputMode === "replace").then((rs) => toTrim.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
+              const trimResults = await commitTrims(toTrim, settings.trimQuality, settings.trimOutputMode === "replace", settings.trimKinds).then((rs) => toTrim.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
               setTrimmingCount((count) => Math.max(0, count - toTrim.length));
               const trimmedPhotos = toTrim.filter((_, index) => trimResults[index]?.trimmed);
               if (!isPro && trimmedPhotos.length > 0) await spendTokens(trimmedPhotos.length);
               const trimmedIds = new Set(trimmedPhotos.map((photo) => photo.id));
               const actualTrimSavings = toTrim.reduce(
                 (sum, photo, index) =>
-                  trimResults[index]?.trimmed ? sum + (trimResults[index]?.savedMB ?? estimateTrimSavings(photo)) : sum,
+                  trimResults[index]?.trimmed ? sum + (trimResults[index]?.savedMB ?? estimateTrimSavings(photo, settings.trimKinds)) : sum,
                 0,
               );
               const actualDeleteSavings = deletedPhotos.reduce((sum, photo) => sum + photo.sizeMB, 0);
@@ -1357,7 +1371,7 @@ export function NativeTrimSwipeApp() {
                     : trimmedIds.has(photo.id)
                       ? "trim"
                       : "keep";
-                  const mbFreed = action === "delete" ? photo.sizeMB : action === "trim" ? estimateTrimSavings(photo) : 0;
+                  const mbFreed = action === "delete" ? photo.sizeMB : action === "trim" ? estimateTrimSavings(photo, settings.trimKinds) : 0;
                   return appendActionLog(sf, createActionLogEntry(photo, action, mbFreed));
                 }, withCooldown);
               });
@@ -1454,6 +1468,8 @@ export function NativeTrimSwipeApp() {
             onAction={handleAction}
             onReload={loadRound}
             onOpenSettings={() => Linking.openSettings()}
+            isPro={isPro}
+            onChangeSettings={updateSettings}
             onConfirmActions={confirmActions}
             onCancelPending={cancelPendingActions}
             onShare={shareProgress}
@@ -1504,6 +1520,7 @@ export function NativeTrimSwipeApp() {
             plan={cleanupPlan}
             loading={cleanupPlanBusy}
             isPro={isPro}
+            settings={settings}
             onBack={() => setScreen("home")}
             onConfirm={async (deletes, trims) => {
               await confirmActions(deletes, trims);
@@ -1557,7 +1574,7 @@ export function NativeTrimSwipeApp() {
             onShare={shareProgress}
           />
         ) : (
-          <SettingsScreen settings={settings} samplePhoto={top ?? queue[0]} onChange={updateSettings} onReload={loadRound} />
+          <SettingsScreen settings={settings} isPro={isPro} samplePhoto={top ?? queue[0]} onChange={updateSettings} onReload={loadRound} />
         )}
 
         {statsLoaded && stats.onboardingComplete ? <BottomNav screen={screen} onChange={setScreen} /> : null}
@@ -1568,15 +1585,39 @@ export function NativeTrimSwipeApp() {
   );
 }
 
-function canAttemptTrim(photo: NativePhoto): boolean {
+function canAttemptTrim(photo: NativePhoto, trimKinds: NativeTrimKind[] = ["metadata", "location", "compression"]): boolean {
   const source = photo.localUri || photo.uri;
-  return !photo.isCloudAsset && Boolean(source) && !source.startsWith("ph://");
+  return (
+    !photo.isCloudAsset &&
+    Boolean(source) &&
+    !source.startsWith("ph://") &&
+    getTrimStatus(photo, trimKinds).canTrim
+  );
+}
+
+function trimPillText(photo: NativePhoto, settings: NativeSettings): string {
+  const status = getTrimStatus(photo, settings.trimKinds, settings.trimQuality);
+  if (!status.canTrim) return "Not-trimmable";
+  return `${status.nextLabel} ~${estimateTrimSavings(photo, settings.trimKinds).toFixed(1)} MB`;
+}
+
+function trimReviewHint(photo: NativePhoto, settings: NativeSettings): string {
+  const status = getTrimStatus(photo, settings.trimKinds, settings.trimQuality);
+  if (!status.canTrim) return "Not-trimmable";
+  return `${status.nextLabel} - saves ~${estimateTrimSavings(photo, settings.trimKinds).toFixed(1)} MB`;
+}
+
+function trimDisabledReason(photo: NativePhoto, settings: NativeSettings): string {
+  const status = getTrimStatus(photo, settings.trimKinds, settings.trimQuality);
+  if (status.nextKinds.length === 0) return "Not-trimmable";
+  return "Unavailable";
 }
 
 function CleanupPlanScreen({
   plan,
   loading,
   isPro,
+  settings,
   onBack,
   onConfirm,
   onOpenShop,
@@ -1584,6 +1625,7 @@ function CleanupPlanScreen({
   plan: NativeCleanupPlan | null;
   loading: boolean;
   isPro: boolean;
+  settings: NativeSettings;
   onBack: () => void;
   onConfirm: (deletes: NativePhoto[], trims: NativePhoto[]) => Promise<void> | void;
   onOpenShop: () => void;
@@ -1650,6 +1692,7 @@ function CleanupPlanScreen({
       }
       deletes={plan.deleteCandidates}
       trims={plan.trimCandidates}
+      settings={settings}
       onConfirm={onConfirm}
       onCancel={onBack}
     />
@@ -1663,7 +1706,7 @@ function SwipeScreen({
   top, next, queueCount, loading, error, permissionDenied, permissionLimited,
   settings, recap, pendingDeletes, pendingTrims, trimmingCount, timeLeft, largeControls, tokens,
   trimsRemaining, trimLimit, onAction, onReload, onOpenSettings,
-  onConfirmActions, onCancelPending, onShare,
+  isPro, onChangeSettings, onConfirmActions, onCancelPending, onShare,
 }: {
   top?: NativePhoto; next?: NativePhoto; queueCount: number; loading: boolean;
   error: string | null; permissionDenied: boolean; permissionLimited: boolean;
@@ -1672,6 +1715,7 @@ function SwipeScreen({
   trimmingCount: number; timeLeft: number; largeControls: boolean; tokens: number; trimsRemaining: number;
   trimLimit: number; onAction: (photo: NativePhoto, action: Action) => void;
   onReload: () => void; onOpenSettings: () => void;
+  isPro: boolean; onChangeSettings: (patch: Partial<NativeSettings>) => void;
   onConfirmActions: (deletes: NativePhoto[], trims: NativePhoto[]) => Promise<void> | void;
   onCancelPending: () => void;
   onShare: () => void;
@@ -1701,13 +1745,14 @@ function SwipeScreen({
       <ConfirmActionsReview
         deletes={pendingDeletes}
         trims={pendingTrims}
+        settings={settings}
         onConfirm={(d, t) => onConfirmActions(d, t)}
         onCancel={onCancelPending}
       />
     );
   }
   if (recap) {
-    return <Recap recap={recap} onNext={onReload} onShare={onShare} />;
+    return <Recap recap={recap} settings={settings} isPro={isPro} onChangeSettings={onChangeSettings} onNext={onReload} onShare={onShare} />;
   }
   if (error && !top) {
     return (
@@ -1735,12 +1780,18 @@ function SwipeScreen({
       </View>
       {permissionLimited ? <Text style={styles.warning}>Limited photo access is enabled. Some photos may be hidden.</Text> : null}
       <View style={styles.deck}>
-        {next ? <PhotoCard photo={next} stacked /> : null}
-        {top ? <SwipeablePhotoCard photo={top} onAction={(action) => onAction(top, action)} onOpenFull={() => setFullPhoto(top)} /> : null}
+        {next ? <PhotoCard photo={next} settings={settings} stacked /> : null}
+        {top ? <SwipeablePhotoCard photo={top} settings={settings} onAction={(action) => onAction(top, action)} onOpenFull={() => setFullPhoto(top)} /> : null}
       </View>
       <View style={styles.actions}>
         <ActionButton label="Keep" tone="keep" large={largeControls} onPress={() => top && onAction(top, "keep")} />
-        <ActionButton label={trimsRemaining > 0 ? "Trim" : "Limit hit"} tone="trim" large={largeControls} disabled={trimsRemaining <= 0} onPress={() => top && onAction(top, "trim")} />
+        <ActionButton
+          label={!top ? "Trim" : trimsRemaining <= 0 ? "Limit hit" : canAttemptTrim(top, settings.trimKinds) ? "Trim" : trimDisabledReason(top, settings)}
+          tone="trim"
+          large={largeControls}
+          disabled={trimsRemaining <= 0 || !top || !canAttemptTrim(top, settings.trimKinds)}
+          onPress={() => top && onAction(top, "trim")}
+        />
         <ActionButton label="Delete" tone="delete" large={largeControls} onPress={() => top && onAction(top, "delete")} />
       </View>
       <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
@@ -1762,7 +1813,7 @@ function trimFailureSummary(
   return [...reasons].slice(0, 2).join(" ");
 }
 
-function SwipeablePhotoCard({ photo, onAction, onOpenFull }: { photo: NativePhoto; onAction: (action: Action) => void; onOpenFull: () => void }) {
+function SwipeablePhotoCard({ photo, settings, onAction, onOpenFull }: { photo: NativePhoto; settings: NativeSettings; onAction: (action: Action) => void; onOpenFull: () => void }) {
   const pan = useRef(new Animated.ValueXY()).current;
   useEffect(() => { pan.setValue({ x: 0, y: 0 }); }, [pan, photo.id]);
   const panResponder = useMemo(
@@ -1784,28 +1835,30 @@ function SwipeablePhotoCard({ photo, onAction, onOpenFull }: { photo: NativePhot
   const deleteOpacity = pan.x.interpolate({ inputRange: [0, 20, SWIPE_THRESHOLD], outputRange: [0, 0.14, 0.38], extrapolate: "clamp" });
   return (
     <Animated.View {...panResponder.panHandlers} style={[styles.animatedCard, { transform: [{ translateX: pan.x }, { translateY: pan.y }, { rotate }] }]}>
-      <PhotoCard photo={photo} onOpenFull={onOpenFull} />
+      <PhotoCard photo={photo} settings={settings} onOpenFull={onOpenFull} />
       <Animated.View pointerEvents="none" style={[styles.swipeTint, styles.keepTint, { opacity: keepOpacity }]} />
       <Animated.View pointerEvents="none" style={[styles.swipeTint, styles.deleteTint, { opacity: deleteOpacity }]} />
     </Animated.View>
   );
 }
 
-function PhotoCard({ photo, stacked, onOpenFull }: { photo: NativePhoto; stacked?: boolean; onOpenFull?: () => void }) {
+function PhotoCard({ photo, settings, stacked, onOpenFull }: { photo: NativePhoto; settings: NativeSettings; stacked?: boolean; onOpenFull?: () => void }) {
   const Wrapper = onOpenFull ? Pressable : View;
+  const trimStatus = getTrimStatus(photo, settings.trimKinds, settings.trimQuality);
   return (
     <Wrapper onLongPress={onOpenFull} delayLongPress={350} style={[styles.photoCard, stacked && styles.stackedCard]}>
       <Image source={{ uri: photo.uri }} style={styles.photoImage} resizeMode="cover" />
       <View style={styles.photoShade} />
       <View style={styles.photoTop}>
         <Text style={styles.pill}>Delete saves {photo.sizeMB.toFixed(1)} MB</Text>
-        <Text style={styles.pill}>Trim saves ~{estimateTrimSavings(photo).toFixed(1)} MB</Text>
+        <Text style={[styles.pill, !trimStatus.canTrim && styles.pillMuted]}>{trimPillText(photo, settings)}</Text>
       </View>
       <View style={styles.photoBottom}>
         <Text style={styles.photoTitle} numberOfLines={1}>{photo.title}</Text>
         <Text style={styles.photoMeta}>{photo.month} {photo.year} - {photo.device}</Text>
         <View style={styles.reasonRow}>
           {photo.cleanupReasons.map((reason) => <Text key={reason} style={styles.reason}>{reason}</Text>)}
+          {trimStatus.strippedLabels.map((label) => <Text key={label} style={styles.reasonTrimmed}>{label}</Text>)}
           {photo.isCloudAsset ? <Text style={styles.reason}>iCloud</Text> : null}
         </View>
       </View>
@@ -1821,6 +1874,7 @@ function ConfirmActionsReview({
   beforeAfter,
   deletes,
   trims,
+  settings,
   onConfirm,
   onCancel,
 }: {
@@ -1829,6 +1883,7 @@ function ConfirmActionsReview({
   beforeAfter?: ReactNode;
   deletes: NativePhoto[];
   trims: NativePhoto[];
+  settings: NativeSettings;
   onConfirm: (deletes: NativePhoto[], trims: NativePhoto[]) => void;
   onCancel: () => void;
 }) {
@@ -1844,7 +1899,7 @@ function ConfirmActionsReview({
   const chosenDeletes = deleteList.filter((p) => selectedDeletes.has(p.id));
   const chosenTrims = trimList.filter((p) => selectedTrims.has(p.id));
   const deleteMB = chosenDeletes.reduce((s, p) => s + p.sizeMB, 0);
-  const trimMB = chosenTrims.reduce((s, p) => s + estimateTrimSavings(p), 0);
+  const trimMB = chosenTrims.reduce((s, p) => s + estimateTrimSavings(p, settings.trimKinds), 0);
   const total = deleteMB + trimMB;
   const nothingSelected = chosenDeletes.length + chosenTrims.length === 0;
 
@@ -1869,6 +1924,7 @@ function ConfirmActionsReview({
   }
 
   function moveToTrim(photo: NativePhoto) {
+    if (!canAttemptTrim(photo, settings.trimKinds)) return;
     setDeleteList((current) => current.filter((item) => item.id !== photo.id));
     setTrimList((current) =>
       current.some((item) => item.id === photo.id) ? current : [...current, photo],
@@ -1882,6 +1938,7 @@ function ConfirmActionsReview({
   }
 
   function renderRow(photo: NativePhoto, selected: boolean, onToggle: () => void, hint: string, move: "delete" | "trim") {
+    const moveDisabled = move === "trim" && !canAttemptTrim(photo, settings.trimKinds);
     return (
       <Pressable key={photo.id} onPress={onToggle} style={styles.reviewRow}>
         <Image source={{ uri: photo.uri }} style={[styles.reviewThumb, !selected && { opacity: 0.4 }]} resizeMode="cover" />
@@ -1894,16 +1951,17 @@ function ConfirmActionsReview({
         <Pressable
           onPress={(event) => {
             event.stopPropagation();
+            if (moveDisabled) return;
             if (move === "delete") moveToDelete(photo);
             else moveToTrim(photo);
           }}
           hitSlop={8}
-          style={styles.reviewMoveButton}
+          style={[styles.reviewMoveButton, moveDisabled && styles.reviewMoveButtonDisabled]}
         >
           <Ionicons
             name={move === "delete" ? "trash-outline" : "cut-outline"}
             size={18}
-            color={move === "delete" ? "#dc2626" : "#c2410c"}
+            color={moveDisabled ? "#94a3b8" : move === "delete" ? "#dc2626" : "#c2410c"}
           />
         </Pressable>
         <View style={[styles.checkbox, selected && styles.checkboxOn]}>
@@ -1930,7 +1988,7 @@ function ConfirmActionsReview({
             photo,
             selectedTrims.has(photo.id),
             () => toggle(selectedTrims, setSelectedTrims, photo.id),
-            `Trim - saves ~${estimateTrimSavings(photo).toFixed(1)} MB`,
+            trimReviewHint(photo, settings),
             "delete",
           ),
         )}
@@ -1944,7 +2002,9 @@ function ConfirmActionsReview({
             photo,
             selectedDeletes.has(photo.id),
             () => toggle(selectedDeletes, setSelectedDeletes, photo.id),
-            `Delete - frees ${photo.sizeMB.toFixed(1)} MB`,
+            canAttemptTrim(photo, settings.trimKinds)
+              ? `Delete - frees ${photo.sizeMB.toFixed(1)} MB`
+              : `Delete - frees ${photo.sizeMB.toFixed(1)} MB - Not-trimmable`,
             "trim",
           ),
         )}
@@ -1960,7 +2020,21 @@ function ConfirmActionsReview({
   );
 }
 
-function Recap({ recap, onNext, onShare }: { recap: SessionRecap; onNext: () => void; onShare: () => void }) {
+function Recap({
+  recap,
+  settings,
+  isPro,
+  onChangeSettings,
+  onNext,
+  onShare,
+}: {
+  recap: SessionRecap;
+  settings: NativeSettings;
+  isPro: boolean;
+  onChangeSettings: (patch: Partial<NativeSettings>) => void;
+  onNext: () => void;
+  onShare: () => void;
+}) {
   const total = recap.kept + recap.trimmed + recap.deleted;
   const trimShare = recap.freed > 0 ? Math.min(1, (recap.trimmed * 3) / Math.max(1, total)) : 0;
   const deleteShare = recap.freed > 0 ? Math.min(1, (recap.deleted * 3) / Math.max(1, total)) : 0;
@@ -1988,6 +2062,7 @@ function Recap({ recap, onNext, onShare }: { recap: SessionRecap; onNext: () => 
         <MiniStat label="Trimmed" value={recap.trimmed} />
         <MiniStat label="Deleted" value={recap.deleted} />
       </View>
+      <TrimKindSettings settings={settings} isPro={isPro} compact onChange={onChangeSettings} />
       <PrimaryButton label="New set" onPress={onNext} />
       <SecondaryButton label="Share progress" onPress={onShare} />
     </Centered>
@@ -2437,22 +2512,22 @@ function VisualGameCard({ icon, title, detail, thumb, active, onPress }: {
 
 // ─── This or That ─────────────────────────────────────────────────────────────
 
-function LoserColumn({ title, tone, photos, onMove }: { title: string; tone: "delete" | "trim"; photos: NativePhoto[]; onMove: (photo: NativePhoto) => void }) {
-  const total = photos.reduce((sum, photo) => sum + (tone === "delete" ? photo.sizeMB : estimateTrimSavings(photo)), 0);
+function LoserColumn({ title, tone, photos, settings, onMove }: { title: string; tone: "delete" | "trim"; photos: NativePhoto[]; settings: NativeSettings; onMove: (photo: NativePhoto) => void }) {
+  const total = photos.reduce((sum, photo) => sum + (tone === "delete" ? photo.sizeMB : estimateTrimSavings(photo, settings.trimKinds)), 0);
   return (
     <View style={[styles.loserColumn, tone === "delete" ? styles.loserColumnDelete : styles.loserColumnTrim]}>
       <Text style={tone === "delete" ? styles.deleteSummary : styles.trimSummary}>{title}</Text>
       <Text style={styles.mutedSmall}>{photos.length} photos · {tone === "delete" ? formatMB(total) : `~${formatMB(total)}`}</Text>
       <View style={styles.loserThumbGrid}>
         {photos.map((photo) => (
-          <LoserThumb key={photo.id} photo={photo} tone={tone} onMove={() => onMove(photo)} />
+          <LoserThumb key={photo.id} photo={photo} tone={tone} settings={settings} onMove={() => onMove(photo)} />
         ))}
       </View>
     </View>
   );
 }
 
-function LoserThumb({ photo, tone, onMove }: { photo: NativePhoto; tone: "delete" | "trim"; onMove: () => void }) {
+function LoserThumb({ photo, tone, settings, onMove }: { photo: NativePhoto; tone: "delete" | "trim"; settings: NativeSettings; onMove: () => void }) {
   const pan = useRef(new Animated.ValueXY()).current;
   const panResponder = useMemo(
     () =>
@@ -2471,7 +2546,7 @@ function LoserThumb({ photo, tone, onMove }: { photo: NativePhoto; tone: "delete
     <Animated.View {...panResponder.panHandlers} style={{ transform: [{ translateX: pan.x }, { translateY: pan.y }] }}>
       <Pressable onPress={onMove} style={styles.loserThumb}>
         <Image source={{ uri: photo.uri }} style={styles.loserThumbImage} resizeMode="cover" />
-        <Text style={styles.loserThumbText}>{tone === "delete" ? formatMB(photo.sizeMB) : `~${formatMB(estimateTrimSavings(photo))}`}</Text>
+        <Text style={styles.loserThumbText}>{tone === "delete" ? formatMB(photo.sizeMB) : `~${formatMB(estimateTrimSavings(photo, settings.trimKinds))}`}</Text>
       </Pressable>
     </Animated.View>
   );
@@ -2511,7 +2586,7 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
   const deleteLosers = deleted.filter((photo) => loserModes[photo.id] !== "trim");
   const trimLosers = deleted.filter((photo) => loserModes[photo.id] === "trim");
   const deleteFreed = deleteLosers.reduce((sum, photo) => sum + photo.sizeMB, 0);
-  const trimFreed = trimLosers.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0);
+  const trimFreed = trimLosers.reduce((sum, photo) => sum + estimateTrimSavings(photo, settings.trimKinds), 0);
   const totalFreed = deleteFreed + trimFreed;
 
   function pick(keepIndex: 0 | 1) {
@@ -2526,6 +2601,7 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
   }
 
   function setLoserMode(photo: NativePhoto, mode: "delete" | "trim") {
+    if (mode === "trim" && !canAttemptTrim(photo, settings.trimKinds)) return;
     setLoserModes((current) => ({ ...current, [photo.id]: mode }));
   }
 
@@ -2550,8 +2626,8 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
             <Text style={styles.trimSummary}>Trim {trimLosers.length}: ~{formatMB(trimFreed)}</Text>
           </View>
           <View style={styles.loserColumns}>
-            <LoserColumn title="Delete" tone="delete" photos={deleteLosers} onMove={(photo) => setLoserMode(photo, "trim")} />
-            <LoserColumn title="Trim" tone="trim" photos={trimLosers} onMove={(photo) => setLoserMode(photo, "delete")} />
+            <LoserColumn title="Delete" tone="delete" photos={deleteLosers} settings={settings} onMove={(photo) => setLoserMode(photo, "trim")} />
+            <LoserColumn title="Trim" tone="trim" photos={trimLosers} settings={settings} onMove={(photo) => setLoserMode(photo, "delete")} />
           </View>
           <PrimaryButton label={busy ? "Applying..." : `Apply, save ~${formatMB(totalFreed)}`} disabled={busy} onPress={confirmOutcome} />
           <SecondaryButton label="Play another round without deleting" onPress={() => void loadPairs()} />
@@ -2630,19 +2706,19 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
 
   const keptPhotos = photos.filter((photo) => keptIds.has(photo.id));
   const notKeptPhotos = photos.filter((photo) => !keptIds.has(photo.id));
-  const unkeptTrimCandidates = notKeptPhotos.filter(canAttemptTrim);
-  const keptTrimCandidates = keptPhotos.filter(canAttemptTrim);
+  const unkeptTrimCandidates = notKeptPhotos.filter((photo) => canAttemptTrim(photo, settings.trimKinds));
+  const keptTrimCandidates = keptPhotos.filter((photo) => canAttemptTrim(photo, settings.trimKinds));
   const plannedUnkeptTrims = unkeptAction === "trim" ? unkeptTrimCandidates.slice(0, trimsRemaining) : [];
   const remainingAfterUnkept = Math.max(0, trimsRemaining - plannedUnkeptTrims.length);
   const plannedKeptTrims = keptAction === "trim" ? keptTrimCandidates.slice(0, remainingAfterUnkept) : [];
   const plannedKeptTrimIds = new Set(plannedKeptTrims.map((photo) => photo.id));
   const keptAsIs = keptPhotos.filter((photo) => !plannedKeptTrimIds.has(photo.id));
-  const toDelete = unkeptAction === "delete" ? notKeptPhotos : notKeptPhotos.filter((photo) => !canAttemptTrim(photo));
+  const toDelete = unkeptAction === "delete" ? notKeptPhotos : notKeptPhotos.filter((photo) => !canAttemptTrim(photo, settings.trimKinds));
   const toTrim = [...plannedUnkeptTrims, ...plannedKeptTrims];
   const usedMB = keptPhotos.reduce((sum, photo) => sum + photo.sizeMB, 0);
   const overBudget = usedMB > BUDGET_KEEP_LIMIT_MB;
   const deleteSavings = toDelete.reduce((sum, photo) => sum + photo.sizeMB, 0);
-  const trimSavings = toTrim.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0);
+  const trimSavings = toTrim.reduce((sum, photo) => sum + estimateTrimSavings(photo, settings.trimKinds), 0);
   const totalPoolMB = photos.reduce((sum, photo) => sum + photo.sizeMB, 0);
   const budgetScale = scrollY.interpolate({ inputRange: [0, 120], outputRange: [1, 0.82], extrapolate: "clamp" });
   const budgetTranslateY = scrollY.interpolate({ inputRange: [0, 120], outputRange: [0, -8], extrapolate: "clamp" });
@@ -2721,7 +2797,7 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
           detail={`${notKeptPhotos.length} photos outside your keep set`}
           options={[
             { key: "delete", label: "Delete", detail: `Free ${formatMB(notKeptPhotos.reduce((sum, photo) => sum + photo.sizeMB, 0))}` },
-            { key: "trim", label: "Trim", detail: `Try to save ~${formatMB(unkeptTrimCandidates.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0))}` },
+            { key: "trim", label: unkeptTrimCandidates.length > 0 ? "Trim" : "Not-trimmable", detail: `Try to save ~${formatMB(unkeptTrimCandidates.reduce((sum, photo) => sum + estimateTrimSavings(photo, settings.trimKinds), 0))}` },
           ]}
           value={unkeptAction}
           onChange={(value) => setUnkeptAction(value as "delete" | "trim")}
@@ -2734,7 +2810,7 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
           detail={`${keptPhotos.length} selected photos`}
           options={[
             { key: "keep", label: "Keep", detail: "Leave originals as they are" },
-            { key: "trim", label: "Trim", detail: `Try to save ~${formatMB(keptTrimCandidates.reduce((sum, photo) => sum + estimateTrimSavings(photo), 0))}` },
+            { key: "trim", label: keptTrimCandidates.length > 0 ? "Trim" : "Not-trimmable", detail: `Try to save ~${formatMB(keptTrimCandidates.reduce((sum, photo) => sum + estimateTrimSavings(photo, settings.trimKinds), 0))}` },
           ]}
           value={keptAction}
           onChange={(value) => setKeptAction(value as "keep" | "trim")}
@@ -2799,7 +2875,7 @@ function MemoryLaneScreen({ settings, tokens, avoidIds, trimsRemaining, onBack, 
 
   const photo = photos[index];
   const freed = deleted.reduce((sum, item) => sum + item.sizeMB, 0);
-  const trimFreed = toTrim.reduce((sum, item) => sum + estimateTrimSavings(item), 0);
+  const trimFreed = toTrim.reduce((sum, item) => sum + estimateTrimSavings(item, settings.trimKinds), 0);
   const isCorrect = guess !== null && photo && guess === photo.year;
 
   function chooseYear(year: number) {
@@ -2822,7 +2898,7 @@ function MemoryLaneScreen({ settings, tokens, avoidIds, trimsRemaining, onBack, 
   function decide(action: Action) {
     if (!photo) return;
     if (action === "keep") setKept((current) => [...current, photo]);
-    else if (action === "trim") setToTrim((current) => [...current, photo]);
+    else if (action === "trim" && canAttemptTrim(photo, settings.trimKinds)) setToTrim((current) => [...current, photo]);
     else setDeleted((current) => [...current, photo]);
     const nextIndex = index + 1;
     setIndex(nextIndex);
@@ -2893,7 +2969,12 @@ function MemoryLaneScreen({ settings, tokens, avoidIds, trimsRemaining, onBack, 
           </Text>
           <View style={styles.actions}>
             <ActionButton label="Keep" tone="keep" onPress={() => decide("keep")} />
-            <ActionButton label={toTrim.length >= trimsRemaining ? "No tokens" : canAttemptTrim(photo) ? "Trim" : "Unavailable"} tone="trim" disabled={toTrim.length >= trimsRemaining || !canAttemptTrim(photo)} onPress={() => decide("trim")} />
+            <ActionButton
+              label={toTrim.length >= trimsRemaining ? "No tokens" : canAttemptTrim(photo, settings.trimKinds) ? "Trim" : trimDisabledReason(photo, settings)}
+              tone="trim"
+              disabled={toTrim.length >= trimsRemaining || !canAttemptTrim(photo, settings.trimKinds)}
+              onPress={() => decide("trim")}
+            />
             <ActionButton label="Clear" tone="delete" onPress={() => decide("delete")} />
           </View>
         </View>
@@ -3183,7 +3264,70 @@ function QualityPreview({ photo, currentQuality }: { photo?: NativePhoto; curren
   );
 }
 
-function SettingsScreen({ settings, samplePhoto, onChange, onReload }: { settings: NativeSettings; samplePhoto?: NativePhoto; onChange: (patch: Partial<NativeSettings>) => void; onReload: () => void }) {
+const TRIM_KIND_OPTIONS: Array<{ kind: NativeTrimKind; label: string; detail: string; icon: keyof typeof Ionicons.glyphMap }> = [
+  { kind: "metadata", label: "Metadata", detail: "Camera, lens, edits, app notes", icon: "document-text-outline" },
+  { kind: "location", label: "Location", detail: "GPS coordinates when present", icon: "location-outline" },
+  { kind: "compression", label: "Compression", detail: "Final shrink pass for already-stripped photos", icon: "contract-outline" },
+];
+
+function TrimKindSettings({
+  settings,
+  isPro,
+  compact,
+  onChange,
+}: {
+  settings: NativeSettings;
+  isPro: boolean;
+  compact?: boolean;
+  onChange: (patch: Partial<NativeSettings>) => void;
+}) {
+  function toggle(kind: NativeTrimKind) {
+    if (!isPro) return;
+    const active = settings.trimKinds.includes(kind);
+    const next = active
+      ? settings.trimKinds.filter((item) => item !== kind)
+      : [...settings.trimKinds, kind];
+    onChange({ trimKinds: next.length > 0 ? next : [kind] });
+  }
+
+  return (
+    <View style={[styles.settingCardVertical, compact && styles.trimKindCompact]}>
+      <View style={styles.dashboardHeroTop}>
+        <View style={styles.scanQuickCopy}>
+          <Text style={styles.settingLabel}>{compact ? "Trim settings" : "Default trim data"}</Text>
+          <Text style={styles.mutedSmall}>
+            {isPro ? "Choose what Trim is allowed to remove." : "Lifetime Pro unlocks selectable trim data."}
+          </Text>
+        </View>
+        {!isPro ? <Text style={styles.proPill}>Pro</Text> : null}
+      </View>
+      <View style={styles.trimKindGrid}>
+        {TRIM_KIND_OPTIONS.map((option) => {
+          const active = settings.trimKinds.includes(option.kind);
+          return (
+            <Pressable
+              key={option.kind}
+              disabled={!isPro}
+              onPress={() => toggle(option.kind)}
+              style={[styles.trimKindOption, active && styles.trimKindOptionActive, !isPro && styles.trimKindOptionLocked]}
+            >
+              <Ionicons name={isPro ? option.icon : "lock-closed-outline"} size={17} color={active ? "#c2410c" : "#64748b"} />
+              <View style={styles.reviewCopy}>
+                <Text style={[styles.trimKindLabel, active && styles.trimKindLabelActive]}>{option.label}</Text>
+                {!compact ? <Text style={styles.mutedSmall}>{option.detail}</Text> : null}
+              </View>
+              <View style={[styles.checkbox, active && styles.checkboxOn]}>
+                {active ? <Text style={styles.checkboxMark}>✓</Text> : null}
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function SettingsScreen({ settings, isPro, samplePhoto, onChange, onReload }: { settings: NativeSettings; isPro: boolean; samplePhoto?: NativePhoto; onChange: (patch: Partial<NativeSettings>) => void; onReload: () => void }) {
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <View style={styles.settingsHero}>
@@ -3207,6 +3351,7 @@ function SettingsScreen({ settings, samplePhoto, onChange, onReload }: { setting
         options={[["replace", "Replace originals"], ["save-new", "Save as new"]]}
         onChange={(trimOutputMode) => onChange({ trimOutputMode })}
       />
+      <TrimKindSettings settings={settings} isPro={isPro} onChange={onChange} />
       <QualityPreview photo={samplePhoto} currentQuality={settings.trimQuality} />
       <BooleanSetting label="Larger controls" detail="Roomier buttons and key text for easier one-handed use." value={settings.largeText} onChange={(largeText) => onChange({ largeText })} />
       <BooleanSetting label="High contrast" detail="Deepens the app background and panel borders." value={settings.highContrast} onChange={(highContrast) => onChange({ highContrast })} />
@@ -3373,11 +3518,13 @@ const styles = StyleSheet.create({
   photoShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(31, 41, 55, 0.12)" },
   photoTop: { position: "absolute", top: 14, left: 14, right: 14, flexDirection: "row", flexWrap: "wrap", gap: 8 },
   pill: { overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(15, 23, 42, 0.72)", color: "#f8fafc", paddingHorizontal: 10, paddingVertical: 6, fontSize: 11, fontWeight: "800" },
+  pillMuted: { backgroundColor: "rgba(100, 116, 139, 0.76)" },
   photoBottom: { position: "absolute", left: 18, right: 18, bottom: 18 },
   photoTitle: { color: "#f8fafc", fontSize: 25, fontWeight: "900" },
   photoMeta: { marginTop: 4, color: "#cbd5e1", fontSize: 13, fontWeight: "600" },
   reasonRow: { marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 6 },
   reason: { overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(248, 250, 252, 0.18)", color: "#f8fafc", paddingHorizontal: 8, paddingVertical: 4, fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
+  reasonTrimmed: { overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(251, 146, 60, 0.9)", color: "#fff7ed", paddingHorizontal: 8, paddingVertical: 4, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
   actions: { marginTop: 20, flexDirection: "row", gap: 10 },
   actionButton: { flex: 1, alignItems: "center", justifyContent: "center", borderRadius: 17, paddingVertical: 15, borderWidth: 1 },
   actionButtonLarge: { paddingVertical: 19 },
@@ -3395,6 +3542,7 @@ const styles = StyleSheet.create({
   reviewRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: "#ffffff", padding: 10, marginBottom: 8 },
   reviewThumb: { width: 58, height: 58, borderRadius: 14 },
   reviewMoveButton: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa" },
+  reviewMoveButtonDisabled: { backgroundColor: "#f1f5f9", borderColor: "#cbd5e1" },
   checkbox: {
     width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: "#d1d5db",
     alignItems: "center", justifyContent: "center", backgroundColor: "#fff",
@@ -3648,6 +3796,14 @@ const styles = StyleSheet.create({
   toggleKnob: { width: 24, height: 24, borderRadius: 999, backgroundColor: "#fff7ed" },
   toggleKnobActive: { transform: [{ translateX: 22 }], backgroundColor: "#ffffff" },
   settingCardVertical: { marginTop: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16, gap: 12 },
+  trimKindCompact: { width: "100%", marginTop: 0 },
+  trimKindGrid: { gap: 8 },
+  trimKindOption: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 15, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 12 },
+  trimKindOptionActive: { backgroundColor: "#ffedd5", borderColor: "#fb923c" },
+  trimKindOptionLocked: { opacity: 0.62 },
+  trimKindLabel: { color: "#334155", fontSize: 13, fontWeight: "900" },
+  trimKindLabelActive: { color: "#c2410c" },
+  proPill: { overflow: "hidden", borderRadius: 999, backgroundColor: "#1f2937", color: "#ffffff", paddingHorizontal: 10, paddingVertical: 5, fontSize: 11, fontWeight: "900" },
   dropdownButton: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 16, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 14, gap: 12 },
   dropdownTitle: { color: "#1f2937", fontSize: 17, fontWeight: "900" },
   dropdownChevron: { color: "#c2410c", fontSize: 14, fontWeight: "900" },
