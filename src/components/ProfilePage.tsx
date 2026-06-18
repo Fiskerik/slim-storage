@@ -122,6 +122,17 @@ export function ProfilePage() {
         <SummaryStat label="Streak" value={`🔥 ${stats.streak}`} />
       </section>
 
+      {/* Saved since metric */}
+      <div className="mt-3 flex items-center gap-3 rounded-2xl border border-border bg-card p-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <HardDrive className="h-5 w-5" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold">{freedLabel} saved since you started</p>
+          <p className="text-xs text-muted-foreground">Using TrimSwipe since {startedDate}</p>
+        </div>
+      </div>
+
       <button
         onClick={() => setShareOpen(true)}
         className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-border bg-card py-3 text-sm font-semibold text-foreground transition hover:border-primary/40"
