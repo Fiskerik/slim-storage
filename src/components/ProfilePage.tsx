@@ -15,6 +15,8 @@ import {
   Check,
   FileText,
   FileImage,
+  CalendarDays,
+  HardDrive,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useStats } from "@/hooks/use-stats";
