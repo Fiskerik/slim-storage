@@ -931,8 +931,10 @@ function chooseAssets(
   duplicateLookup: Set<string>,
 ): MediaLibrary.Asset[] {
   const targeted = assets.filter((asset) => matchesAssetSettings(asset, settings, duplicateLookup));
-  const fallback = assets.filter((asset) => !targeted.some((target) => target.id === asset.id));
-  const pool = settings.targetMode === "balanced" ? assets : [...targeted, ...fallback];
+  // For strict modes (e.g. big-only, old-only) we must NOT mix in non-matching
+  // fallback assets, or small/recent photos sneak into the round. Only the
+  // "balanced" mode is allowed to draw from the whole pool.
+  const pool = settings.targetMode === "balanced" ? assets : targeted;
 
   return shuffle(pool)
     .sort((a, b) => scoreAsset(b, settings) - scoreAsset(a, settings))
