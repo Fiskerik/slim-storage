@@ -230,11 +230,11 @@ export function BarChart({
   selectedKey,
   onSelect,
 }: {
-  data: { key?: string; label: string; value: number; sub?: number; tone?: "trim" | "delete" | "mixed" }[];
+  data: { key?: string; label: string; value: number; sub?: number; deleteMbFreed?: number; tone?: "trim" | "delete" | "mixed" }[];
   height?: number;
   maxValue?: number;
   selectedKey?: string;
-  onSelect?: (item: { key?: string; label: string; value: number; sub?: number; tone?: "trim" | "delete" | "mixed" }) => void;
+  onSelect?: (item: { key?: string; label: string; value: number; sub?: number; deleteMbFreed?: number; tone?: "trim" | "delete" | "mixed" }) => void;
 }) {
   const top = Math.max(1, maxValue ?? Math.max(...data.map((d) => d.value), 1));
   return (
@@ -245,6 +245,7 @@ export function BarChart({
           label={d.label}
           value={d.value}
           sub={d.sub}
+          deleteValue={d.deleteMbFreed}
           max={top}
           height={height}
           tone={d.tone}
@@ -260,6 +261,7 @@ function BarColumn({
   label,
   value,
   sub,
+  deleteValue,
   max,
   height,
   tone = "mixed",
@@ -269,6 +271,7 @@ function BarColumn({
   label: string;
   value: number;
   sub?: number;
+  deleteValue?: number;
   max: number;
   height: number;
   tone?: "trim" | "delete" | "mixed";
@@ -287,23 +290,31 @@ function BarColumn({
   const target = Math.max(0, Math.min(1, value / max));
   const barH = grow.interpolate({ inputRange: [0, 1], outputRange: [0, target * height] });
   const subTarget = sub != null ? Math.max(0, Math.min(target, sub / max)) : 0;
+  const deleteTarget =
+    deleteValue != null
+      ? Math.max(0, Math.min(target, deleteValue / max))
+      : Math.max(0, target - subTarget);
   const subH = grow.interpolate({ inputRange: [0, 1], outputRange: [0, subTarget * height] });
+  const deleteH = grow.interpolate({ inputRange: [0, 1], outputRange: [0, deleteTarget * height] });
   const color =
     tone === "trim" ? colors.sage : tone === "delete" ? colors.danger : colors.primaryBright;
-  const subColor = tone === "mixed" ? colors.sage : color;
+  const trimColor = tone === "delete" ? colors.danger : colors.sage;
+  const deleteColor = tone === "trim" ? colors.sage : colors.danger;
   const displayValue = value >= 100 ? Math.round(value).toString() : value > 0 ? value.toFixed(1) : "0";
   return (
     <Pressable disabled={!onPress} onPress={onPress} style={styles.chartCol}>
       <Text style={[styles.chartValue, selected && styles.chartValueSelected]}>{displayValue}</Text>
       <View style={[styles.chartTrack, { height }, selected && styles.chartTrackSelected]}>
-        <Animated.View
-          style={[styles.chartBar, { height: barH, backgroundColor: color + "55", borderColor: color }]}
-        />
-        {sub != null ? (
+        {tone === "mixed" ? (
+          <Animated.View style={[styles.chartStack, { height: barH }]}>
+            <Animated.View style={[styles.chartSegment, { height: deleteH, backgroundColor: deleteColor }]} />
+            <Animated.View style={[styles.chartSegment, { height: subH, backgroundColor: trimColor }]} />
+          </Animated.View>
+        ) : (
           <Animated.View
-            style={[styles.chartBar, { height: subH, backgroundColor: subColor }]}
+            style={[styles.chartBar, { height: barH, backgroundColor: color }]}
           />
-        ) : null}
+        )}
       </View>
       <Text style={styles.chartLabel}>{label}</Text>
     </Pressable>
@@ -560,7 +571,7 @@ const styles = StyleSheet.create({
   chart: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: 8 },
   chartCol: { flex: 1, alignItems: "center", gap: 6 },
   chartValue: { fontSize: 9, color: colors.textMuted, fontWeight: "800" },
-  chartValueSelected: { color: colors.primary },
+  chartValueSelected: { color: colors.text },
   chartTrack: {
     width: "100%",
     backgroundColor: "#fff7ed",
@@ -570,7 +581,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderSoft,
   },
-  chartTrackSelected: { borderColor: colors.primary, borderWidth: 1 },
+  chartTrackSelected: { borderColor: colors.textSubtle, borderWidth: 1 },
   chartBar: {
     position: "absolute",
     left: 0,
@@ -579,6 +590,19 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radius.sm,
     borderTopRightRadius: radius.sm,
     borderWidth: 0,
+  },
+  chartStack: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    overflow: "hidden",
+    borderTopLeftRadius: radius.sm,
+    borderTopRightRadius: radius.sm,
+    justifyContent: "flex-end",
+  },
+  chartSegment: {
+    width: "100%",
   },
   chartLabel: { fontSize: 10, color: colors.textMuted, fontWeight: "700", letterSpacing: 0.4 },
 

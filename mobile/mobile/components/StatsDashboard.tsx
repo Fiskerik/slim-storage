@@ -102,7 +102,7 @@ export function StatsDashboard({
       </Card>
 
       {/* 7-day chart */}
-      <SectionHeader title="7-day savings" action={<Text style={styles.action}>MB freed / day</Text>} />
+      <SectionHeader title="7-day savings" action={<Text style={styles.action}>Trim + Delete</Text>} />
       <Card>
         <BarChart
           data={chartData}
@@ -111,15 +111,15 @@ export function StatsDashboard({
           onSelect={(day) => setSelectedDayKey(day.key)}
         />
         <View style={styles.legend}>
-          <LegendDot color={colors.primaryBright} label="Total" />
-          <LegendDot color={colors.sage} label="From trim" />
+          <LegendDot color={colors.sage} label="Trim" />
+          <LegendDot color={colors.danger} label="Delete" />
         </View>
         {selectedDay ? (
           <View style={styles.dayBreakdown}>
             <Text style={styles.dayBreakdownTitle}>{selectedDay.dayLabel}</Text>
-            <BreakdownPill color={colors.primaryBright} label="Total" value={formatMB(selectedDay.value)} />
             <BreakdownPill color={colors.sage} label="Trim" value={formatMB(selectedDay.sub ?? 0)} />
             <BreakdownPill color={colors.danger} label="Delete" value={formatMB(selectedDay.deleteMbFreed)} />
+            <BreakdownPill color={colors.textSubtle} label="Total" value={formatMB(selectedDay.value)} />
           </View>
         ) : null}
       </Card>
@@ -131,7 +131,7 @@ export function StatsDashboard({
         <View style={{ flex: 1, gap: spacing.sm }}>
           <SplitRow color={colors.sage} label="Trim" value={formatMB(stats.trimMbFreed)} count={stats.trimmed} total={stats.trimMbFreed + stats.deleteMbFreed} rawValue={stats.trimMbFreed} />
           <SplitRow color={colors.danger} label="Delete" value={formatMB(stats.deleteMbFreed)} count={stats.deleted} total={stats.trimMbFreed + stats.deleteMbFreed} rawValue={stats.deleteMbFreed} />
-          <SplitRow color={colors.primaryBright} label="Total" value={formatMB(stats.trimMbFreed + stats.deleteMbFreed)} count={stats.trimmed + stats.deleted} />
+          <SplitRow color={colors.textSubtle} label="Total" value={formatMB(stats.trimMbFreed + stats.deleteMbFreed)} count={stats.trimmed + stats.deleted} />
         </View>
       </Card>
 

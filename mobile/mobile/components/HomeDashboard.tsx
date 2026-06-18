@@ -203,28 +203,10 @@ export function HomeDashboard(props: HomeDashboardProps) {
           </View>
         </View>
 
-        {!isPro ? (
-          <Pressable onPress={onWatchAd} disabled={adBusy} style={styles.adBanner}>
-            <View style={styles.adBannerIcon}>
-              <Ionicons name="play-circle" size={22} color={colors.sage} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.adBannerTitle}>Watch a short ad</Text>
-              <Text style={styles.adBannerSub}>Earn +5 tokens</Text>
-            </View>
-            <Ionicons
-              name={adBusy ? "hourglass-outline" : "add-circle"}
-              size={22}
-              color={colors.sage}
-            />
-          </Pressable>
-        ) : null}
-
-
         {/* Hero ring */}
         <Card style={styles.hero} tone="warm">
           <View style={styles.heroLeft}>
-            <Text style={styles.eyebrow}>Reclaimed</Text>
+            <Text style={styles.heroEyebrow}>Reclaimed</Text>
             <Text style={styles.heroFreed}>{freedDisplay}</Text>
             <Text style={styles.heroSub}>of ~{potentialDisplay} possible</Text>
             <View style={styles.pillRow}>
@@ -237,7 +219,13 @@ export function HomeDashboard(props: HomeDashboardProps) {
             </View>
           </View>
           <Animated.View style={{ transform: [{ translateY: floatY }] }}>
-            <ProgressRing progress={ringProgress} size={132} thickness={11}>
+            <ProgressRing
+              progress={ringProgress}
+              size={132}
+              thickness={11}
+              fillColor={colors.sage}
+              trackColor={colors.borderSoft}
+            >
               <View style={styles.thumbStack}>
                 {heroThumbs.length === 0 ? (
                   <Ionicons name="images-outline" size={28} color={colors.primary} />
@@ -282,27 +270,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
           </View>
         </Card>
 
-        <SectionHeader title="One-tap cleanup" />
-        <Pressable onPress={() => onPickCategory("screenshots")} style={styles.cleanupHero}>
-          <View style={styles.cleanupIcon}>
-            <Ionicons name="trash-outline" size={26} color={colors.white} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.cleanupTitle}>Nuke {oneTapCount} screenshots + duplicates</Text>
-            <Text style={styles.cleanupHint}>Preview first. Undo before commit. Save ~{formatMB(oneTapSavings)}.</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={colors.danger} />
-        </Pressable>
-
-        <Pressable onPress={onOptimizeStorage} style={styles.optimizeCard}>
-          <Ionicons name="cloud-outline" size={22} color={colors.info} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.goalTitle}>Optimize iPhone Storage</Text>
-            <Text style={styles.goalHint}>Use Apple’s built-in iCloud setting when local storage is tight.</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={colors.info} />
-        </Pressable>
-
         <SectionHeader
           title="Daily goal"
           action={<Text style={styles.sectionAction}>{formatMB(today.mbFreed)} / {dailyGoalMB} MB</Text>}
@@ -322,6 +289,21 @@ export function HomeDashboard(props: HomeDashboardProps) {
           <View style={styles.goalTrack}>
             <View style={[styles.goalFill, { width: `${dailyGoalProgress * 100}%` }]} />
           </View>
+        </Card>
+
+        {/* Today snapshot */}
+        <SectionHeader
+          title="Today"
+          action={
+            <Text style={styles.sectionAction}>{formatMB(today.mbFreed)} freed</Text>
+          }
+        />
+        <Card style={styles.todayCard}>
+          <TodayStat icon="checkmark-circle-outline" tint={colors.sage} value={today.kept} label="Kept" />
+          <View style={styles.todayDivider} />
+          <TodayStat icon="cut-outline" tint={colors.honey} value={today.trimmed} label="Trimmed" />
+          <View style={styles.todayDivider} />
+          <TodayStat icon="trash-outline" tint={colors.danger} value={today.deleted} label="Deleted" />
         </Card>
 
         <SectionHeader
@@ -381,6 +363,23 @@ export function HomeDashboard(props: HomeDashboardProps) {
           </View>
         </Card>
 
+        {!isPro ? (
+          <Pressable onPress={onWatchAd} disabled={adBusy} style={styles.adBanner}>
+            <View style={styles.adBannerIcon}>
+              <Ionicons name="play-circle" size={22} color={colors.sage} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.adBannerTitle}>Watch a short ad</Text>
+              <Text style={styles.adBannerSub}>Earn +5 tokens</Text>
+            </View>
+            <Ionicons
+              name={adBusy ? "hourglass-outline" : "add-circle"}
+              size={22}
+              color={colors.sage}
+            />
+          </Pressable>
+        ) : null}
+
         {/* Quick actions 2x2 */}
         <SectionHeader title="Quick actions" />
         <View style={styles.tileGrid}>
@@ -434,20 +433,24 @@ export function HomeDashboard(props: HomeDashboardProps) {
           </View>
         </View>
 
-        {/* Today snapshot */}
-        <SectionHeader
-          title="Today"
-          action={
-            <Text style={styles.sectionAction}>{formatMB(today.mbFreed)} freed</Text>
-          }
-        />
-        <Card style={styles.todayCard}>
-          <TodayStat icon="checkmark-circle-outline" tint={colors.sage} value={today.kept} label="Kept" />
-          <View style={styles.todayDivider} />
-          <TodayStat icon="cut-outline" tint={colors.honey} value={today.trimmed} label="Trimmed" />
-          <View style={styles.todayDivider} />
-          <TodayStat icon="trash-outline" tint={colors.danger} value={today.deleted} label="Deleted" />
-        </Card>
+        <SectionHeader title="Storage actions" />
+        <View style={styles.storageActionRow}>
+          <Pressable onPress={() => onPickCategory("screenshots")} style={[styles.storageActionCard, styles.nukeActionCard]}>
+            <View style={[styles.storageActionIcon, { backgroundColor: colors.danger }]}>
+              <Ionicons name="trash-outline" size={21} color={colors.white} />
+            </View>
+            <Text style={styles.storageActionTitle}>Nuke</Text>
+            <Text style={styles.storageActionHint}>{oneTapCount} items - ~{formatMB(oneTapSavings)}</Text>
+          </Pressable>
+
+          <Pressable onPress={onOptimizeStorage} style={[styles.storageActionCard, styles.cloudActionCard]}>
+            <View style={[styles.storageActionIcon, { backgroundColor: colors.info }]}>
+              <Ionicons name="cloud-outline" size={21} color={colors.white} />
+            </View>
+            <Text style={styles.storageActionTitle}>Cloud</Text>
+            <Text style={styles.storageActionHint}>Optimize storage</Text>
+          </Pressable>
+        </View>
 
         {/* Categories carousel */}
         <SectionHeader title="Smart folders" action={<Text style={styles.sectionAction}>Tap to preview</Text>} />
@@ -703,7 +706,8 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
   },
   heroLeft: { flex: 1, gap: 4 },
-  heroFreed: { ...type.display, color: colors.primary, marginTop: 4 },
+  heroEyebrow: { ...type.eyebrow, color: colors.sageDeep },
+  heroFreed: { ...type.display, color: colors.sageDeep, marginTop: 4 },
   heroSub: { ...type.body, color: colors.textMuted, marginTop: -2 },
   pillRow: { flexDirection: "row", gap: 8, marginTop: spacing.md, flexWrap: "wrap" },
   heroBreakdown: { marginTop: 4, gap: 4 },
@@ -765,6 +769,27 @@ const styles = StyleSheet.create({
 
   tileGrid: { gap: spacing.md },
   tileRow: { flexDirection: "row", gap: spacing.md },
+  storageActionRow: { flexDirection: "row", gap: spacing.md },
+  storageActionCard: {
+    flex: 1,
+    minHeight: 118,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: spacing.md,
+    gap: spacing.sm,
+    ...shadow.soft,
+  },
+  nukeActionCard: { backgroundColor: colors.dangerSoft, borderColor: colors.danger },
+  cloudActionCard: { backgroundColor: colors.infoSoft, borderColor: colors.info },
+  storageActionIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  storageActionTitle: { color: colors.text, fontSize: 15, fontWeight: "900" },
+  storageActionHint: { color: colors.textMuted, fontSize: 11, fontWeight: "700", lineHeight: 15 },
 
   dailyGoalCard: { gap: spacing.md },
   dailyGoalTop: {
