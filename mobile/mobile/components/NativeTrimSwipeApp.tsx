@@ -629,7 +629,8 @@ export function NativeTrimSwipeApp() {
   function maybeShowInterstitialAfterCleanup(appliedCount: number) {
     if (appliedCount <= 0 || isPro) return;
     cleanupCompletionsRef.current += 1;
-    if (cleanupCompletionsRef.current < 2) return;
+    // Show an interstitial only after every 5th completed set / swipe round.
+    if (cleanupCompletionsRef.current < 5) return;
     cleanupCompletionsRef.current = 0;
     void showInterstitialAd();
   }
