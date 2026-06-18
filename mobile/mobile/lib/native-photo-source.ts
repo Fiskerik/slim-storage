@@ -1059,6 +1059,14 @@ export async function loadPhotoRound(
   const combined = [...cachedTargeted, ...fresh];
   if (combined.length >= count) return combined.slice(0, count);
 
+  // For strict modes (anything other than "balanced") we deliberately stop here
+  // and return only matching photos. Returning a short round of correctly-
+  // filtered photos is better than padding with off-target ones (e.g. tiny
+  // photos in "big-only" mode).
+  if (settings.targetMode !== "balanced") {
+    return combined;
+  }
+
   const usedIds = new Set(combined.map((photo) => photo.id));
   const fallback = shuffle(cache.photos.filter((photo) => !usedIds.has(photo.id) && !avoidIds.has(photo.id))).slice(
     0,
