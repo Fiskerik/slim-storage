@@ -15,6 +15,8 @@ import {
   Check,
   FileText,
   FileImage,
+  CalendarDays,
+  HardDrive,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useStats } from "@/hooks/use-stats";
@@ -45,6 +47,12 @@ export function ProfilePage() {
   const freed = stats.mbFreed;
   const freedLabel = freed >= 1024 ? `${(freed / 1024).toFixed(2)} GB` : `${freed.toFixed(1)} MB`;
   const reviewed = stats.cleaned + stats.deleted + stats.slimmed;
+
+  const startedDate = new Date(stats.startedAt + "T00:00:00").toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 
   function saveName() {
     updateSettings({ displayName: name.trim() || "You" });
@@ -113,6 +121,17 @@ export function ProfilePage() {
         <SummaryStat label="Reviewed" value={reviewed} />
         <SummaryStat label="Streak" value={`🔥 ${stats.streak}`} />
       </section>
+
+      {/* Saved since metric */}
+      <div className="mt-3 flex items-center gap-3 rounded-2xl border border-border bg-card p-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <HardDrive className="h-5 w-5" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold">{freedLabel} saved since you started</p>
+          <p className="text-xs text-muted-foreground">Using TrimSwipe since {startedDate}</p>
+        </div>
+      </div>
 
       <button
         onClick={() => setShareOpen(true)}

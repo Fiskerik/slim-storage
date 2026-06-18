@@ -235,6 +235,7 @@ type FileSystemFileHandleLike = {
 };
 
 type FileSystemDirectoryHandleLike = {
+  kind?: string;
   name?: string;
   values: () => AsyncIterable<FileSystemDirectoryHandleLike | FileSystemFileHandleLike>;
   getDirectoryHandle?: (
