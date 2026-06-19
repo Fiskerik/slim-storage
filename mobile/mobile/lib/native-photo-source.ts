@@ -41,6 +41,8 @@ export type NativePhotoPermission = {
 
 export type NativePhotoRoundOptions = {
   avoidIds?: string[];
+  excludeMaxTrimmed?: boolean;
+  onFallback?: (detail: string) => void;
 };
 
 export type NativeLibraryScanProgress = {
@@ -372,6 +374,40 @@ function matchesPhotoSettings(
     default:
       return isLarge || isOld;
   }
+}
+
+function isMaxTrimmedPhoto(photo: NativePhoto, settings: NativeSettings): boolean {
+  if (!photo.trimState) return false;
+  const status = getTrimStatus(photo, settings.trimKinds, settings.trimQuality);
+  return status.nextKinds.length === 0 || photo.trimState.blockedReason === "already-optimized";
+}
+
+function shouldUseRoundPhoto(
+  photo: NativePhoto,
+  settings: NativeSettings,
+  avoidIds: Set<string>,
+  excludeMaxTrimmed: boolean,
+): boolean {
+  if (avoidIds.has(photo.id)) return false;
+  return !excludeMaxTrimmed || !isMaxTrimmedPhoto(photo, settings);
+}
+
+function fallbackDetail(settings: NativeSettings, matchedCount: number, requestedCount: number): string {
+  if (settings.targetMode === "balanced") return "";
+  const exact =
+    matchedCount === 0
+      ? "No photos matched this filter"
+      : `Only ${matchedCount}/${requestedCount} photos matched this filter`;
+  if (settings.targetMode === "old-only") {
+    return `${exact}. Loading newer photos instead.`;
+  }
+  if (settings.targetMode === "big-only") {
+    return `${exact}. Loading smaller photos instead.`;
+  }
+  if (settings.targetMode === "old-and-large") {
+    return `${exact}. Loading photos outside the age/size threshold instead.`;
+  }
+  return `${exact}. Loading a broader set instead.`;
 }
 
 function assetLooksLikeScreenshot(asset: MediaLibrary.Asset): boolean {
@@ -1032,8 +1068,13 @@ export async function loadPhotoRound(
 ): Promise<NativePhoto[]> {
   const cache = await readCache();
   const avoidIds = new Set(options.avoidIds ?? []);
+  const excludeMaxTrimmed = options.excludeMaxTrimmed !== false;
   const cachedTargeted = shuffle(
-    cache.photos.filter((photo) => matchesPhotoSettings(photo, settings) && !avoidIds.has(photo.id)),
+    cache.photos.filter(
+      (photo) =>
+        matchesPhotoSettings(photo, settings) &&
+        shouldUseRoundPhoto(photo, settings, avoidIds, excludeMaxTrimmed),
+    ),
   )
     .sort((a, b) => scorePhoto(b, settings) - scorePhoto(a, settings))
     .slice(0, count);
@@ -1051,17 +1092,27 @@ export async function loadPhotoRound(
     settings,
     duplicateLookup,
   );
-  const fresh = await mapWithConcurrency(selected, 3, (asset) => assetToPhoto(asset, duplicateLookup));
+  const fresh = (await mapWithConcurrency(selected, 3, (asset) => assetToPhoto(asset, duplicateLookup))).filter(
+    (photo) => shouldUseRoundPhoto(photo, settings, avoidIds, excludeMaxTrimmed),
+  );
   await upsertCache(fresh);
 
   const combined = [...cachedTargeted, ...fresh];
+  const matchedCount = combined.filter((photo) => matchesPhotoSettings(photo, settings)).length;
+  const reportedFallback = settings.targetMode !== "balanced" && matchedCount < count;
+  if (reportedFallback) {
+    options.onFallback?.(fallbackDetail(settings, matchedCount, count));
+  }
   if (combined.length >= count) return combined.slice(0, count);
 
   const usedIds = new Set(combined.map((photo) => photo.id));
-  const fallback = shuffle(cache.photos.filter((photo) => !usedIds.has(photo.id) && !avoidIds.has(photo.id))).slice(
-    0,
-    count - combined.length,
-  );
+  const fallback = shuffle(
+    cache.photos.filter(
+      (photo) =>
+        !usedIds.has(photo.id) &&
+        shouldUseRoundPhoto(photo, settings, avoidIds, excludeMaxTrimmed),
+    ),
+  ).slice(0, count - combined.length);
   const next = [...combined, ...fallback].slice(0, count);
   if (next.length >= count) return next;
 
@@ -1072,21 +1123,32 @@ export async function loadPhotoRound(
     { ...settings, targetMode: "balanced" },
     duplicateLookup,
   );
-  const broadFresh = await mapWithConcurrency(broadAssets, 3, (asset) => assetToPhoto(asset, duplicateLookup));
+  const broadFresh = (await mapWithConcurrency(broadAssets, 3, (asset) => assetToPhoto(asset, duplicateLookup))).filter(
+    (photo) => shouldUseRoundPhoto(photo, settings, avoidIds, excludeMaxTrimmed),
+  );
   await upsertCache(broadFresh);
   const toppedUp = [...next, ...broadFresh].slice(0, count);
   if (toppedUp.length >= count) return toppedUp;
 
-  const relaxedCache = shuffle(cache.photos.filter((photo) => !new Set(toppedUp.map((item) => item.id)).has(photo.id)));
+  const toppedUpIds = new Set(toppedUp.map((item) => item.id));
+  const relaxedCache = shuffle(
+    cache.photos.filter(
+      (photo) =>
+        !toppedUpIds.has(photo.id) &&
+        shouldUseRoundPhoto(photo, settings, avoidIds, excludeMaxTrimmed),
+    ),
+  );
   if (relaxedCache.length > 0) return [...toppedUp, ...relaxedCache].slice(0, count);
 
   const relaxedAssets = chooseAssets(
-    assets.filter((asset) => !new Set(toppedUp.map((item) => item.id)).has(asset.id)),
+    assets.filter((asset) => !toppedUpIds.has(asset.id) && !avoidIds.has(asset.id)),
     count - toppedUp.length,
     { ...settings, targetMode: "balanced" },
     duplicateLookup,
   );
-  const relaxedFresh = await mapWithConcurrency(relaxedAssets, 3, (asset) => assetToPhoto(asset, duplicateLookup));
+  const relaxedFresh = (await mapWithConcurrency(relaxedAssets, 3, (asset) => assetToPhoto(asset, duplicateLookup))).filter(
+    (photo) => shouldUseRoundPhoto(photo, settings, avoidIds, excludeMaxTrimmed),
+  );
   await upsertCache(relaxedFresh);
   return [...toppedUp, ...relaxedFresh].slice(0, count);
 }

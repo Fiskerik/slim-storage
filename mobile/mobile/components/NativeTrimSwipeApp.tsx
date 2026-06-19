@@ -125,8 +125,9 @@ const SELECTION_GRACE_DAYS = 7;
 const SEEN_PHOTO_LIMIT = 500;
 const APP_STORE_URL =
   process.env.EXPO_PUBLIC_APP_STORE_URL ?? "https://apps.apple.com/app/id6764543618";
-// Storage budget game: target a pool that totals 75-100 MB so user must pick ~50 MB to keep
-const BUDGET_TARGET_POOL_MB = 90;
+// Storage budget game: target a 60-75 MB pool so users make real choices against the 50 MB keep limit.
+const BUDGET_MIN_POOL_MB = 60;
+const BUDGET_MAX_POOL_MB = 75;
 const BUDGET_KEEP_LIMIT_MB = 50;
 
 function formatMB(value: number): string {
@@ -740,10 +741,17 @@ export function NativeTrimSwipeApp() {
       }
       setPermissionDenied(false);
       setPermissionLimited(permission.limited);
+      let fallbackNotice = "";
       const photos = await loadPhotoRound(safeCount, activeSettings, {
         avoidIds: recentSelectionIds(stats),
+        onFallback: (detail) => {
+          fallbackNotice = detail;
+        },
       });
       setQueue(photos);
+      if (fallbackNotice) {
+        showToast("Filter widened", fallbackNotice, "info");
+      }
       if (photos.length === 0) {
         setError("No photos were available in the current library selection.");
       }
@@ -1503,6 +1511,7 @@ export function NativeTrimSwipeApp() {
             avoidIds={recentSelectionIds(stats)}
             trimsRemaining={trimCurrencyAvailable}
             onBack={() => setScreen("games")}
+            onToast={showToast}
             onConfirmOutcome={confirmMemoryLaneOutcome}
           />
         ) : screen === "trim" ? (
@@ -1611,6 +1620,66 @@ function trimDisabledReason(photo: NativePhoto, settings: NativeSettings): strin
   const status = getTrimStatus(photo, settings.trimKinds, settings.trimQuality);
   if (status.nextKinds.length === 0) return "Not-trimmable";
   return "Unavailable";
+}
+
+function trimmedPhotoLabel(photo: NativePhoto, settings?: NativeSettings): string | null {
+  if (!photo.trimState) return null;
+  if (photo.trimState.blockedReason === "already-optimized") return "Trimmed max";
+  if (settings && getTrimStatus(photo, settings.trimKinds, settings.trimQuality).nextKinds.length === 0) {
+    return "Trimmed max";
+  }
+  return "Trimmed";
+}
+
+function pickStorageBudgetPool(photos: NativePhoto[]): NativePhoto[] {
+  const candidates = photos
+    .filter((photo) => photo.sizeMB > 0)
+    .sort((a, b) => b.sizeMB - a.sizeMB)
+    .slice(0, 48);
+  if (candidates.length === 0) return [];
+
+  const scale = 10;
+  const minUnits = Math.round(BUDGET_MIN_POOL_MB * scale);
+  const maxUnits = Math.round(BUDGET_MAX_POOL_MB * scale);
+  const targetUnits = Math.round(((BUDGET_MIN_POOL_MB + BUDGET_MAX_POOL_MB) / 2) * scale);
+  const states: Array<{ previous: number; index: number } | null> = new Array(maxUnits + 1).fill(null);
+  states[0] = { previous: -1, index: -1 };
+
+  candidates.forEach((photo, index) => {
+    const units = Math.max(1, Math.round(photo.sizeMB * scale));
+    if (units > maxUnits) return;
+    for (let sum = maxUnits - units; sum >= 0; sum -= 1) {
+      if (!states[sum] || states[sum + units]) continue;
+      states[sum + units] = { previous: sum, index };
+    }
+  });
+
+  let bestSum = -1;
+  for (let sum = minUnits; sum <= maxUnits; sum += 1) {
+    if (!states[sum]) continue;
+    if (bestSum < 0 || Math.abs(sum - targetUnits) < Math.abs(bestSum - targetUnits)) {
+      bestSum = sum;
+    }
+  }
+  if (bestSum < 0) {
+    for (let sum = maxUnits; sum > 0; sum -= 1) {
+      if (states[sum]) {
+        bestSum = sum;
+        break;
+      }
+    }
+  }
+  if (bestSum <= 0) return [candidates[0]];
+
+  const selected: NativePhoto[] = [];
+  let cursor = bestSum;
+  while (cursor > 0) {
+    const state = states[cursor];
+    if (!state || state.index < 0) break;
+    selected.push(candidates[state.index]);
+    cursor = state.previous;
+  }
+  return selected.sort((a, b) => b.sizeMB - a.sizeMB);
 }
 
 function CleanupPlanScreen({
@@ -1869,11 +1938,13 @@ function SwipeablePhotoCard({ photo, settings, onAction, onOpenFull }: { photo: 
 function PhotoCard({ photo, settings, stacked, onOpenFull }: { photo: NativePhoto; settings: NativeSettings; stacked?: boolean; onOpenFull?: () => void }) {
   const Wrapper = onOpenFull ? Pressable : View;
   const trimStatus = getTrimStatus(photo, settings.trimKinds, settings.trimQuality);
+  const trimLabel = trimmedPhotoLabel(photo, settings);
   return (
     <Wrapper onLongPress={onOpenFull} delayLongPress={350} style={[styles.photoCard, stacked && styles.stackedCard]}>
       <Image source={{ uri: photo.uri }} style={styles.photoImage} resizeMode="cover" />
       <View style={styles.photoShade} />
       <View style={styles.photoTop}>
+        {trimLabel ? <Text style={styles.trimmedLabel}>{trimLabel}</Text> : null}
         <Text style={styles.pill}>Delete saves {photo.sizeMB.toFixed(1)} MB</Text>
         <Text style={[styles.pill, !trimStatus.canTrim && styles.pillMuted]}>{trimPillText(photo, settings)}</Text>
       </View>
@@ -1964,6 +2035,7 @@ function ConfirmActionsReview({
 
   function renderRow(photo: NativePhoto, selected: boolean, onToggle: () => void, hint: string, move: "delete" | "trim") {
     const moveDisabled = move === "trim" && !canAttemptTrim(photo, settings.trimKinds);
+    const trimLabel = trimmedPhotoLabel(photo, settings);
     return (
       <Pressable
         key={photo.id}
@@ -1987,6 +2059,7 @@ function ConfirmActionsReview({
           <Text style={[styles.reviewTitle, !selected && { textDecorationLine: "line-through", color: "#9ca3af" }]} numberOfLines={1}>
             {photo.title}
           </Text>
+          {trimLabel ? <Text style={styles.reviewTrimmedLabel}>{trimLabel}</Text> : null}
           <Text style={styles.mutedSmall}>{hint}</Text>
         </View>
         <Pressable
@@ -2569,6 +2642,7 @@ function LoserColumn({ title, tone, photos, settings, onMove }: { title: string;
 
 function LoserThumb({ photo, tone, settings, onMove }: { photo: NativePhoto; tone: "delete" | "trim"; settings: NativeSettings; onMove: () => void }) {
   const pan = useRef(new Animated.ValueXY()).current;
+  const trimLabel = trimmedPhotoLabel(photo, settings);
   const panResponder = useMemo(
     () =>
       PanResponder.create({
@@ -2586,6 +2660,7 @@ function LoserThumb({ photo, tone, settings, onMove }: { photo: NativePhoto; ton
     <Animated.View {...panResponder.panHandlers} style={{ transform: [{ translateX: pan.x }, { translateY: pan.y }] }}>
       <Pressable onPress={onMove} style={styles.loserThumb}>
         <Image source={{ uri: photo.uri }} style={styles.loserThumbImage} resizeMode="cover" />
+        {trimLabel ? <Text style={styles.trimmedLoserBadge}>{trimLabel}</Text> : null}
         <Text style={styles.loserThumbText}>{tone === "delete" ? formatMB(photo.sizeMB) : `~${formatMB(estimateTrimSavings(photo, settings.trimKinds))}`}</Text>
       </Pressable>
     </Animated.View>
@@ -2702,6 +2777,7 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
 }) {
   const [photos, setPhotos] = useState<NativePhoto[]>([]);
   const [keptIds, setKeptIds] = useState<Set<string>>(new Set());
+  const [localAvoidIds, setLocalAvoidIds] = useState<string[]>([]);
   const [loadingPhotos, setLoadingPhotos] = useState(true);
   const [busy, setBusy] = useState(false);
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -2710,30 +2786,17 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
   const [unkeptAction, setUnkeptAction] = useState<"delete" | "trim">("delete");
   const [keptAction, setKeptAction] = useState<"keep" | "trim">("keep");
 
-  // FIX 3: Load enough photos to total ~75-100 MB pool so user must make real choices
-  async function loadBoard() {
+  async function loadBoard(extraAvoidIds: string[] = []) {
     setLoadingPhotos(true);
     try {
       const permission = await requestPhotoPermission();
       if (!permission.granted) { setPhotos([]); return; }
-      // Fetch a larger batch and pick photos until we have a pool totaling ~BUDGET_TARGET_POOL_MB
       const batch = await loadPhotoRound(
-        24,
-        { ...settings, cardsPerRound: 24, targetMode: "big-or-old", sessionMode: "classic" },
-        { avoidIds },
+        48,
+        { ...settings, cardsPerRound: 30, targetMode: "big-or-old", sessionMode: "classic" },
+        { avoidIds: [...new Set([...avoidIds, ...localAvoidIds, ...extraAvoidIds])] },
       );
-      // Sort by size desc, accumulate until we hit target pool size
-      const sorted = [...batch].sort((a, b) => b.sizeMB - a.sizeMB);
-      const pool: NativePhoto[] = [];
-      let total = 0;
-      for (const photo of sorted) {
-        if (photo.sizeMB <= 0) continue;
-        pool.push(photo);
-        total += photo.sizeMB;
-        if (total >= BUDGET_TARGET_POOL_MB) break;
-      }
-      // If we couldn't reach the target, just use what we have
-      const finalPool = pool.length > 0 ? pool : sorted.slice(0, 12);
+      const finalPool = pickStorageBudgetPool(batch);
       setPhotos(finalPool);
       setKeptIds(new Set());
       setStep("select");
@@ -2784,10 +2847,29 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
     setBusy(true);
     const count = await onConfirmOutcome(keptAsIs, toDelete, toTrim);
     setBusy(false);
-    if (count > 0 || toDelete.length === 0) void loadBoard();
+    if (count > 0 || toDelete.length === 0) {
+      const boardIds = photos.map((photo) => photo.id);
+      setLocalAvoidIds((current) => [...new Set([...current, ...boardIds])].slice(-120));
+      void loadBoard(boardIds);
+    }
   }
 
   if (loadingPhotos) return <Centered><ActivityIndicator color="#f97316" size="large" /><Text style={styles.muted}>Building a Storage Budget board...</Text></Centered>;
+
+  if (photos.length === 0) {
+    return (
+      <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
+        <MiniGameHeader title="Storage Budget" detail="No board yet" tokens={tokens} onBack={onBack} />
+        <View style={styles.dashboardHero}>
+          <Text style={styles.heroTitle}>No budget photos found</Text>
+          <Text style={styles.dashboardCopy}>
+            The current library selection did not return enough local photos for a Storage Budget board. Reload to try a broader set.
+          </Text>
+          <PrimaryButton label="Reload photos" onPress={() => void loadBoard(photos.map((photo) => photo.id))} />
+        </View>
+      </ScrollView>
+    );
+  }
 
   return (
     <View style={styles.budgetShell}>
@@ -2875,8 +2957,9 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
 
 // ─── Memory Lane (FIX 4) ──────────────────────────────────────────────────────
 
-function MemoryLaneScreen({ settings, tokens, avoidIds, trimsRemaining, onBack, onConfirmOutcome }: {
+function MemoryLaneScreen({ settings, tokens, avoidIds, trimsRemaining, onBack, onToast, onConfirmOutcome }: {
   settings: NativeSettings; tokens: number; avoidIds: string[]; trimsRemaining: number; onBack: () => void;
+  onToast: (title: string, detail?: string, tone?: ToastMessage["tone"]) => void;
   onConfirmOutcome: (kept: NativePhoto[], deleted: NativePhoto[], toTrim: NativePhoto[]) => Promise<number>;
 }) {
   const [photos, setPhotos] = useState<NativePhoto[]>([]);
@@ -2900,11 +2983,20 @@ function MemoryLaneScreen({ settings, tokens, avoidIds, trimsRemaining, onBack, 
       const permission = await requestPhotoPermission();
       if (!permission.granted) { setPhotos([]); return; }
       const roundSize = Math.min(30, Math.max(5, Math.round(settings.cardsPerRound) || 10));
+      let fallbackNotice = "";
       const next = await loadPhotoRound(
         roundSize,
         { ...settings, cardsPerRound: roundSize, targetMode: "old-only", sessionMode: "classic" },
-        { avoidIds },
+        {
+          avoidIds,
+          onFallback: (detail) => {
+            fallbackNotice = detail;
+          },
+        },
       );
+      if (fallbackNotice) {
+        onToast("Older photos finished", fallbackNotice, "info");
+      }
       setPhotos(next);
       setIndex(0); setGuess(null); setKept([]); setDeleted([]); setToTrim([]); setRevealed(false);
       setOptions(next[0] ? yearOptions(next[0].year) : []);
@@ -2975,6 +3067,7 @@ function MemoryLaneScreen({ settings, tokens, avoidIds, trimsRemaining, onBack, 
 
   // FIX 4: Border color based on correct/wrong answer
   const cardBorderColor = !revealed ? "#fed7aa" : isCorrect ? "#22c55e" : "#ef4444";
+  const memoryTrimLabel = trimmedPhotoLabel(photo, settings);
 
   return (
     <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
@@ -2982,6 +3075,7 @@ function MemoryLaneScreen({ settings, tokens, avoidIds, trimsRemaining, onBack, 
       <Pressable onLongPress={() => setFullPhoto(photo)} delayLongPress={350} style={[styles.memoryCard, { borderColor: cardBorderColor, borderWidth: revealed ? 3 : StyleSheet.hairlineWidth }]}>
         <Image source={{ uri: photo.uri }} style={styles.memoryImage} resizeMode="cover" />
         <View style={styles.photoShade} />
+        {memoryTrimLabel ? <Text style={styles.trimmedChoiceBadge}>{memoryTrimLabel}</Text> : null}
         <View style={styles.choiceFooter}>
           <Text style={styles.choiceTitle} numberOfLines={2}>{photo.title}</Text>
           <Text style={styles.choiceMeta}>{formatMB(photo.sizeMB)}</Text>
@@ -3143,11 +3237,13 @@ function Toast({ toast }: { toast: ToastMessage | null }) {
 }
 
 function ChoicePhoto({ photo, label, onPress, onLongPress }: { photo: NativePhoto; label: string; onPress: () => void; onLongPress: () => void }) {
+  const trimLabel = trimmedPhotoLabel(photo);
   return (
     <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={350} style={styles.choicePhoto}>
       <Image source={{ uri: photo.uri }} style={styles.choiceImage} resizeMode="cover" />
       <View style={styles.choiceShade} />
       <Text style={styles.choiceBadge}>{label}</Text>
+      {trimLabel ? <Text style={styles.trimmedChoiceBadge}>{trimLabel}</Text> : null}
       <View style={styles.choiceFooter}>
         <Text style={styles.choiceTitle} numberOfLines={2}>{photo.title}</Text>
         <Text style={styles.choiceMeta}>{formatMB(photo.sizeMB)}</Text>
@@ -3157,17 +3253,20 @@ function ChoicePhoto({ photo, label, onPress, onLongPress }: { photo: NativePhot
 }
 
 function BudgetPhotoTile({ photo, kept, onPress, onLongPress }: { photo: NativePhoto; kept: boolean; onPress: () => void; onLongPress: () => void }) {
+  const trimLabel = trimmedPhotoLabel(photo);
   return (
     <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={350} style={[styles.budgetTile, kept && styles.budgetTileKept]}>
       <Image source={{ uri: photo.uri }} style={styles.budgetImage} resizeMode="cover" />
       <View style={styles.choiceShade} />
       <Text style={[styles.budgetStatus, kept && styles.budgetStatusKept]}>{kept ? "Keep" : "Cut"}</Text>
+      {trimLabel ? <Text style={styles.trimmedTileBadge}>{trimLabel}</Text> : null}
       <Text style={styles.budgetSize}>{formatMB(photo.sizeMB)}</Text>
     </Pressable>
   );
 }
 
 function FullPhotoModal({ photo, onClose }: { photo: NativePhoto | null; onClose: () => void }) {
+  const trimLabel = photo ? trimmedPhotoLabel(photo) : null;
   return (
     <Modal visible={photo !== null} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.fullPhotoOverlay}>
@@ -3179,6 +3278,7 @@ function FullPhotoModal({ photo, onClose }: { photo: NativePhoto | null; onClose
             <Image source={{ uri: photo.uri }} style={styles.fullPhotoImage} resizeMode="contain" />
             <View style={styles.fullPhotoCaption}>
               <Text style={styles.fullPhotoTitle} numberOfLines={1}>{photo.title}</Text>
+              {trimLabel ? <Text style={styles.fullPhotoTrimmed}>{trimLabel}</Text> : null}
               <Text style={styles.fullPhotoMeta}>{photo.month} {photo.year} - {formatMB(photo.sizeMB)}</Text>
             </View>
           </>
@@ -3189,11 +3289,13 @@ function FullPhotoModal({ photo, onClose }: { photo: NativePhoto | null; onClose
 }
 
 function QueuePhotoRow({ photo }: { photo: NativePhoto }) {
+  const trimLabel = trimmedPhotoLabel(photo);
   return (
     <View style={styles.reviewRow}>
       <Image source={{ uri: photo.uri }} style={styles.reviewThumb} resizeMode="cover" />
       <View style={styles.reviewCopy}>
         <Text style={styles.reviewTitle} numberOfLines={1}>{photo.title}</Text>
+        {trimLabel ? <Text style={styles.reviewTrimmedLabel}>{trimLabel}</Text> : null}
         <Text style={styles.mutedSmall}>{formatMB(photo.sizeMB)} - trim ~{formatMB(estimateTrimSavings(photo))}</Text>
       </View>
     </View>
@@ -3367,7 +3469,18 @@ function TrimKindSettings({
   );
 }
 
-function SettingsScreen({ settings, isPro, samplePhoto, onChange, onReload }: { settings: NativeSettings; isPro: boolean; samplePhoto?: NativePhoto; onChange: (patch: Partial<NativeSettings>) => void; onReload: () => void }) {
+function SettingsScreen({ settings, isPro, samplePhoto, onChange, onReload }: { settings: NativeSettings; isPro: boolean; samplePhoto?: NativePhoto; onChange: (patch: Partial<NativeSettings>) => void; onReload: () => Promise<void> | void }) {
+  const [reloading, setReloading] = useState(false);
+
+  async function handleReload() {
+    setReloading(true);
+    try {
+      await onReload();
+    } finally {
+      setReloading(false);
+    }
+  }
+
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <View style={styles.settingsHero}>
@@ -3395,7 +3508,9 @@ function SettingsScreen({ settings, isPro, samplePhoto, onChange, onReload }: { 
       <QualityPreview photo={samplePhoto} currentQuality={settings.trimQuality} />
       <BooleanSetting label="Larger controls" detail="Roomier buttons and key text for easier one-handed use." value={settings.largeText} onChange={(largeText) => onChange({ largeText })} />
       <BooleanSetting label="High contrast" detail="Deepens the app background and panel borders." value={settings.highContrast} onChange={(highContrast) => onChange({ highContrast })} />
-      <PrimaryButton label="Reload with these settings" onPress={onReload} />
+      <View style={styles.settingsReloadWrap}>
+        <PrimaryButton label={reloading ? "Reloading photos..." : "Reload with these settings"} disabled={reloading} onPress={() => void handleReload()} />
+      </View>
     </ScrollView>
   );
 }
@@ -3559,6 +3674,7 @@ const styles = StyleSheet.create({
   photoTop: { position: "absolute", top: 14, left: 14, right: 14, flexDirection: "row", flexWrap: "wrap", gap: 8 },
   pill: { overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(15, 23, 42, 0.72)", color: "#f8fafc", paddingHorizontal: 10, paddingVertical: 6, fontSize: 11, fontWeight: "800" },
   pillMuted: { backgroundColor: "rgba(100, 116, 139, 0.76)" },
+  trimmedLabel: { overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(34, 197, 94, 0.92)", color: "#ffffff", paddingHorizontal: 9, paddingVertical: 6, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
   photoBottom: { position: "absolute", left: 18, right: 18, bottom: 18 },
   photoTitle: { color: "#f8fafc", fontSize: 25, fontWeight: "900" },
   photoMeta: { marginTop: 4, color: "#cbd5e1", fontSize: 13, fontWeight: "600" },
@@ -3591,6 +3707,7 @@ const styles = StyleSheet.create({
   checkboxMark: { color: "#fff", fontWeight: "900", fontSize: 14 },
   reviewCopy: { flex: 1 },
   reviewTitle: { color: "#1f2937", fontSize: 14, fontWeight: "800" },
+  reviewTrimmedLabel: { alignSelf: "flex-start", marginTop: 3, marginBottom: 3, overflow: "hidden", borderRadius: 999, backgroundColor: "#dcfce7", color: "#15803d", paddingHorizontal: 7, paddingVertical: 3, fontSize: 9, fontWeight: "900", textTransform: "uppercase" },
   actionLogRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 12 },
   actionLogRowCompact: { padding: 8, marginBottom: 4, borderRadius: 14 },
   compactActionList: { gap: 4 },
@@ -3739,6 +3856,7 @@ const styles = StyleSheet.create({
   choiceImage: { width: "100%", height: "100%" },
   choiceShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(31, 41, 55, 0.18)" },
   choiceBadge: { position: "absolute", top: 10, right: 10, overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(255, 255, 255, 0.88)", color: "#c2410c", paddingHorizontal: 9, paddingVertical: 4, fontSize: 12, fontWeight: "900" },
+  trimmedChoiceBadge: { position: "absolute", top: 10, left: 10, overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(34, 197, 94, 0.92)", color: "#ffffff", paddingHorizontal: 8, paddingVertical: 4, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
   choiceFooter: { position: "absolute", left: 10, right: 10, bottom: 10 },
   choiceTitle: { color: "#ffffff", fontSize: 14, fontWeight: "900" },
   choiceMeta: { marginTop: 3, color: "#ffedd5", fontSize: 12, fontWeight: "800" },
@@ -3752,6 +3870,7 @@ const styles = StyleSheet.create({
   loserThumbGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   loserThumb: { width: 56, height: 66, overflow: "hidden", borderRadius: 12, backgroundColor: "#111827" },
   loserThumbImage: { width: "100%", height: "100%" },
+  trimmedLoserBadge: { position: "absolute", top: 3, left: 3, right: 3, overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(34, 197, 94, 0.92)", color: "#ffffff", paddingHorizontal: 4, paddingVertical: 2, fontSize: 7, fontWeight: "900", textAlign: "center", textTransform: "uppercase" },
   loserThumbText: { position: "absolute", left: 3, right: 3, bottom: 3, overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(15,23,42,0.72)", color: "#ffffff", fontSize: 8, fontWeight: "900", textAlign: "center" },
 
   // Storage budget
@@ -3769,6 +3888,7 @@ const styles = StyleSheet.create({
   budgetImage: { width: "100%", height: "100%" },
   budgetStatus: { position: "absolute", top: 6, left: 6, overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(254, 226, 226, 0.92)", color: "#b91c1c", paddingHorizontal: 7, paddingVertical: 3, fontSize: 10, fontWeight: "900" },
   budgetStatusKept: { backgroundColor: "rgba(220, 252, 231, 0.92)", color: "#15803d" },
+  trimmedTileBadge: { position: "absolute", top: 6, right: 6, maxWidth: "58%", overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(34, 197, 94, 0.92)", color: "#ffffff", paddingHorizontal: 6, paddingVertical: 3, fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
   budgetSize: { position: "absolute", left: 6, right: 6, bottom: 6, color: "#ffffff", fontSize: 11, fontWeight: "900" },
   budgetDecisionCard: { gap: 14, borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16 },
   budgetDecisionTitle: { color: "#1f2937", fontSize: 21, fontWeight: "900" },
@@ -3790,6 +3910,7 @@ const styles = StyleSheet.create({
   fullPhotoImage: { width: "100%", height: "78%" },
   fullPhotoCaption: { position: "absolute", left: 20, right: 20, bottom: 38, borderRadius: 18, backgroundColor: "rgba(15, 23, 42, 0.72)", padding: 14 },
   fullPhotoTitle: { color: "#ffffff", fontSize: 16, fontWeight: "900" },
+  fullPhotoTrimmed: { alignSelf: "flex-start", marginTop: 7, overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(34, 197, 94, 0.92)", color: "#ffffff", paddingHorizontal: 8, paddingVertical: 4, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
   fullPhotoMeta: { marginTop: 3, color: "#cbd5e1", fontSize: 12, fontWeight: "700" },
 
   // Memory Lane
@@ -3830,6 +3951,7 @@ const styles = StyleSheet.create({
   // Settings
   settingCard: { marginTop: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14 },
   settingsHero: { borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 18, gap: 8 },
+  settingsReloadWrap: { marginTop: 24 },
   booleanCopy: { flex: 1, gap: 4 },
   toggleTrack: { width: 54, height: 32, justifyContent: "center", borderRadius: 999, backgroundColor: "#fed7aa", padding: 4 },
   toggleTrackActive: { backgroundColor: "#fb923c" },
