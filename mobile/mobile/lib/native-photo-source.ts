@@ -967,8 +967,10 @@ function chooseAssets(
   duplicateLookup: Set<string>,
 ): MediaLibrary.Asset[] {
   const targeted = assets.filter((asset) => matchesAssetSettings(asset, settings, duplicateLookup));
-  const fallback = assets.filter((asset) => !targeted.some((target) => target.id === asset.id));
-  const pool = settings.targetMode === "balanced" ? assets : [...targeted, ...fallback];
+  // For strict modes (e.g. big-only, old-only) we must NOT mix in non-matching
+  // fallback assets, or small/recent photos sneak into the round. Only the
+  // "balanced" mode is allowed to draw from the whole pool.
+  const pool = settings.targetMode === "balanced" ? assets : targeted;
 
   return shuffle(pool)
     .sort((a, b) => scoreAsset(b, settings) - scoreAsset(a, settings))
@@ -1105,6 +1107,14 @@ export async function loadPhotoRound(
   }
   if (combined.length >= count) return combined.slice(0, count);
 
+  // For strict modes (anything other than "balanced") we deliberately stop here
+  // and return only matching photos. Returning a short round of correctly-
+  // filtered photos is better than padding with off-target ones (e.g. tiny
+  // photos in "big-only" mode).
+  if (settings.targetMode !== "balanced") {
+    return combined;
+  }
+
   const usedIds = new Set(combined.map((photo) => photo.id));
   const fallback = shuffle(
     cache.photos.filter(
@@ -1209,15 +1219,41 @@ async function createTrimmedAsset(
   const effectiveQuality = status.nextKinds.includes("compression") ? quality : Math.max(quality, 0.94);
   try {
     const imageManipulator = await import("expo-image-manipulator");
-    const result = await imageManipulator.manipulateAsync(sourceUri, [], {
-      compress: effectiveQuality,
-      format: imageManipulator.SaveFormat.JPEG,
-    });
-    const fileInfo = await FileSystem.getInfoAsync(result.uri);
-    const trimmedBytes = (fileInfo as FileSystem.FileInfo & { size?: number }).size ?? 0;
+    // Try the requested quality first. iPhone JPEGs are often already encoded
+    // around q=0.85, so re-encoding at q≥0.85 can produce a *bigger* file.
+    // If that happens (and the user wants compression), automatically retry at
+    // progressively lower qualities until we actually save bytes.
+    const allowCompression = status.nextKinds.includes("compression");
+    const qualityLadder = allowCompression
+      ? [effectiveQuality, 0.7, 0.55, 0.4].filter((q, i, arr) => i === 0 || q < arr[i - 1] - 0.01)
+      : [effectiveQuality];
     const originalBytes = Math.max(0, photo.sizeMB * 1024 * 1024);
-    if (!fileInfo.exists || trimmedBytes <= 0 || (originalBytes > 0 && trimmedBytes >= originalBytes)) {
-      await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
+    let lastUri: string | null = null;
+    let bestUri: string | null = null;
+    let bestBytes = Number.POSITIVE_INFINITY;
+    for (const q of qualityLadder) {
+      const result = await imageManipulator.manipulateAsync(sourceUri, [], {
+        compress: q,
+        format: imageManipulator.SaveFormat.JPEG,
+      });
+      lastUri = result.uri;
+      const info = await FileSystem.getInfoAsync(result.uri);
+      const bytes = (info as FileSystem.FileInfo & { size?: number }).size ?? 0;
+      if (info.exists && bytes > 0 && bytes < bestBytes) {
+        if (bestUri && bestUri !== result.uri) {
+          await FileSystem.deleteAsync(bestUri, { idempotent: true }).catch(() => undefined);
+        }
+        bestUri = result.uri;
+        bestBytes = bytes;
+        if (originalBytes > 0 && bytes < originalBytes) break;
+      } else if (result.uri !== bestUri) {
+        await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
+      }
+    }
+    const trimmedBytes = bestBytes === Number.POSITIVE_INFINITY ? 0 : bestBytes;
+    const finalUri = bestUri ?? lastUri;
+    if (!finalUri || trimmedBytes <= 0 || (originalBytes > 0 && trimmedBytes >= originalBytes)) {
+      if (finalUri) await FileSystem.deleteAsync(finalUri, { idempotent: true }).catch(() => undefined);
       await setTrimTag(photo.id, {
         applied: status.applied,
         updatedAt: new Date().toISOString(),
@@ -1229,6 +1265,7 @@ async function createTrimmedAsset(
         error: "Already optimized: this photo would not get smaller with the current Trim settings",
       };
     }
+    const result = { uri: finalUri };
     const created = await MediaLibrary.createAssetAsync(result.uri);
     await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
     const appliedTrimKinds = [...new Set([...status.applied, ...status.nextKinds])];

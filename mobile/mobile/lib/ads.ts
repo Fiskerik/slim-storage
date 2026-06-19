@@ -57,8 +57,9 @@ function rewardedUnitId(): string | null {
       ? ADMOB_IOS_REWARDED_ID
       : ADMOB_ANDROID_REWARDED_ID;
 
-  if (IS_DEV || USE_TEST_ADS || !productionId) return testId;
-  return productionId;
+  if (USE_TEST_ADS) return testId;
+  if (productionId) return productionId;
+  return testId;
 }
 
 function interstitialUnitId(): string | null {
@@ -72,8 +73,9 @@ function interstitialUnitId(): string | null {
       ? ADMOB_IOS_INTERSTITIAL_ID
       : ADMOB_ANDROID_INTERSTITIAL_ID;
 
-  if (IS_DEV || USE_TEST_ADS || !productionId) return testId;
-  return productionId;
+  if (USE_TEST_ADS) return testId;
+  if (productionId) return productionId;
+  return testId;
 }
 
 export function adsAvailable(): boolean {
