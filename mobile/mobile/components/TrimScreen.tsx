@@ -16,6 +16,7 @@ import { colors, radius, shadow, spacing, type } from "../constants/design";
 import { Card, Pill, SectionHeader } from "./ui/primitives";
 import {
   estimateTrimSavings,
+  estimateTrimmedSizeMB,
   getTrimStatus,
   loadPhotoRound,
   requestPhotoPermission,
@@ -84,7 +85,12 @@ export function TrimScreen({
         { ...settings, cardsPerRound: 6, targetMode: "big-or-old" },
         { avoidIds },
       );
-      const candidate = photos.find((p) => getTrimStatus(p, settings.trimKinds).canTrim) ?? photos[0] ?? null;
+      const candidate =
+        photos.find((p) =>
+          getTrimStatus(p, settings.trimKinds, settings.trimQuality, {
+            allowSecondPass: settings.trimReviewMode === "trimmed-only",
+          }).canTrim,
+        ) ?? photos[0] ?? null;
       setPhoto(candidate);
       if (!candidate) setError("No local photos available to trim right now.");
     } catch (e) {
@@ -103,8 +109,13 @@ export function TrimScreen({
   const effectivePresets = selected.length > 0 ? selected : [PRESETS[0]];
   // Apply the strongest (lowest quality) preset when multiple are stacked.
   const effectiveQuality = Math.min(...effectivePresets.map((p) => p.quality));
-  const trimStatus = photo ? getTrimStatus(photo, settings.trimKinds, effectiveQuality) : null;
-  const baseline = photo ? estimateTrimSavings(photo, settings.trimKinds) : 0;
+  const allowSecondPass = settings.trimReviewMode === "trimmed-only";
+  const trimStatus = photo
+    ? getTrimStatus(photo, settings.trimKinds, effectiveQuality, { allowSecondPass })
+    : null;
+  const baseline = photo
+    ? estimateTrimSavings(photo, settings.trimKinds, { allowSecondPass, quality: effectiveQuality })
+    : 0;
   // Combined estimate: sum multipliers but cap at 3x baseline so we don't oversell.
   const combinedMultiplier = Math.min(
     3,
@@ -146,7 +157,9 @@ export function TrimScreen({
         setError("This photo already has all selected trims. Keep it as-is or delete it from another game.");
         return;
       }
-      const result = await trimPhoto(photo, effectiveQuality, settings.trimOutputMode === "replace", settings.trimKinds);
+      const result = await trimPhoto(photo, effectiveQuality, settings.trimOutputMode === "replace", settings.trimKinds, {
+        allowSecondPass,
+      });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       const saved = result.savedMB ?? estSaved;
       if (result.trimmed) {
@@ -220,7 +233,9 @@ export function TrimScreen({
               {photo.month} {photo.year} · {photo.sizeMB.toFixed(1)} MB
             </Text>
             <Text style={styles.metaMode}>
-              {trimStatus?.canTrim ? trimStatus.nextLabel : "Not-trimmable"}
+              {trimStatus?.canTrim
+                ? `${trimStatus.nextLabel} · ${photo.sizeMB.toFixed(1)} -> ${estimateTrimmedSizeMB(photo, settings.trimKinds, { allowSecondPass, quality: effectiveQuality }).toFixed(1)} MB`
+                : "Not-trimmable"}
             </Text>
           </View>
           <Pill icon="sparkles-outline" value={trimStatus?.canTrim ? `~${estSaved.toFixed(1)} MB` : "Done"} label="save" tone="primary" />

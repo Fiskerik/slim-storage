@@ -20,6 +20,8 @@ export type NativePhoto = {
   month: string;
   device: string;
   sizeMB: number;
+  width: number;
+  height: number;
   hasGPS: boolean;
   isCloudAsset: boolean;
   creationTime: number;
@@ -99,7 +101,16 @@ const CACHE_FILE = "trimswipe-native-photo-cache-v1.json";
 const TRIM_TAGS_FILE = "trimswipe-native-trim-tags-v1.json";
 const CACHE_LIMIT = 700;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_TRIM_KINDS: NativeTrimKind[] = ["metadata", "location", "compression"];
+const DEFAULT_TRIM_KINDS: NativeTrimKind[] = ["metadata", "location"];
+const MIN_TRIM_SIZE_MB = 1;
+const RESIZE_SCALE = 0.8;
+const STANDARD_IPHONE_DIMENSIONS = new Set([
+  "4032x3024",
+  "5712x4284",
+  "8064x6048",
+  "3840x2160",
+  "1920x1080",
+]);
 
 let memoryCache: PhotoMetadataCache | null | undefined;
 let memoryTrimTags: Record<string, NativePhotoTrimState> | null | undefined;
@@ -145,7 +156,7 @@ function estimatedAssetSizeMB(asset: MediaLibrary.Asset): number {
 }
 
 function normalizeTrimKinds(value: unknown, fallback: NativeTrimKind[] = []): NativeTrimKind[] {
-  const allowed: NativeTrimKind[] = ["metadata", "location", "compression"];
+  const allowed: NativeTrimKind[] = ["metadata", "location", "compression", "resize", "format"];
   if (!Array.isArray(value)) return fallback;
   const kinds = value.filter((item): item is NativeTrimKind => allowed.includes(item as NativeTrimKind));
   return [...new Set(kinds)];
@@ -244,11 +255,16 @@ async function removeTrimTagIds(ids: string[]): Promise<void> {
 function stripKindLabel(kind: NativeTrimKind, quality?: number): string {
   if (kind === "metadata") return "Metadata stripped";
   if (kind === "location") return "Location stripped";
+  if (kind === "resize") return "Resized to 80%";
+  if (kind === "format") return "Format optimized";
   return `Compressed${quality ? ` ${Math.round(quality * 100)}%` : ""}`;
 }
 
 function nextKindLabel(kinds: NativeTrimKind[], quality?: number): string {
   if (kinds.length === 0) return "Not-trimmable";
+  if (kinds.includes("resize") && kinds.includes("format")) return "Resize 80% + format check";
+  if (kinds.includes("resize")) return "Resize to 80%";
+  if (kinds.includes("format")) return "Try JPG/PNG";
   if (kinds.includes("metadata") && kinds.includes("location")) return "Strip metadata + location";
   if (kinds.includes("metadata")) return "Strip metadata";
   if (kinds.includes("location")) return "Strip location";
@@ -257,9 +273,11 @@ function nextKindLabel(kinds: NativeTrimKind[], quality?: number): string {
 }
 
 export function getTrimStatus(
-  photo: Pick<NativePhoto, "hasGPS" | "isCloudAsset" | "sizeMB" | "trimState">,
+  photo: Pick<NativePhoto, "hasGPS" | "isCloudAsset" | "sizeMB" | "trimState"> &
+    Partial<Pick<NativePhoto, "width" | "height" | "title">>,
   trimKinds: NativeTrimKind[] = DEFAULT_TRIM_KINDS,
   quality?: number,
+  options: { allowSecondPass?: boolean } = {},
 ): {
   canTrim: boolean;
   applied: NativeTrimKind[];
@@ -271,6 +289,7 @@ export function getTrimStatus(
   const enabled = trimKindsForSettings(trimKinds);
   const applied = normalizeTrimKinds(photo.trimState?.applied);
   const blockedReason = photo.trimState?.blockedReason;
+  const allowSecondPass = options.allowSecondPass === true;
   if (blockedReason === "already-optimized") {
     return {
       canTrim: false,
@@ -281,7 +300,41 @@ export function getTrimStatus(
       statusLabel: "Already optimized",
     };
   }
+  if (photo.sizeMB <= MIN_TRIM_SIZE_MB) {
+    return {
+      canTrim: false,
+      applied,
+      strippedLabels: applied.map((kind) => stripKindLabel(kind, quality)),
+      nextKinds: [],
+      nextLabel: "Too small to trim",
+      statusLabel: "Too small to trim",
+    };
+  }
+  if (applied.length > 0 && !allowSecondPass) {
+    return {
+      canTrim: false,
+      applied,
+      strippedLabels: applied.map((kind) => stripKindLabel(kind, quality)),
+      nextKinds: [],
+      nextLabel: "Already trimmed",
+      statusLabel: "Already trimmed",
+    };
+  }
   const appliedSet = new Set(applied);
+  if (allowSecondPass && applied.length > 0) {
+    const secondPassKinds: NativeTrimKind[] = [];
+    if (!appliedSet.has("resize") && isStandardIPhoneSize(photo)) secondPassKinds.push("resize");
+    if (!appliedSet.has("format") && isHeicPhotoName(photo.title ?? "")) secondPassKinds.push("format");
+    if (secondPassKinds.length === 0 && !appliedSet.has("compression")) secondPassKinds.push("compression");
+    return {
+      canTrim: !photo.isCloudAsset && secondPassKinds.length > 0,
+      applied,
+      strippedLabels: applied.map((kind) => stripKindLabel(kind, quality)),
+      nextKinds: secondPassKinds,
+      nextLabel: nextKindLabel(secondPassKinds, quality),
+      statusLabel: secondPassKinds.length > 0 ? nextKindLabel(secondPassKinds, quality) : "Trimmed max",
+    };
+  }
   const pendingStrip = enabled.filter(
     (kind) =>
       (kind === "metadata" || (kind === "location" && (photo.hasGPS || appliedSet.has("location")))) &&
@@ -304,8 +357,59 @@ export function getTrimStatus(
   };
 }
 
+function isHeicPhotoName(name: string): boolean {
+  return /\.(heic|heif)$/i.test(name.trim());
+}
+
+function dimensionKey(width: number, height: number): string {
+  const wide = Math.max(Math.round(width), Math.round(height));
+  const tall = Math.min(Math.round(width), Math.round(height));
+  return `${wide}x${tall}`;
+}
+
+function isStandardIPhoneSize(photo: Partial<Pick<NativePhoto, "width" | "height">>): boolean {
+  const width = photo.width ?? 0;
+  const height = photo.height ?? 0;
+  if (width <= 0 || height <= 0) return false;
+  return STANDARD_IPHONE_DIMENSIONS.has(dimensionKey(width, height));
+}
+
+function hasStripMetadata(info: MediaLibrary.AssetInfo): boolean {
+  const exif = (info.exif ?? {}) as Record<string, unknown>;
+  const stripKeys = [
+    "Make",
+    "Model",
+    "LensModel",
+    "Software",
+    "DateTime",
+    "DateTimeOriginal",
+    "DateTimeDigitized",
+    "OffsetTime",
+    "OffsetTimeOriginal",
+    "GPSLatitude",
+    "GPSLongitude",
+  ];
+  return (
+    Boolean(info.location?.latitude && info.location?.longitude) ||
+    stripKeys.some((key) => {
+      const value = exif[key];
+      if (typeof value === "number") return Number.isFinite(value);
+      if (typeof value === "string") return value.trim().length > 0;
+      return Boolean(value);
+    })
+  );
+}
+
+function inferredTrimStateFromMetadata(info: MediaLibrary.AssetInfo): NativePhotoTrimState | undefined {
+  if (hasStripMetadata(info)) return undefined;
+  return {
+    applied: ["metadata", "location"],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 function estimateTrimKindSavings(
-  photo: Pick<NativePhoto, "sizeMB" | "hasGPS">,
+  photo: Pick<NativePhoto, "sizeMB" | "hasGPS"> & Partial<Pick<NativePhoto, "width" | "height" | "title">>,
   kind: NativeTrimKind,
 ): number {
   if (kind === "metadata") {
@@ -313,6 +417,12 @@ function estimateTrimKindSavings(
   }
   if (kind === "location") {
     return photo.hasGPS ? Math.max(0.1, Math.min(photo.sizeMB * 0.035, 0.45)) : 0;
+  }
+  if (kind === "resize") {
+    return isStandardIPhoneSize(photo) ? photo.sizeMB * (1 - RESIZE_SCALE * RESIZE_SCALE) : 0;
+  }
+  if (kind === "format") {
+    return isHeicPhotoName(photo.title ?? "") ? Math.max(0.1, photo.sizeMB * 0.12) : 0;
   }
   return Math.max(photo.sizeMB * 0.18, Math.min(photo.sizeMB * 0.45, photo.sizeMB * 0.28));
 }
@@ -358,12 +468,16 @@ function matchesPhotoSettings(
       return isOld;
     case "old-and-large":
       return isLarge && isOld;
+    case "duplicates":
     case "similar":
       return includesReason(photo, "Similar");
+    case "blurry":
+      return includesReason(photo, "Mistake?") || includesReason(photo, "Blurry") || includesReason(photo, "Dark");
     case "screenshots":
       return includesReason(photo, "Screenshot");
     case "live-photos":
       return includesReason(photo, "Live Photo");
+    case "multibursts":
     case "bursts":
       return includesReason(photo, "Burst") || includesReason(photo, "Similar");
     case "icloud":
@@ -378,7 +492,9 @@ function matchesPhotoSettings(
 
 function isMaxTrimmedPhoto(photo: NativePhoto, settings: NativeSettings): boolean {
   if (!photo.trimState) return false;
-  const status = getTrimStatus(photo, settings.trimKinds, settings.trimQuality);
+  const status = getTrimStatus(photo, settings.trimKinds, settings.trimQuality, {
+    allowSecondPass: settings.trimReviewMode === "trimmed-only",
+  });
   return status.nextKinds.length === 0 || photo.trimState.blockedReason === "already-optimized";
 }
 
@@ -389,6 +505,11 @@ function shouldUseRoundPhoto(
   excludeMaxTrimmed: boolean,
 ): boolean {
   if (avoidIds.has(photo.id)) return false;
+  const trimmed = Boolean(photo.trimState);
+  if (settings.trimReviewMode === "trimmed-only") {
+    return trimmed && !isMaxTrimmedPhoto(photo, settings);
+  }
+  if (trimmed) return false;
   return !excludeMaxTrimmed || !isMaxTrimmedPhoto(photo, settings);
 }
 
@@ -452,12 +573,16 @@ function matchesAssetSettings(
       return isOld;
     case "old-and-large":
       return isLarge && isOld;
+    case "duplicates":
     case "similar":
       return duplicateLookup.has(duplicateKey(asset));
+    case "blurry":
+      return assetLooksLikeMistake(asset);
     case "screenshots":
       return assetLooksLikeScreenshot(asset);
     case "live-photos":
       return assetLooksLikeLivePhoto(asset);
+    case "multibursts":
     case "bursts":
       return duplicateLookup.has(duplicateKey(asset));
     case "icloud":
@@ -556,7 +681,12 @@ function isNativePhoto(value: unknown): value is NativePhoto {
 
 function normalizeCachedPhoto(photo: NativePhoto): NativePhoto {
   const trimState = normalizeTrimState(photo.trimState);
-  return trimState ? { ...photo, trimState } : { ...photo, trimState: undefined };
+  const normalized = {
+    ...photo,
+    width: Number.isFinite(photo.width) ? photo.width : 0,
+    height: Number.isFinite(photo.height) ? photo.height : 0,
+  };
+  return trimState ? { ...normalized, trimState } : { ...normalized, trimState: undefined };
 }
 
 async function readCache(): Promise<PhotoMetadataCache> {
@@ -653,7 +783,7 @@ async function assetToPhoto(
 
   const created = new Date(asset.creationTime);
   const trimTags = await readTrimTags();
-  const trimState = trimTags[asset.id];
+  const trimState = trimTags[asset.id] ?? inferredTrimStateFromMetadata(info);
   return {
     id: asset.id,
     uri: candidateUri,
@@ -666,6 +796,8 @@ async function assetToPhoto(
         ? ((info.exif as Record<string, unknown>).Model as string)
         : "iPhone",
     sizeMB,
+    width: asset.width || 0,
+    height: asset.height || 0,
     hasGPS: Boolean(info.location?.latitude && info.location?.longitude),
     isCloudAsset: !localUri || localUri.startsWith("ph://") || sizeMB === 0,
     creationTime: asset.creationTime,
@@ -914,9 +1046,9 @@ export async function loadCleanupPlan(
     old: "old-only",
     screenshots: "screenshots",
     live: "live-photos",
-    duplicates: "similar",
-    bursts: "bursts",
-    mistakes: "mistakes",
+    duplicates: "duplicates",
+    bursts: "multibursts",
+    mistakes: "blurry",
   };
   const candidates = await loadPhotoRound(
     count,
@@ -933,10 +1065,20 @@ export async function loadCleanupPlan(
   const deleteCandidates = deleteCategories.has(category) ? candidates : [];
   const trimCandidates = deleteCategories.has(category)
     ? []
-    : candidates.filter((photo) => !photo.isCloudAsset && getTrimStatus(photo, settings.trimKinds).canTrim);
+    : candidates.filter((photo) =>
+        !photo.isCloudAsset &&
+        getTrimStatus(photo, settings.trimKinds, settings.trimQuality, {
+          allowSecondPass: settings.trimReviewMode === "trimmed-only",
+        }).canTrim,
+      );
   const estimatedDeleteSavingsMB = deleteCandidates.reduce((sum, photo) => sum + photo.sizeMB, 0);
   const estimatedTrimSavingsMB = trimCandidates.reduce(
-    (sum, photo) => sum + estimateTrimSavings(photo, settings.trimKinds),
+    (sum, photo) =>
+      sum +
+      estimateTrimSavings(photo, settings.trimKinds, {
+        allowSecondPass: settings.trimReviewMode === "trimmed-only",
+        quality: settings.trimQuality,
+      }),
     0,
   );
   const titleByCategory: Record<NativeCleanupCategory, string> = {
@@ -1049,9 +1191,13 @@ export async function loadRelatedPhotoPairs(
   await upsertCache(photos);
 
   const photoById = new Map(photos.map((photo) => [photo.id, photo]));
+  const avoidIds = new Set<string>();
   return selectedAssets
     .map(([a, b]) => [photoById.get(a.id), photoById.get(b.id)] as const)
-    .filter((pair): pair is [NativePhoto, NativePhoto] => Boolean(pair[0] && pair[1]));
+    .filter((pair): pair is [NativePhoto, NativePhoto] => Boolean(pair[0] && pair[1]))
+    .filter(([a, b]) =>
+      shouldUseRoundPhoto(a, settings, avoidIds, true) && shouldUseRoundPhoto(b, settings, avoidIds, true),
+    );
 }
 
 export async function requestPhotoPermission(): Promise<NativePhotoPermission> {
@@ -1182,8 +1328,9 @@ export async function trimPhoto(
   quality: number,
   replaceOriginal = true,
   trimKinds: NativeTrimKind[] = DEFAULT_TRIM_KINDS,
+  options: { allowSecondPass?: boolean } = {},
 ): Promise<{ trimmed: boolean; newAssetId?: string; savedMB?: number; error?: string }> {
-  const created = await createTrimmedAsset(photo, quality, trimKinds);
+  const created = await createTrimmedAsset(photo, quality, trimKinds, options);
   if (!created.success) return { trimmed: false, error: created.error };
   if (!replaceOriginal) {
     return { trimmed: true, newAssetId: created.newAssetId, savedMB: created.savedMB };
@@ -1207,48 +1354,66 @@ async function createTrimmedAsset(
   photo: NativePhoto,
   quality: number,
   trimKinds: NativeTrimKind[] = DEFAULT_TRIM_KINDS,
+  options: { allowSecondPass?: boolean } = {},
 ): Promise<CreatedTrim> {
   const sourceUri = photo.localUri || photo.uri;
   if (!sourceUri || sourceUri.startsWith("ph://")) {
     return { success: false, originalId: photo.id, error: "Photo is not downloaded locally" };
   }
-  const status = getTrimStatus(photo, trimKinds, quality);
+  const status = getTrimStatus(photo, trimKinds, quality, options);
   if (!status.canTrim) {
     return { success: false, originalId: photo.id, error: "Photo already has all selected trims" };
   }
-  const effectiveQuality = status.nextKinds.includes("compression") ? quality : Math.max(quality, 0.94);
+  const isSecondPass = options.allowSecondPass === true && photo.trimState;
+  const effectiveQuality = isSecondPass
+    ? Math.min(quality, RESIZE_SCALE)
+    : status.nextKinds.includes("compression")
+      ? quality
+      : Math.max(quality, 0.94);
   try {
     const imageManipulator = await import("expo-image-manipulator");
     // Try the requested quality first. iPhone JPEGs are often already encoded
     // around q=0.85, so re-encoding at q≥0.85 can produce a *bigger* file.
     // If that happens (and the user wants compression), automatically retry at
     // progressively lower qualities until we actually save bytes.
-    const allowCompression = status.nextKinds.includes("compression");
+    const allowCompression =
+      status.nextKinds.includes("compression") ||
+      status.nextKinds.includes("resize") ||
+      status.nextKinds.includes("format");
     const qualityLadder = allowCompression
       ? [effectiveQuality, 0.7, 0.55, 0.4].filter((q, i, arr) => i === 0 || q < arr[i - 1] - 0.01)
       : [effectiveQuality];
+    const actions = status.nextKinds.includes("resize") && photo.width > 0
+      ? [{ resize: { width: Math.max(1, Math.round(photo.width * RESIZE_SCALE)) } }]
+      : [];
+    const formats = status.nextKinds.includes("format") || isHeicPhotoName(photo.title)
+      ? [imageManipulator.SaveFormat.JPEG, imageManipulator.SaveFormat.PNG]
+      : [imageManipulator.SaveFormat.JPEG];
     const originalBytes = Math.max(0, photo.sizeMB * 1024 * 1024);
     let lastUri: string | null = null;
     let bestUri: string | null = null;
     let bestBytes = Number.POSITIVE_INFINITY;
-    for (const q of qualityLadder) {
-      const result = await imageManipulator.manipulateAsync(sourceUri, [], {
-        compress: q,
-        format: imageManipulator.SaveFormat.JPEG,
-      });
-      lastUri = result.uri;
-      const info = await FileSystem.getInfoAsync(result.uri);
-      const bytes = (info as FileSystem.FileInfo & { size?: number }).size ?? 0;
-      if (info.exists && bytes > 0 && bytes < bestBytes) {
-        if (bestUri && bestUri !== result.uri) {
-          await FileSystem.deleteAsync(bestUri, { idempotent: true }).catch(() => undefined);
+    for (const format of formats) {
+      for (const q of qualityLadder) {
+        const result = await imageManipulator.manipulateAsync(sourceUri, actions, {
+          compress: q,
+          format,
+        });
+        lastUri = result.uri;
+        const info = await FileSystem.getInfoAsync(result.uri);
+        const bytes = (info as FileSystem.FileInfo & { size?: number }).size ?? 0;
+        if (info.exists && bytes > 0 && bytes < bestBytes) {
+          if (bestUri && bestUri !== result.uri) {
+            await FileSystem.deleteAsync(bestUri, { idempotent: true }).catch(() => undefined);
+          }
+          bestUri = result.uri;
+          bestBytes = bytes;
+          if (originalBytes > 0 && bytes < originalBytes) break;
+        } else if (result.uri !== bestUri) {
+          await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
         }
-        bestUri = result.uri;
-        bestBytes = bytes;
-        if (originalBytes > 0 && bytes < originalBytes) break;
-      } else if (result.uri !== bestUri) {
-        await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
       }
+      if (originalBytes > 0 && bestBytes < originalBytes) break;
     }
     const trimmedBytes = bestBytes === Number.POSITIVE_INFINITY ? 0 : bestBytes;
     const finalUri = bestUri ?? lastUri;
@@ -1268,7 +1433,13 @@ async function createTrimmedAsset(
     const result = { uri: finalUri };
     const created = await MediaLibrary.createAssetAsync(result.uri);
     await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
-    const appliedTrimKinds = [...new Set([...status.applied, ...status.nextKinds])];
+    const appliedTrimKinds = [
+      ...new Set([
+        ...status.applied,
+        ...status.nextKinds,
+        ...(isHeicPhotoName(photo.title) ? (["format"] as NativeTrimKind[]) : []),
+      ]),
+    ];
     await setTrimTag(created.id, {
       applied: appliedTrimKinds,
       updatedAt: new Date().toISOString(),
@@ -1296,12 +1467,13 @@ export async function commitTrims(
   quality: number,
   replaceOriginal = true,
   trimKinds: NativeTrimKind[] = DEFAULT_TRIM_KINDS,
+  options: { allowSecondPass?: boolean } = {},
 ): Promise<Array<{ id: string; trimmed: boolean; savedMB?: number; error?: string }>> {
   if (photos.length === 0) return [];
   const results: CreatedTrim[] = [];
   for (const p of photos) {
     // Sequential to avoid hitting expo-image-manipulator concurrency limits.
-    results.push(await createTrimmedAsset(p, quality, trimKinds));
+    results.push(await createTrimmedAsset(p, quality, trimKinds, options));
   }
   const created = results.filter((r): r is Extract<CreatedTrim, { success: true }> => r.success);
   if (replaceOriginal && created.length > 0) {
@@ -1331,6 +1503,7 @@ export async function commitTrimsAndDeletes(
   quality: number,
   replaceTrimOriginals = true,
   trimKinds: NativeTrimKind[] = DEFAULT_TRIM_KINDS,
+  options: { allowSecondPass?: boolean } = {},
 ): Promise<{
   deletedCount: number;
   deletedPhotos: NativePhoto[];
@@ -1342,7 +1515,7 @@ export async function commitTrimsAndDeletes(
 
   for (const photo of trimCandidates) {
     // Sequential to avoid hitting expo-image-manipulator concurrency limits.
-    trimCreates.push(await createTrimmedAsset(photo, quality, trimKinds));
+    trimCreates.push(await createTrimmedAsset(photo, quality, trimKinds, options));
   }
 
   const createdTrims = trimCreates.filter(
@@ -1405,8 +1578,10 @@ export async function commitTrimsAndDeletes(
 }
 
 export function estimateTrimSavings(
-  photo: Pick<NativePhoto, "sizeMB" | "hasGPS"> & Partial<Pick<NativePhoto, "isCloudAsset" | "trimState">>,
+  photo: Pick<NativePhoto, "sizeMB" | "hasGPS"> &
+    Partial<Pick<NativePhoto, "isCloudAsset" | "trimState" | "width" | "height" | "title">>,
   trimKinds: NativeTrimKind[] = DEFAULT_TRIM_KINDS,
+  options: { allowSecondPass?: boolean; quality?: number } = {},
 ): number {
   const status = getTrimStatus(
     {
@@ -1415,9 +1590,20 @@ export function estimateTrimSavings(
       trimState: photo.trimState,
     },
     trimKinds,
+    options.quality,
+    { allowSecondPass: options.allowSecondPass },
   );
   if (!status.canTrim) return 0;
   return +status.nextKinds
     .reduce((sum, kind) => sum + estimateTrimKindSavings(photo, kind), 0)
     .toFixed(2);
+}
+
+export function estimateTrimmedSizeMB(
+  photo: Pick<NativePhoto, "sizeMB" | "hasGPS"> &
+    Partial<Pick<NativePhoto, "isCloudAsset" | "trimState" | "width" | "height" | "title">>,
+  trimKinds: NativeTrimKind[] = DEFAULT_TRIM_KINDS,
+  options: { allowSecondPass?: boolean; quality?: number } = {},
+): number {
+  return +Math.max(0, photo.sizeMB - estimateTrimSavings(photo, trimKinds, options)).toFixed(2);
 }

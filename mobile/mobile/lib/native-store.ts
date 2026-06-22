@@ -1,14 +1,17 @@
 import * as FileSystem from "expo-file-system/legacy";
 
 export type NativeTargetMode =
+  | "big-only"
+  | "old-only"
+  | "duplicates"
+  | "blurry"
+  | "multibursts"
+  | "screenshots"
+  | "live-photos"
   | "balanced"
   | "big-or-old"
   | "old-and-large"
-  | "big-only"
-  | "old-only"
   | "similar"
-  | "screenshots"
-  | "live-photos"
   | "bursts"
   | "icloud"
   | "mistakes";
@@ -19,7 +22,9 @@ export type NativeActionType = "keep" | "trim" | "delete";
 
 export type NativeTrimOutputMode = "replace" | "save-new";
 
-export type NativeTrimKind = "metadata" | "location" | "compression";
+export type NativeTrimKind = "metadata" | "location" | "compression" | "resize" | "format";
+
+export type NativeTrimReviewMode = "normal" | "trimmed-only";
 
 export type NativeSettings = {
   cardsPerRound: number;
@@ -30,6 +35,7 @@ export type NativeSettings = {
   trimQuality: number;
   trimOutputMode: NativeTrimOutputMode;
   trimKinds: NativeTrimKind[];
+  trimReviewMode: NativeTrimReviewMode;
   largeText: boolean;
   highContrast: boolean;
 };
@@ -82,13 +88,14 @@ const STATS_FILE = "trimswipe-native-stats-v1.json";
 
 export const DEFAULT_NATIVE_SETTINGS: NativeSettings = {
   cardsPerRound: 10,
-  targetMode: "big-or-old",
+  targetMode: "big-only",
   sessionMode: "classic",
   minSizeMB: 8,
   minAgeYears: 4,
   trimQuality: 0.9,
   trimOutputMode: "replace",
-  trimKinds: ["metadata", "location", "compression"],
+  trimKinds: ["metadata", "location"],
+  trimReviewMode: "normal",
   largeText: false,
   highContrast: false,
 };
@@ -169,19 +176,26 @@ function normalizeRewardClaims(value: unknown): Record<string, number> {
 
 function normalizeTargetMode(value: unknown): NativeTargetMode {
   const modes: NativeTargetMode[] = [
+    "big-only",
+    "old-only",
+    "duplicates",
+    "blurry",
+    "multibursts",
+    "screenshots",
+    "live-photos",
     "balanced",
     "big-or-old",
     "old-and-large",
-    "big-only",
-    "old-only",
     "similar",
-    "screenshots",
-    "live-photos",
     "bursts",
     "icloud",
     "mistakes",
   ];
-  return modes.includes(value as NativeTargetMode) ? (value as NativeTargetMode) : "big-or-old";
+  if (value === "big-or-old" || value === "old-and-large") return "big-only";
+  if (value === "similar") return "duplicates";
+  if (value === "bursts") return "multibursts";
+  if (value === "mistakes") return "blurry";
+  return modes.includes(value as NativeTargetMode) ? (value as NativeTargetMode) : "big-only";
 }
 
 function normalizeTrimOutputMode(value: unknown): NativeTrimOutputMode {
@@ -189,10 +203,14 @@ function normalizeTrimOutputMode(value: unknown): NativeTrimOutputMode {
 }
 
 function normalizeTrimKinds(value: unknown): NativeTrimKind[] {
-  const allowed: NativeTrimKind[] = ["metadata", "location", "compression"];
+  const allowed: NativeTrimKind[] = ["metadata", "location", "compression", "resize", "format"];
   if (!Array.isArray(value)) return DEFAULT_NATIVE_SETTINGS.trimKinds;
   const kinds = value.filter((item): item is NativeTrimKind => allowed.includes(item as NativeTrimKind));
   return kinds.length > 0 ? [...new Set(kinds)] : DEFAULT_NATIVE_SETTINGS.trimKinds;
+}
+
+function normalizeTrimReviewMode(value: unknown): NativeTrimReviewMode {
+  return value === "trimmed-only" ? "trimmed-only" : "normal";
 }
 
 function normalizeSessionMode(value: unknown): NativeSessionMode {
@@ -267,6 +285,7 @@ function normalizeStats(value: unknown): NativeStats {
       trimQuality: Math.min(0.98, Math.max(0.65, safeNumber(rawSettings.trimQuality, 0.9))),
       trimOutputMode: normalizeTrimOutputMode(rawSettings.trimOutputMode),
       trimKinds: normalizeTrimKinds(rawSettings.trimKinds),
+      trimReviewMode: normalizeTrimReviewMode(rawSettings.trimReviewMode),
       largeText: Boolean(rawSettings.largeText),
       highContrast: Boolean(rawSettings.highContrast),
     },
