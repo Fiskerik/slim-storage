@@ -21,7 +21,7 @@ workflows:
       branch_patterns:
         - pattern: main
     integrations:
-      app_store_connect: your_integration_name_here 
+      app_store_connect: Codemagic Key 
     scripts:
       - name: Set up Node.js
         script: |
