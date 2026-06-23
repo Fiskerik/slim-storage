@@ -19,8 +19,8 @@ workflows:
       events:
         - push
       branch_patterns:
-        - pattern: main   # Fix 1: Changed 'target: main' to 'pattern: main'
-    integrations:        # Fix 2: Added the integrations block to map App Store Connect
+        - pattern: main
+    integrations:
       app_store_connect: your_integration_name_here 
     scripts:
       - name: Set up Node.js
@@ -61,43 +61,3 @@ workflows:
           - your-email@example.com
       app_store_connect:
         auth: integration
-
-  android-workflow:
-    name: Trimswipe Android Production
-    max_build_duration: 45
-    instance_type: linux_m2
-    environment:
-      vars:
-        NODE_VERSION: "22.12.0"
-        EXPO_PUBLIC_ADMOB_USE_TEST_ADS: "true"
-    triggering:
-      events:
-        - push
-      branch_patterns:
-        - pattern: main   # Fix 1: Updated here as well
-    scripts:
-      - name: Set up Node.js
-        script: |
-          nvm use $NODE_VERSION
-
-      - name: Build Root Mobile SPA Bundle
-        script: |
-          npm install
-          npm run build:mobile-spa
-
-      - name: Install Mobile Project Dependencies
-        script: |
-          cd mobile/mobile
-          npm install
-
-      - name: Expo Prebuild (Generate Native Directories)
-        script: |
-          cd mobile/mobile
-          npx expo prebuild --platform android --no-install
-
-      - name: Build Android App Bundle (AAB)
-        script: |
-          cd mobile/mobile/android
-          ./gradlew bundleRelease
-    artifacts:
-      - mobile/mobile/android/app/build/outputs/bundle/release/*.aab
