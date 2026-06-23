@@ -6,11 +6,10 @@ workflows:
     instance_type: mac_mini_m2
     environment:
       groups:
-        # Define App Store credentials & RevenueCat / AdMob keys here in Codemagic UI
         - apple_credentials 
       vars:
         NODE_VERSION: "22.12.0"
-        XCODE_VERSION: "26.2" # Matches your Xcode expectations
+        XCODE_VERSION: "26.2"
         EXPO_PUBLIC_RC_KEY: "@rc_api_key"
         EXPO_PUBLIC_RC_ENTITLEMENT_ID: "@rc_entitlement_id"
         EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID: "@rc_product_id"
@@ -20,7 +19,9 @@ workflows:
       events:
         - push
       branch_patterns:
-        - target: main
+        - pattern: main   # Fix 1: Changed 'target: main' to 'pattern: main'
+    integrations:        # Fix 2: Added the integrations block to map App Store Connect
+      app_store_connect: your_integration_name_here 
     scripts:
       - name: Set up Node.js
         script: |
@@ -44,7 +45,6 @@ workflows:
 
       - name: Initialize signing certificates
         script: |
-          # Codemagic helper to automatically download profiles and fetch signing keys
           app-store-connect fetch-signing-files "com.fiskerik.trimswipe" --project-type ios
           xcode-project use-profiles
 
@@ -74,7 +74,7 @@ workflows:
       events:
         - push
       branch_patterns:
-        - target: main
+        - pattern: main   # Fix 1: Updated here as well
     scripts:
       - name: Set up Node.js
         script: |
