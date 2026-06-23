@@ -7,12 +7,13 @@ workflows:
     environment:
       groups:
         - Env 
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: "com.fiskerik.trimswipe"
       xcode: latest
       cocoapods: default
-      node: 22.16.0
+      node: 22.12.0
       vars:
-        NODE_VERSION: "22.12.0"
-        XCODE_VERSION: "26.2"
         EXPO_PUBLIC_RC_KEY: "@rc_api_key"
         EXPO_PUBLIC_RC_ENTITLEMENT_ID: "@rc_entitlement_id"
         EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID: "@rc_product_id"
@@ -26,10 +27,6 @@ workflows:
     integrations:
       app_store_connect: Codemagic Key 
     scripts:
-      - name: Set up Node.js
-        script: |
-          nvm use $NODE_VERSION
-      
       - name: Build Root Mobile SPA Bundle
         script: |
           echo "=== Building root mobile web bundle ==="
