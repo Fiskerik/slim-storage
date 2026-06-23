@@ -56,6 +56,7 @@ const config: ExpoConfig = {
       "react-native-google-mobile-ads",
       {
         iosAppId:
+          process.env.EXPO_PUBLIC_IRONSRC_IOS_APP_ID ??
           process.env.EXPO_PUBLIC_ADMOB_IOS_APP_ID ??
           "ca-app-pub-8854735603167656~1027546750",
         androidAppId:

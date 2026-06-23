@@ -1065,12 +1065,17 @@ export async function loadCleanupPlan(
   const deleteCandidates = deleteCategories.has(category) ? candidates : [];
   const trimCandidates = deleteCategories.has(category)
     ? []
-    : candidates.filter((photo) =>
-        !photo.isCloudAsset &&
-        getTrimStatus(photo, settings.trimKinds, settings.trimQuality, {
+    : candidates.filter((photo) => {
+        const trimOptions = {
           allowSecondPass: settings.trimReviewMode === "trimmed-only",
-        }).canTrim,
-      );
+          quality: settings.trimQuality,
+        };
+        return (
+          !photo.isCloudAsset &&
+          getTrimStatus(photo, settings.trimKinds, settings.trimQuality, trimOptions).canTrim &&
+          estimateTrimSavings(photo, settings.trimKinds, trimOptions) > 0
+        );
+      });
   const estimatedDeleteSavingsMB = deleteCandidates.reduce((sum, photo) => sum + photo.sizeMB, 0);
   const estimatedTrimSavingsMB = trimCandidates.reduce(
     (sum, photo) =>
@@ -1374,15 +1379,11 @@ async function createTrimmedAsset(
     const imageManipulator = await import("expo-image-manipulator");
     // Try the requested quality first. iPhone JPEGs are often already encoded
     // around q=0.85, so re-encoding at q≥0.85 can produce a *bigger* file.
-    // If that happens (and the user wants compression), automatically retry at
-    // progressively lower qualities until we actually save bytes.
-    const allowCompression =
-      status.nextKinds.includes("compression") ||
-      status.nextKinds.includes("resize") ||
-      status.nextKinds.includes("format");
-    const qualityLadder = allowCompression
-      ? [effectiveQuality, 0.7, 0.55, 0.4].filter((q, i, arr) => i === 0 || q < arr[i - 1] - 0.01)
-      : [effectiveQuality];
+    // If that happens, retry at progressively lower qualities until we
+    // actually save bytes instead of reporting a selected trim as skipped.
+    const qualityLadder = [effectiveQuality, 0.82, 0.7, 0.55, 0.4].filter(
+      (q, i, arr) => i === 0 || q < arr[i - 1] - 0.01,
+    );
     const actions = status.nextKinds.includes("resize") && photo.width > 0
       ? [{ resize: { width: Math.max(1, Math.round(photo.width * RESIZE_SCALE)) } }]
       : [];

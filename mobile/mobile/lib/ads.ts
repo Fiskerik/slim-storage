@@ -19,10 +19,16 @@ let modTried = false;
 let initialized = false;
 
 const IS_DEV = process.env.NODE_ENV !== "production";
-const USE_TEST_ADS = process.env.EXPO_PUBLIC_ADMOB_USE_TEST_ADS === "true";
-const ADMOB_IOS_REWARDED_ID = process.env.EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID;
+const USE_TEST_ADS =
+  process.env.EXPO_PUBLIC_ADMOB_USE_TEST_ADS === "true" ||
+  process.env.EXPO_PUBLIC_IRONSRC_USE_TEST_ADS === "true";
+const ADMOB_IOS_REWARDED_ID =
+  process.env.EXPO_PUBLIC_IRONSRC_IOS_REWARDED_ID ??
+  process.env.EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID;
 const ADMOB_ANDROID_REWARDED_ID = process.env.EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID;
-const ADMOB_IOS_INTERSTITIAL_ID = process.env.EXPO_PUBLIC_ADMOB_IOS_INTERSTITIAL_ID;
+const ADMOB_IOS_INTERSTITIAL_ID =
+  process.env.EXPO_PUBLIC_IRONSRC_IOS_INTERSTITIAL_ID ??
+  process.env.EXPO_PUBLIC_ADMOB_IOS_INTERSTITIAL_ID;
 const ADMOB_ANDROID_INTERSTITIAL_ID = process.env.EXPO_PUBLIC_ADMOB_ANDROID_INTERSTITIAL_ID;
 const GOOGLE_TEST_REWARDED_IDS = {
   ios: "ca-app-pub-3940256099942544/1712485313",
@@ -59,7 +65,9 @@ function rewardedUnitId(): string | null {
 
   if (USE_TEST_ADS) return testId;
   if (productionId) return productionId;
-  return testId;
+  if (IS_DEV) return testId;
+  console.log("[ads] missing rewarded ad unit id");
+  return null;
 }
 
 function interstitialUnitId(): string | null {
@@ -75,7 +83,9 @@ function interstitialUnitId(): string | null {
 
   if (USE_TEST_ADS) return testId;
   if (productionId) return productionId;
-  return testId;
+  if (IS_DEV) return testId;
+  console.log("[ads] missing interstitial ad unit id");
+  return null;
 }
 
 export function adsAvailable(): boolean {

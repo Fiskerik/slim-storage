@@ -130,6 +130,15 @@ const APP_STORE_URL =
 const BUDGET_MIN_POOL_MB = 60;
 const BUDGET_MAX_POOL_MB = 75;
 const BUDGET_KEEP_LIMIT_MB = 50;
+const FALLBACK_TARGET_MODES: NativeTargetMode[] = [
+  "big-only",
+  "old-only",
+  "duplicates",
+  "screenshots",
+  "multibursts",
+  "blurry",
+  "balanced",
+];
 
 function formatMB(value: number): string {
   return value >= 1024 ? `${(value / 1024).toFixed(2)} GB` : `${value.toFixed(1)} MB`;
@@ -165,6 +174,12 @@ function targetLabel(settings: NativeSettings): string {
   if (settings.targetMode === "multibursts" || settings.targetMode === "bursts") return `${prefix}Multibursts`;
   if (settings.targetMode === "icloud") return `${prefix}iCloud-heavy`;
   return `${prefix}${settings.minSizeMB}+ MB or ${settings.minAgeYears}+ yrs`;
+}
+
+function nextFallbackTargetMode(current: NativeTargetMode): NativeTargetMode {
+  const index = FALLBACK_TARGET_MODES.indexOf(current);
+  if (index < 0) return "balanced";
+  return FALLBACK_TARGET_MODES[(index + 1) % FALLBACK_TARGET_MODES.length] ?? "balanced";
 }
 
 function sessionModeLabel(mode: NativeSessionMode): string {
@@ -746,18 +761,42 @@ export function NativeTrimSwipeApp() {
       setPermissionDenied(false);
       setPermissionLimited(permission.limited);
       let fallbackNotice = "";
-      const photos = await loadPhotoRound(safeCount, activeSettings, {
+      let photos = await loadPhotoRound(safeCount, activeSettings, {
         avoidIds: recentSelectionIds(stats),
         onFallback: (detail) => {
           fallbackNotice = detail;
         },
       });
+      if (photos.length === 0 && activeSettings.targetMode !== "balanced") {
+        const fallbackTargetMode = nextFallbackTargetMode(activeSettings.targetMode);
+        const fallbackSettings = roundSettings({
+          ...activeSettings,
+          targetMode: fallbackTargetMode,
+        });
+        fallbackNotice =
+          `${targetLabel(activeSettings)} did not return matching local photos. ` +
+          `Switched to ${targetLabel(fallbackSettings)}.`;
+        commitStats((current) => ({ ...current, settings: fallbackSettings }));
+        photos = await loadPhotoRound(safeCount, fallbackSettings, {
+          avoidIds: recentSelectionIds(stats),
+        });
+      }
+      if (photos.length === 0 && activeSettings.targetMode !== "balanced") {
+        const broadSettings = roundSettings({ ...activeSettings, targetMode: "balanced" });
+        fallbackNotice =
+          `${targetLabel(activeSettings)} did not return matching local photos. ` +
+          "Loaded a balanced set instead.";
+        commitStats((current) => ({ ...current, settings: broadSettings }));
+        photos = await loadPhotoRound(safeCount, broadSettings, {
+          avoidIds: recentSelectionIds(stats),
+        });
+      }
       setQueue(photos);
       if (fallbackNotice) {
         showToast("Filter widened", fallbackNotice, "info");
       }
       if (photos.length === 0) {
-        setError("No photos were available in the current library selection.");
+        setError("No local photos were available in the current library selection.");
       }
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Could not load photos";
@@ -1659,7 +1698,8 @@ function canAttemptTrim(
     !source.startsWith("ph://") &&
     getTrimStatus(photo, trimKinds, settings?.trimQuality, {
       allowSecondPass: settings?.trimReviewMode === "trimmed-only",
-    }).canTrim
+    }).canTrim &&
+    (!settings || estimateTrimSavingsForSettings(photo, settings) > 0)
   );
 }
 
@@ -1787,6 +1827,7 @@ function CleanupPlanScreen({
       ? plan.candidates[0]
       : null;
   const deepCleanLocked = plan.title === "Deep Clean" && !isPro;
+  const actionCount = plan.deleteCandidates.length + plan.trimCandidates.length;
 
   if (deepCleanLocked) {
     return (
@@ -1799,13 +1840,25 @@ function CleanupPlanScreen({
     );
   }
 
+  if (actionCount === 0) {
+    return (
+      <Centered>
+        <Text style={styles.heroTitle}>{plan.title}</Text>
+        <Text style={styles.centerText}>
+          No matching local photos were found for this preview. Pick another smart folder or reload after changing focus.
+        </Text>
+        <PrimaryButton label="Back home" onPress={onBack} />
+      </Centered>
+    );
+  }
+
   return (
     <ConfirmActionsReview
       title={plan.title}
       detail={
         bestKept
           ? `Best kept: ${bestKept.title}. Review the rest before applying.`
-          : `Preview ${plan.deleteCandidates.length + plan.trimCandidates.length} actions before anything changes.`
+          : `Preview ${actionCount} actions before anything changes.`
       }
       beforeAfter={
         <>
@@ -2181,13 +2234,15 @@ function ConfirmActionsReview({
           ),
         )}
       </ScrollView>
-      <PrimaryButton
-        label={nothingSelected ? "Nothing selected" : `Apply · save ${formatMB(total)}`}
-        danger={chosenDeletes.length > 0}
-        disabled={nothingSelected}
-        onPress={() => onConfirm(chosenDeletes, chosenTrims)}
-      />
-      <SecondaryButton label="Keep them all" onPress={onCancel} />
+      <View style={styles.reviewActionFooter}>
+        <PrimaryButton
+          label={nothingSelected ? "Nothing selected" : `Apply - save ${formatMB(total)}`}
+          danger={chosenDeletes.length > 0}
+          disabled={nothingSelected}
+          onPress={() => onConfirm(chosenDeletes, chosenTrims)}
+        />
+        <SecondaryButton label="Keep them all" onPress={onCancel} />
+      </View>
       <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </View>
   );
@@ -2634,7 +2689,7 @@ function GamesScreen({ stats, settings, queue, tokens, onStartGame, onOpenThisOr
         </View>
       </Pressable>
       <View style={styles.gameGrid}>
-        <VisualGameCard icon="git-compare-outline" title="This or That" detail="Pick the keeper" thumb={gameThumbs[0]?.uri} onPress={onOpenThisOrThat} />
+        <VisualGameCard icon="swap-horizontal-outline" title="This or That" detail="Pick the keeper" thumb={gameThumbs[0]?.uri} onPress={onOpenThisOrThat} />
         <VisualGameCard icon="speedometer-outline" title="Storage Budget" detail="Stay under 50 MB" thumb={gameThumbs[1]?.uri} onPress={onOpenStorageBudget} />
         <VisualGameCard icon="timer-outline" title="Speed Round" detail="60 seconds" thumb={gameThumbs[2]?.uri} active={settings.sessionMode === "time-attack"} onPress={() => onStartGame({ sessionMode: "time-attack" })} />
         <VisualGameCard icon="calendar-outline" title="Memory Lane" detail="Old photos first" thumb={gameThumbs[3]?.uri} active={settings.targetMode === "old-only"} onPress={onOpenMemoryLane} />
@@ -2748,7 +2803,7 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
       const nextPairs = await loadRelatedPhotoPairs(6, {
         ...settings,
         cardsPerRound: 12,
-        targetMode: "duplicates",
+        targetMode: "balanced",
         sessionMode: "classic",
       });
       setPairs(nextPairs);
@@ -2790,6 +2845,20 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
   if (loadingPairs) return <Centered><ActivityIndicator color="#f97316" size="large" /><Text style={styles.muted}>Building This or That pairs...</Text></Centered>;
 
   if (!pair) {
+    if (deleted.length === 0) {
+      return (
+        <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
+          <MiniGameHeader title="This or That" detail="No pairs yet" tokens={tokens} onBack={onBack} />
+          <View style={styles.dashboardHero}>
+            <Text style={styles.heroTitle}>No photo pairs found</Text>
+            <Text style={styles.dashboardCopy}>
+              The current library selection did not return enough local photos for This or That.
+            </Text>
+            <PrimaryButton label="Reload photos" onPress={() => void loadPairs()} />
+          </View>
+        </ScrollView>
+      );
+    }
     return (
       <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
         <MiniGameHeader title="This or That" detail="Round complete" tokens={tokens} onBack={onBack} />
@@ -2804,7 +2873,7 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
             <LoserColumn title="Delete" tone="delete" photos={deleteLosers} settings={settings} onMove={(photo) => setLoserMode(photo, "trim")} />
             <LoserColumn title="Trim" tone="trim" photos={trimLosers} settings={settings} onMove={(photo) => setLoserMode(photo, "delete")} />
           </View>
-          <PrimaryButton label={busy ? "Applying..." : `Apply, save ~${formatMB(totalFreed)}`} disabled={busy} onPress={confirmOutcome} />
+          <PrimaryButton label={busy ? "Applying..." : `Apply, save ~${formatMB(totalFreed)}`} disabled={busy || deleted.length === 0} onPress={confirmOutcome} />
           <SecondaryButton label="Play another round without deleting" onPress={() => void loadPairs()} />
         </View>
       </ScrollView>
@@ -2851,12 +2920,43 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
     try {
       const permission = await requestPhotoPermission();
       if (!permission.granted) { setPhotos([]); return; }
-      const batch = await loadPhotoRound(
-        48,
-        { ...settings, cardsPerRound: 30, targetMode: settings.targetMode, sessionMode: "classic" },
-        { avoidIds: [...new Set([...avoidIds, ...localAvoidIds, ...extraAvoidIds])] },
-      );
-      const finalPool = pickStorageBudgetPool(batch);
+      const mergedAvoidIds = [...new Set([...avoidIds, ...localAvoidIds, ...extraAvoidIds])];
+      const firstSettings = roundSettings({
+        ...settings,
+        cardsPerRound: 30,
+        targetMode: settings.targetMode,
+        sessionMode: "classic",
+      });
+      let fallbackNotice = "";
+      let batch = await loadPhotoRound(48, firstSettings, {
+        avoidIds: mergedAvoidIds,
+        onFallback: (detail) => {
+          fallbackNotice = detail;
+        },
+      });
+      let finalPool = pickStorageBudgetPool(batch);
+      if (finalPool.length === 0 && firstSettings.targetMode !== "balanced") {
+        const fallbackSettings = roundSettings({
+          ...firstSettings,
+          targetMode: nextFallbackTargetMode(firstSettings.targetMode),
+        });
+        fallbackNotice =
+          `${targetLabel(firstSettings)} did not return matching local photos. ` +
+          `Trying ${targetLabel(fallbackSettings)} instead.`;
+        batch = await loadPhotoRound(48, fallbackSettings, { avoidIds: mergedAvoidIds });
+        finalPool = pickStorageBudgetPool(batch);
+      }
+      if (finalPool.length === 0 && firstSettings.targetMode !== "balanced") {
+        const broadSettings = roundSettings({ ...firstSettings, targetMode: "balanced" });
+        fallbackNotice =
+          `${targetLabel(firstSettings)} did not return matching local photos. ` +
+          "Trying a balanced board instead.";
+        batch = await loadPhotoRound(48, broadSettings, { avoidIds: mergedAvoidIds });
+        finalPool = pickStorageBudgetPool(batch);
+      }
+      if (fallbackNotice) {
+        onToast("Filter widened", fallbackNotice, "info");
+      }
       setPhotos(finalPool);
       setKeptIds(new Set());
       setStep("select");
@@ -2923,7 +3023,7 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
         <View style={styles.dashboardHero}>
           <Text style={styles.heroTitle}>No budget photos found</Text>
           <Text style={styles.dashboardCopy}>
-            The current library selection did not return enough local photos for a Storage Budget board. Reload to try a broader set.
+            The current library selection did not return enough local photos for a Storage Budget board.
           </Text>
           <PrimaryButton label="Reload photos" onPress={() => void loadBoard(photos.map((photo) => photo.id))} />
         </View>
@@ -3763,6 +3863,7 @@ const styles = StyleSheet.create({
   // FIX 2: Delete review list - proper bottom padding so buttons aren't hidden
   reviewList: { marginTop: 18, marginBottom: 12, flex: 1 },
   reviewListContent: { paddingBottom: 16 },
+  reviewActionFooter: { gap: 10, paddingBottom: 112 },
   reviewRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: "#ffffff", padding: 10, marginBottom: 8 },
   reviewThumb: { width: 58, height: 58, borderRadius: 14 },
   reviewMoveButton: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa" },

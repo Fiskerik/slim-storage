@@ -22,10 +22,7 @@
     },
     "production": {
       "autoIncrement": true,
-      "node": "22.12.0",
-      "env": {
-        "EXPO_PUBLIC_ADMOB_USE_TEST_ADS": "true"
-      }
+      "node": "22.12.0"
     }
   },
   "submit": {

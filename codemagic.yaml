@@ -19,7 +19,6 @@ workflows:
         EXPO_PUBLIC_RC_KEY: "@rc_api_key"
         EXPO_PUBLIC_RC_ENTITLEMENT_ID: "@rc_entitlement_id"
         EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID: "@rc_product_id"
-        EXPO_PUBLIC_ADMOB_USE_TEST_ADS: "true"
         EXPO_NO_TYPESCRIPT_SETUP: "1"
     triggering:
       events:
