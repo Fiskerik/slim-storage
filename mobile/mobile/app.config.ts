@@ -3,13 +3,14 @@ import type { ExpoConfig } from "expo/config";
 const config: ExpoConfig = {
   name: "Trimswipe",
   slug: "slim-storage",
-  version: "1.0.7",
+  version: "1.0.8",
   icon: "./assets/images/icon.png",
   orientation: "portrait",
   scheme: "trimswipe",
   userInterfaceStyle: "automatic",
   ios: {
     bundleIdentifier: "com.fiskerik.trimswipe",
+    buildNumber: "3",
     supportsTablet: true,
     infoPlist: {
       NSCameraUsageDescription: "Needed to find your pictures.",
@@ -26,6 +27,7 @@ const config: ExpoConfig = {
   },
   android: {
     package: "com.fiskerik.trimswipe",
+    versionCode: 3,
     permissions: [
       "android.permission.READ_EXTERNAL_STORAGE",
       "android.permission.WRITE_EXTERNAL_STORAGE",
