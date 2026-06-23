@@ -48,9 +48,9 @@ workflows:
           cd mobile/mobile/ios
           LATEST_BUILD_NUMBER=$(app-store-connect get-latest-testflight-build-number "com.fiskerik.trimswipe" --all-versions || echo 0)
           if [ -z "$LATEST_BUILD_NUMBER" ]; then
-          LATEST_BUILD_NUMBER=0
+          LATEST_BUILD_NUMBER=1
           fi
-          NEW_BUILD_NUMBER=$(($LATEST_BUILD_NUMBER + 1))
+          NEW_BUILD_NUMBER=$(($LATEST_BUILD_NUMBER + 2))
           agvtool new-version -all $NEW_BUILD_NUMBER
           echo "Set CFBundleVersion to $NEW_BUILD_NUMBER"
       - name: Initialize signing certificates
