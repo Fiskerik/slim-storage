@@ -56,7 +56,8 @@ workflows:
           pod install
           xcode-project build-ipa --workspace *.xcworkspace --scheme "Trimswipe"
     artifacts:
-      - mobile/mobile/ios/build/SignIns/*.ipa
+      
+       - mobile/mobile/ios/build/ios/ipa/*.ipa
     publishing:
       email:
         recipients:
