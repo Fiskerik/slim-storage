@@ -44,7 +44,13 @@ workflows:
         script: |
           cd mobile/mobile
           npx expo prebuild --platform ios --no-install
-
+- name: Set iOS build number
+  script: |
+    cd mobile/mobile/ios
+    LATEST_BUILD_NUMBER=$(app-store-connect get-latest-testflight-build-number "com.fiskerik.trimswipe")
+    NEW_BUILD_NUMBER=$(($LATEST_BUILD_NUMBER + 1))
+    agvtool new-version -all $NEW_BUILD_NUMBER
+    echo "Set CFBundleVersion to $NEW_BUILD_NUMBER"
       - name: Initialize signing certificates
         script: |
           app-store-connect fetch-signing-files "com.fiskerik.trimswipe" --project-type ios
