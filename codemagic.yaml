@@ -1,0 +1,103 @@
+# codemagic.yaml
+workflows:
+  ios-workflow:
+    name: Trimswipe iOS Production
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      groups:
+        # Define App Store credentials & RevenueCat / AdMob keys here in Codemagic UI
+        - apple_credentials 
+      vars:
+        NODE_VERSION: "22.12.0"
+        XCODE_VERSION: "26.2" # Matches your Xcode expectations
+        EXPO_PUBLIC_RC_KEY: "@rc_api_key"
+        EXPO_PUBLIC_RC_ENTITLEMENT_ID: "@rc_entitlement_id"
+        EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID: "@rc_product_id"
+        EXPO_PUBLIC_ADMOB_USE_TEST_ADS: "true"
+        EXPO_NO_TYPESCRIPT_SETUP: "1"
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - target: main
+    scripts:
+      - name: Set up Node.js
+        script: |
+          nvm use $NODE_VERSION
+      
+      - name: Build Root Mobile SPA Bundle
+        script: |
+          echo "=== Building root mobile web bundle ==="
+          npm install
+          npm run build:mobile-spa
+
+      - name: Install Mobile Project Dependencies
+        script: |
+          cd mobile/mobile
+          npm install
+
+      - name: Expo Prebuild (Generate Native Directories)
+        script: |
+          cd mobile/mobile
+          npx expo prebuild --platform ios --no-install
+
+      - name: Initialize signing certificates
+        script: |
+          # Codemagic helper to automatically download profiles and fetch signing keys
+          app-store-connect fetch-signing-files "com.fiskerik.trimswipe" --project-type ios
+          xcode-project use-profiles
+
+      - name: Build iOS IPA
+        script: |
+          cd mobile/mobile/ios
+          pod install
+          xcode-project build-ipa --workspace *.xcworkspace --scheme "Trimswipe"
+    artifacts:
+      - mobile/mobile/ios/build/SignIns/*.ipa
+    publishing:
+      email:
+        recipients:
+          - your-email@example.com
+      app_store_connect:
+        auth: integration
+
+  android-workflow:
+    name: Trimswipe Android Production
+    max_build_duration: 45
+    instance_type: linux_m2
+    environment:
+      vars:
+        NODE_VERSION: "22.12.0"
+        EXPO_PUBLIC_ADMOB_USE_TEST_ADS: "true"
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - target: main
+    scripts:
+      - name: Set up Node.js
+        script: |
+          nvm use $NODE_VERSION
+
+      - name: Build Root Mobile SPA Bundle
+        script: |
+          npm install
+          npm run build:mobile-spa
+
+      - name: Install Mobile Project Dependencies
+        script: |
+          cd mobile/mobile
+          npm install
+
+      - name: Expo Prebuild (Generate Native Directories)
+        script: |
+          cd mobile/mobile
+          npx expo prebuild --platform android --no-install
+
+      - name: Build Android App Bundle (AAB)
+        script: |
+          cd mobile/mobile/android
+          ./gradlew bundleRelease
+    artifacts:
+      - mobile/mobile/android/app/build/outputs/bundle/release/*.aab
