@@ -151,8 +151,8 @@ function roundSettings(settings: NativeSettings): NativeSettings {
   return {
     ...settings,
     cardsPerRound: Math.min(30, Math.max(5, Math.round(settings.cardsPerRound) || 10)),
-    minSizeMB: Math.min(50, Math.max(1, settings.minSizeMB)),
-    minAgeYears: Math.min(30, Math.max(1, settings.minAgeYears)),
+    minSizeMB: Math.min(10, Math.max(0.5, Math.round(settings.minSizeMB * 2) / 2)),
+    minAgeYears: Math.min(3, Math.max(1 / 12, Math.round(settings.minAgeYears * 12) / 12)),
     trimQuality: Math.min(0.98, Math.max(0.65, settings.trimQuality)),
     trimKinds: trimKinds.length > 0 ? [...new Set(trimKinds)] : ["metadata", "location", "compression"],
     trimReviewMode: settings.trimReviewMode === "trimmed-only" ? "trimmed-only" : "normal",
@@ -162,10 +162,10 @@ function roundSettings(settings: NativeSettings): NativeSettings {
 function targetLabel(settings: NativeSettings): string {
   const prefix = settings.trimReviewMode === "trimmed-only" ? "Trimmed only - " : "";
   if (settings.targetMode === "balanced") return "Balanced";
-  if (settings.targetMode === "big-only") return `${prefix}${settings.minSizeMB}+ MB only`;
-  if (settings.targetMode === "old-only") return `${prefix}${settings.minAgeYears}+ year old photos`;
+  if (settings.targetMode === "big-only") return `${prefix}${formatSizeThreshold(settings.minSizeMB)}+ only`;
+  if (settings.targetMode === "old-only") return `${prefix}${formatAgeThreshold(settings.minAgeYears)} old photos`;
   if (settings.targetMode === "old-and-large") {
-    return `${prefix}${settings.minAgeYears}+ yrs and ${settings.minSizeMB}+ MB`;
+    return `${prefix}${formatAgeThreshold(settings.minAgeYears)} and ${formatSizeThreshold(settings.minSizeMB)}+`;
   }
   if (settings.targetMode === "duplicates" || settings.targetMode === "similar") return `${prefix}Duplicates`;
   if (settings.targetMode === "blurry" || settings.targetMode === "mistakes") return `${prefix}Blurry`;
@@ -173,7 +173,19 @@ function targetLabel(settings: NativeSettings): string {
   if (settings.targetMode === "live-photos") return `${prefix}Live Photos`;
   if (settings.targetMode === "multibursts" || settings.targetMode === "bursts") return `${prefix}Multibursts`;
   if (settings.targetMode === "icloud") return `${prefix}iCloud-heavy`;
-  return `${prefix}${settings.minSizeMB}+ MB or ${settings.minAgeYears}+ yrs`;
+  return `${prefix}${formatSizeThreshold(settings.minSizeMB)}+ or ${formatAgeThreshold(settings.minAgeYears)}`;
+}
+
+function formatSizeThreshold(value: number): string {
+  return `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)} MB`;
+}
+
+function formatAgeThreshold(years: number): string {
+  if (years < 1) {
+    const months = Math.max(1, Math.round(years * 12));
+    return `${months}+ mo`;
+  }
+  return `${Number.isInteger(years) ? years.toFixed(0) : years.toFixed(1)}+ ${years === 1 ? "year" : "yrs"}`;
 }
 
 function nextFallbackTargetMode(current: NativeTargetMode): NativeTargetMode {
@@ -1210,12 +1222,11 @@ export function NativeTrimSwipeApp() {
         `${trimCandidates.length}/${toTrim.length} selected trims can be applied. Cloud-only photos cannot be trimmed until downloaded.`,
         "warning",
       );
-      return 0;
     }
 
     return requestConfirmation({
       title: "Apply This or That choices?",
-      detail: `Delete ${deleted.length} and trim ${toTrim.length} photo${deleted.length + toTrim.length === 1 ? "" : "s"}.`,
+      detail: `Delete ${deleted.length} and trim ${trimCandidates.length}${trimCandidates.length < toTrim.length ? ` of ${toTrim.length}` : ""} photo${deleted.length + trimCandidates.length === 1 ? "" : "s"}.`,
       danger: deleted.length > 0,
       onConfirm: async () => {
             const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
@@ -1301,29 +1312,34 @@ export function NativeTrimSwipeApp() {
     toTrim: NativePhoto[],
   ): Promise<number> {
     const deleteSavings = deleted.reduce((sum, photo) => sum + photo.sizeMB, 0);
-    const trimSavings = toTrim.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0);
+    const available = isPro ? toTrim.length : tokenBalance;
+    const trimCandidates = toTrim.filter((photo) => canAttemptTrim(photo, settings)).slice(0, available);
+    if (trimCandidates.length < toTrim.length) {
+      showToast("Not enough tokens", `${trimCandidates.length}/${toTrim.length} selected trims can be applied.`, "warning");
+    }
+    const trimSavings = trimCandidates.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0);
     if (kept.length + deleted.length + toTrim.length === 0) return 0;
 
     return requestConfirmation({
       title: "Apply your budget choices?",
-      detail: `Delete ${deleted.length} and trim ${toTrim.length} photo${deleted.length + toTrim.length === 1 ? "" : "s"} for about ${formatMB(deleteSavings + trimSavings)} saved.`,
+      detail: `Delete ${deleted.length} and trim ${trimCandidates.length}${trimCandidates.length < toTrim.length ? ` of ${toTrim.length}` : ""} photo${deleted.length + trimCandidates.length === 1 ? "" : "s"} for about ${formatMB(deleteSavings + trimSavings)} saved.`,
       danger: deleted.length > 0,
       onConfirm: async () => {
               const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
               const deletedPhotos = deleted.slice(0, deleteResult.deleted);
-              setTrimmingCount((count) => count + toTrim.length);
+              setTrimmingCount((count) => count + trimCandidates.length);
               const trimResults = await commitTrims(
-                toTrim,
+                trimCandidates,
                 settings.trimQuality,
                 settings.trimOutputMode === "replace",
                 settings.trimKinds,
                 { allowSecondPass: settings.trimReviewMode === "trimmed-only" },
-              ).then((rs) => toTrim.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
-              setTrimmingCount((count) => Math.max(0, count - toTrim.length));
-              const trimmedPhotos = toTrim.filter((_, index) => trimResults[index]?.trimmed);
+              ).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
+              setTrimmingCount((count) => Math.max(0, count - trimCandidates.length));
+              const trimmedPhotos = trimCandidates.filter((_, index) => trimResults[index]?.trimmed);
               if (!isPro && trimmedPhotos.length > 0) await spendTokens(trimmedPhotos.length);
               const trimmedIds = new Set(trimmedPhotos.map((photo) => photo.id));
-              const actualTrimSavings = toTrim.reduce(
+              const actualTrimSavings = trimCandidates.reduce(
                 (sum, photo, index) =>
                   trimResults[index]?.trimmed ? sum + (trimResults[index]?.savedMB ?? estimateTrimSavingsForSettings(photo, settings)) : sum,
                 0,
@@ -1366,10 +1382,10 @@ export function NativeTrimSwipeApp() {
                 }, withCooldown);
               });
 
-              if (deleteResult.deleted !== deleted.length || trimmedPhotos.length !== toTrim.length) {
+              if (deleteResult.deleted !== deleted.length || trimmedPhotos.length !== trimCandidates.length) {
                 showToast(
                   "Budget partly applied",
-                  `${deleteResult.deleted}/${deleted.length} deleted and ${trimmedPhotos.length}/${toTrim.length} trimmed. ${trimFailureSummary(trimResults.map((result, index) => ({ id: toTrim[index]?.id ?? String(index), trimmed: result.trimmed, error: result.error })))}`.trim(),
+                  `${deleteResult.deleted}/${deleted.length} deleted and ${trimmedPhotos.length}/${trimCandidates.length} trimmed. ${trimFailureSummary(trimResults.map((result, index) => ({ id: trimCandidates[index]?.id ?? String(index), trimmed: result.trimmed, error: result.error })))}`.trim(),
                   "warning",
                 );
               }
@@ -1385,28 +1401,33 @@ export function NativeTrimSwipeApp() {
     toTrim: NativePhoto[],
   ): Promise<number> {
     const deleteSavings = deleted.reduce((sum, photo) => sum + photo.sizeMB, 0);
-    const trimSavings = toTrim.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0);
+    const available = isPro ? toTrim.length : tokenBalance;
+    const trimCandidates = toTrim.filter((photo) => canAttemptTrim(photo, settings)).slice(0, available);
+    if (trimCandidates.length < toTrim.length) {
+      showToast("Not enough tokens", `${trimCandidates.length}/${toTrim.length} selected trims can be applied.`, "warning");
+    }
+    const trimSavings = trimCandidates.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0);
 
     return requestConfirmation({
       title: "Apply Memory Lane choices?",
-      detail: `Delete ${deleted.length} and trim ${toTrim.length} photo${deleted.length + toTrim.length === 1 ? "" : "s"} for about ${formatMB(deleteSavings + trimSavings)} saved.`,
+      detail: `Delete ${deleted.length} and trim ${trimCandidates.length}${trimCandidates.length < toTrim.length ? ` of ${toTrim.length}` : ""} photo${deleted.length + trimCandidates.length === 1 ? "" : "s"} for about ${formatMB(deleteSavings + trimSavings)} saved.`,
       danger: deleted.length > 0,
       onConfirm: async () => {
               const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
               const deletedPhotos = deleted.slice(0, deleteResult.deleted);
-              setTrimmingCount((count) => count + toTrim.length);
+              setTrimmingCount((count) => count + trimCandidates.length);
               const trimResults = await commitTrims(
-                toTrim,
+                trimCandidates,
                 settings.trimQuality,
                 settings.trimOutputMode === "replace",
                 settings.trimKinds,
                 { allowSecondPass: settings.trimReviewMode === "trimmed-only" },
-              ).then((rs) => toTrim.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
-              setTrimmingCount((count) => Math.max(0, count - toTrim.length));
-              const trimmedPhotos = toTrim.filter((_, index) => trimResults[index]?.trimmed);
+              ).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
+              setTrimmingCount((count) => Math.max(0, count - trimCandidates.length));
+              const trimmedPhotos = trimCandidates.filter((_, index) => trimResults[index]?.trimmed);
               if (!isPro && trimmedPhotos.length > 0) await spendTokens(trimmedPhotos.length);
               const trimmedIds = new Set(trimmedPhotos.map((photo) => photo.id));
-              const actualTrimSavings = toTrim.reduce(
+              const actualTrimSavings = trimCandidates.reduce(
                 (sum, photo, index) =>
                   trimResults[index]?.trimmed ? sum + (trimResults[index]?.savedMB ?? estimateTrimSavingsForSettings(photo, settings)) : sum,
                 0,
@@ -1449,10 +1470,10 @@ export function NativeTrimSwipeApp() {
                 }, withCooldown);
               });
 
-              if (deleteResult.deleted !== deleted.length || trimmedPhotos.length !== toTrim.length) {
+              if (deleteResult.deleted !== deleted.length || trimmedPhotos.length !== trimCandidates.length) {
                 showToast(
                   "Memory Lane partly applied",
-                  `${deleteResult.deleted}/${deleted.length} deleted and ${trimmedPhotos.length}/${toTrim.length} trimmed. ${trimFailureSummary(trimResults.map((result, index) => ({ id: toTrim[index]?.id ?? String(index), trimmed: result.trimmed, error: result.error })))}`.trim(),
+                  `${deleteResult.deleted}/${deleted.length} deleted and ${trimmedPhotos.length}/${trimCandidates.length} trimmed. ${trimFailureSummary(trimResults.map((result, index) => ({ id: trimCandidates[index]?.id ?? String(index), trimmed: result.trimmed, error: result.error })))}`.trim(),
                   "warning",
                 );
               }
@@ -1601,6 +1622,7 @@ export function NativeTrimSwipeApp() {
               setCleanupPlan(null);
               setScreen("swipe");
             }}
+            trimsRemaining={trimCurrencyAvailable}
             onOpenShop={() => setScreen("shop")}
           />
         ) : screen === "shop" ? (
@@ -1645,6 +1667,7 @@ export function NativeTrimSwipeApp() {
             }}
             onClaimWeeklyReward={claimWeeklyReward}
             onPickCategory={openCleanupCategory}
+            onChangeSettings={updateSettings}
             onShare={shareProgress}
           />
         ) : (
@@ -1804,6 +1827,7 @@ function CleanupPlanScreen({
   settings,
   onBack,
   onConfirm,
+  trimsRemaining,
   onOpenShop,
 }: {
   plan: NativeCleanupPlan | null;
@@ -1812,6 +1836,7 @@ function CleanupPlanScreen({
   settings: NativeSettings;
   onBack: () => void;
   onConfirm: (deletes: NativePhoto[], trims: NativePhoto[]) => Promise<void> | void;
+  trimsRemaining: number;
   onOpenShop: () => void;
 }) {
   if (loading) {
@@ -1892,6 +1917,7 @@ function CleanupPlanScreen({
       settings={settings}
       onConfirm={onConfirm}
       onCancel={onBack}
+      trimsRemaining={trimsRemaining}
     />
   );
 }
@@ -1945,6 +1971,7 @@ function SwipeScreen({
         settings={settings}
         onConfirm={(d, t) => onConfirmActions(d, t)}
         onCancel={onCancelPending}
+        trimsRemaining={trimsRemaining}
       />
     );
   }
@@ -2100,6 +2127,7 @@ function ConfirmActionsReview({
   settings,
   onConfirm,
   onCancel,
+  trimsRemaining,
 }: {
   title?: string;
   detail?: string;
@@ -2109,14 +2137,16 @@ function ConfirmActionsReview({
   settings: NativeSettings;
   onConfirm: (deletes: NativePhoto[], trims: NativePhoto[]) => void;
   onCancel: () => void;
+  trimsRemaining?: number;
 }) {
+  const trimSelectionLimit = Math.max(0, Math.floor(trimsRemaining ?? Number.MAX_SAFE_INTEGER));
   const [deleteList, setDeleteList] = useState<NativePhoto[]>(deletes);
   const [trimList, setTrimList] = useState<NativePhoto[]>(trims);
   const [selectedDeletes, setSelectedDeletes] = useState<Set<string>>(
     () => new Set(deletes.map((p) => p.id)),
   );
   const [selectedTrims, setSelectedTrims] = useState<Set<string>>(
-    () => new Set(trims.map((p) => p.id)),
+    () => new Set(trims.slice(0, Math.min(trims.length, trimSelectionLimit)).map((p) => p.id)),
   );
   const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
 
@@ -2127,11 +2157,18 @@ function ConfirmActionsReview({
   const total = deleteMB + trimMB;
   const nothingSelected = chosenDeletes.length + chosenTrims.length === 0;
 
-  function toggle(set: Set<string>, setter: (s: Set<string>) => void, id: string) {
-    const next = new Set(set);
+  function toggleDelete(id: string) {
+    const next = new Set(selectedDeletes);
     if (next.has(id)) next.delete(id);
     else next.add(id);
-    setter(next);
+    setSelectedDeletes(next);
+  }
+
+  function toggleTrim(id: string) {
+    const next = new Set(selectedTrims);
+    if (next.has(id)) next.delete(id);
+    else if (next.size < trimSelectionLimit) next.add(id);
+    setSelectedTrims(next);
   }
 
   function moveToDelete(photo: NativePhoto) {
@@ -2158,7 +2195,10 @@ function ConfirmActionsReview({
       next.delete(photo.id);
       return next;
     });
-    setSelectedTrims((current) => new Set(current).add(photo.id));
+    setSelectedTrims((current) => {
+      if (current.has(photo.id) || current.size >= trimSelectionLimit) return current;
+      return new Set(current).add(photo.id);
+    });
   }
 
   function renderRow(photo: NativePhoto, selected: boolean, onToggle: () => void, hint: string, move: "delete" | "trim") {
@@ -2219,6 +2259,9 @@ function ConfirmActionsReview({
       <Text style={styles.muted}>
         Untick the left checkmark to skip. Long-press a row to view full size. Use the bin/scissors to move photos between Delete and Trim. {chosenDeletes.length} to delete - {chosenTrims.length} to trim - ~{formatMB(total)} saved.
       </Text>
+      {trimSelectionLimit < trimList.length ? (
+        <Text style={styles.warning}>Not enough tokens: {trimSelectionLimit}/{trimList.length} selected trims can be applied.</Text>
+      ) : null}
       <ScrollView style={styles.reviewList} contentContainerStyle={styles.reviewListContent}>
         {trimList.length > 0 ? (
           <Text style={[styles.eyebrow, { marginBottom: 6 }]}>Trim ({chosenTrims.length}/{trimList.length})</Text>
@@ -2227,7 +2270,7 @@ function ConfirmActionsReview({
           renderRow(
             photo,
             selectedTrims.has(photo.id),
-            () => toggle(selectedTrims, setSelectedTrims, photo.id),
+            () => toggleTrim(photo.id),
             trimReviewHint(photo, settings),
             "delete",
           ),
@@ -2241,7 +2284,7 @@ function ConfirmActionsReview({
           renderRow(
             photo,
             selectedDeletes.has(photo.id),
-            () => toggle(selectedDeletes, setSelectedDeletes, photo.id),
+            () => toggleDelete(photo.id),
             canAttemptTrim(photo, settings)
               ? `Delete - frees ${photo.sizeMB.toFixed(1)} MB`
               : `Delete - frees ${photo.sizeMB.toFixed(1)} MB - Cannot trim: ${trimDisabledReason(photo, settings, "detail")}`,
@@ -2287,7 +2330,7 @@ function Recap({
       ? "Trims quietly reclaimed space without losing memories."
       : "A light pass still keeps the camera roll intentional.";
   return (
-    <Centered>
+    <ScrollView contentContainerStyle={styles.recapContent} showsVerticalScrollIndicator={false}>
       <View style={styles.recapBadge}>
         <Text style={styles.recapBadgeIcon}>✓</Text>
       </View>
@@ -2308,7 +2351,7 @@ function Recap({
       <TrimKindSettings settings={settings} isPro={isPro} compact onChange={onChangeSettings} />
       <PrimaryButton label="New set" onPress={onNext} />
       <SecondaryButton label="Share progress" onPress={onShare} />
-    </Centered>
+    </ScrollView>
   );
 }
 
@@ -3703,8 +3746,8 @@ function SettingsScreen({ settings, isPro, samplePhoto, onChange, onReload }: { 
       <FocusDropdown value={settings.targetMode} onChange={(targetMode) => onChange({ targetMode })} />
       {settings.targetMode !== "balanced" ? (
         <>
-          <SettingStepper label="Large threshold" value={settings.minSizeMB} suffix="MB" min={1} max={50} step={1} onChange={(minSizeMB) => onChange({ minSizeMB })} />
-          <SettingStepper label="Old threshold" value={settings.minAgeYears} suffix="years" min={1} max={30} step={1} onChange={(minAgeYears) => onChange({ minAgeYears })} />
+          <SettingStepper label="Large threshold" value={settings.minSizeMB} suffix="MB" min={0.5} max={10} step={0.5} onChange={(minSizeMB) => onChange({ minSizeMB })} />
+          <SettingStepper label="Old threshold" value={settings.minAgeYears} suffix="years" min={1 / 12} max={3} step={1 / 12} onChange={(minAgeYears) => onChange({ minAgeYears })} />
         </>
       ) : null}
       <SettingStepper label="Trim quality" value={Math.round(settings.trimQuality * 100)} suffix="%" min={65} max={98} step={1} onChange={(quality) => onChange({ trimQuality: quality / 100 })} />
@@ -3786,11 +3829,15 @@ function MiniStat({ label, value }: { label: string; value: number }) {
 }
 
 function SettingStepper({ label, value, suffix, min, max, step, onChange }: { label: string; value: number; suffix: string; min: number; max: number; step: number; onChange: (value: number) => void }) {
+  const displayValue =
+    suffix === "years" && value < 1
+      ? `${Math.max(1, Math.round(value * 12))} ${Math.max(1, Math.round(value * 12)) === 1 ? "month" : "months"}`
+      : `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)} ${suffix}`;
   return (
     <View style={styles.settingCard}>
       <View>
         <Text style={styles.settingLabel}>{label}</Text>
-        <Text style={styles.settingValue}>{value} {suffix}</Text>
+        <Text style={styles.settingValue}>{displayValue}</Text>
       </View>
       <View style={styles.stepper}>
         <Pressable style={styles.stepperButton} onPress={() => onChange(Math.max(min, +(value - step).toFixed(2)))}><Text style={styles.stepperText}>-</Text></Pressable>
@@ -3841,6 +3888,7 @@ const styles = StyleSheet.create({
   shellHighContrast: { backgroundColor: "#fffbeb" },
   content: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 110 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", gap: 14, padding: 24 },
+  recapContent: { flexGrow: 1, alignItems: "center", justifyContent: "center", gap: 14, paddingHorizontal: 24, paddingTop: 28, paddingBottom: 142 },
   heroTitle: { color: "#1f2937", fontSize: 28, fontWeight: "800" },
   muted: { color: "#64748b", fontSize: 14 },
   mutedSmall: { color: "#64748b", fontSize: 12 },

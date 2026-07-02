@@ -8,6 +8,8 @@ import {
   StyleSheet,
   Text,
   View,
+  type GestureResponderEvent,
+  type LayoutChangeEvent,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -29,6 +31,7 @@ import type {
 import type {
   NativeActionLogEntry,
   NativeDailyStats,
+  NativeSettings,
   NativeStats,
 } from "../lib/native-store";
 
@@ -82,17 +85,23 @@ export type HomeDashboardProps = {
   onOptimizeStorage: () => void;
   onClaimWeeklyReward: () => void;
   onPickCategory: (key: Category["key"]) => void;
+  onChangeSettings: (patch: Partial<NativeSettings>) => void;
   onShare: () => void;
 };
 
 
-const CAT_DEFS: { key: Category["key"]; label: string; icon: keyof typeof Ionicons.glyphMap; match: (p: NativePhoto) => boolean }[] = [
-  { key: "large", label: ">5MB", icon: "albums-outline", match: (p) => p.sizeMB >= 5 },
-  { key: "old", label: ">1 year", icon: "time-outline", match: (p) => Date.now() - p.creationTime > 365.25 * 24 * 3600 * 1000 },
-  { key: "screenshots", label: "Screens", icon: "phone-portrait-outline", match: (p) => p.cleanupReasons.includes("Screenshot") || p.title.toLowerCase().includes("screen") },
-  { key: "live", label: "Live", icon: "radio-button-on-outline", match: (p) => p.cleanupReasons.includes("Live Photo") },
-  { key: "duplicates", label: "Dupes", icon: "copy-outline", match: (p) => p.cleanupReasons.includes("Similar") },
-  { key: "bursts", label: "Bursts", icon: "sparkles-outline", match: (p) => p.cleanupReasons.includes("Burst") || p.cleanupReasons.includes("Similar") },
+const CAT_DEFS: Array<{
+  key: Category["key"];
+  label: (settings: NativeSettings) => string;
+  icon: keyof typeof Ionicons.glyphMap;
+  match: (p: NativePhoto, settings: NativeSettings) => boolean;
+}> = [
+  { key: "large", label: (s) => `>${formatThresholdMB(s.minSizeMB)}`, icon: "albums-outline", match: (p, s) => p.sizeMB >= s.minSizeMB },
+  { key: "old", label: (s) => `>${formatAgeThreshold(s.minAgeYears)}`, icon: "time-outline", match: (p, s) => ageYears(p.creationTime) >= s.minAgeYears },
+  { key: "screenshots", label: () => "Screens", icon: "phone-portrait-outline", match: (p) => p.cleanupReasons.includes("Screenshot") || p.title.toLowerCase().includes("screen") },
+  { key: "live", label: () => "Live", icon: "radio-button-on-outline", match: (p) => p.cleanupReasons.includes("Live Photo") },
+  { key: "duplicates", label: () => "Dupes", icon: "copy-outline", match: (p) => p.cleanupReasons.includes("Similar") },
+  { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (p) => p.cleanupReasons.includes("Burst") || p.cleanupReasons.includes("Similar") },
 ];
 
 export function HomeDashboard(props: HomeDashboardProps) {
@@ -120,6 +129,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
     onOptimizeStorage,
     onClaimWeeklyReward,
     onPickCategory,
+    onChangeSettings,
     onShare,
   } = props;
 
@@ -138,12 +148,12 @@ export function HomeDashboard(props: HomeDashboardProps) {
   const categories: Category[] = useMemo(
     () =>
       CAT_DEFS.map((def) => {
-        const matched = queue.filter(def.match);
+        const matched = queue.filter((photo) => def.match(photo, stats.settings));
         const sumMB = matched.reduce((s, p) => s + p.sizeMB, 0);
         const scanEstimate = scan ? estimateCategoryFromScan(scan, def.key) : null;
         return {
           key: def.key,
-          label: def.label,
+          label: def.label(stats.settings),
           icon: def.icon,
           count: matched.length || scanEstimate?.count || estimateCountFor(stats, def.key),
           estMB: sumMB || scanEstimate?.mb || estimateMBFor(stats, def.key),
@@ -454,6 +464,30 @@ export function HomeDashboard(props: HomeDashboardProps) {
 
         {/* Categories carousel */}
         <SectionHeader title="Smart folders" action={<Text style={styles.sectionAction}>Tap to preview</Text>} />
+        <View style={styles.filterPanel}>
+          <FilterSlider
+            label="Large photos"
+            value={stats.settings.minSizeMB}
+            min={0.5}
+            max={10}
+            step={0.5}
+            valueText={`>${formatThresholdMB(stats.settings.minSizeMB)}`}
+            minText=">0.5 MB"
+            maxText=">10 MB"
+            onChange={(minSizeMB) => onChangeSettings({ minSizeMB })}
+          />
+          <FilterSlider
+            label="Older than"
+            value={stats.settings.minAgeYears}
+            min={1 / 12}
+            max={3}
+            step={1 / 12}
+            valueText={`>${formatAgeThreshold(stats.settings.minAgeYears)}`}
+            minText=">1 mo"
+            maxText=">3 yrs"
+            onChange={(minAgeYears) => onChangeSettings({ minAgeYears })}
+          />
+        </View>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -528,6 +562,62 @@ function TodayStat({
   );
 }
 
+function FilterSlider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  valueText,
+  minText,
+  maxText,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  valueText: string;
+  minText: string;
+  maxText: string;
+  onChange: (value: number) => void;
+}) {
+  const [width, setWidth] = useState(1);
+  const percent = Math.max(0, Math.min(1, (value - min) / (max - min)));
+
+  function commit(locationX: number) {
+    const raw = min + (Math.max(0, Math.min(width, locationX)) / width) * (max - min);
+    const snapped = +(Math.round(raw / step) * step).toFixed(4);
+    onChange(Math.max(min, Math.min(max, snapped)));
+  }
+
+  return (
+    <View style={styles.filterSlider}>
+      <View style={styles.filterSliderHeader}>
+        <Text style={styles.filterSliderLabel}>{label}</Text>
+        <Text style={styles.filterSliderValue}>{valueText}</Text>
+      </View>
+      <View
+        style={styles.filterTrack}
+        onLayout={(event: LayoutChangeEvent) => setWidth(Math.max(1, event.nativeEvent.layout.width))}
+        onStartShouldSetResponder={() => true}
+        onMoveShouldSetResponder={() => true}
+        onResponderGrant={(event: GestureResponderEvent) => commit(event.nativeEvent.locationX)}
+        onResponderMove={(event: GestureResponderEvent) => commit(event.nativeEvent.locationX)}
+      >
+        <View style={styles.filterRail} />
+        <View style={[styles.filterFill, { width: `${percent * 100}%` }]} />
+        <View style={[styles.filterThumb, { left: `${percent * 100}%` }]} />
+      </View>
+      <View style={styles.filterRangeRow}>
+        <Text style={styles.filterRangeText}>{minText}</Text>
+        <Text style={styles.filterRangeText}>{maxText}</Text>
+      </View>
+    </View>
+  );
+}
+
 function BreakdownLine({ color, label, value }: { color: string; label: string; value: string }) {
   return (
     <View style={styles.breakdownLine}>
@@ -596,6 +686,19 @@ function RecentList({ entries }: { entries: NativeActionLogEntry[] }) {
 function formatMB(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return "0 MB";
   return value >= 1024 ? `${(value / 1024).toFixed(2)} GB` : `${value.toFixed(1)} MB`;
+}
+function formatThresholdMB(value: number): string {
+  return `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)}MB`;
+}
+function ageYears(createdAt: number): number {
+  return (Date.now() - createdAt) / (365.25 * 24 * 3600 * 1000);
+}
+function formatAgeThreshold(years: number): string {
+  if (years < 1) {
+    const months = Math.max(1, Math.round(years * 12));
+    return `${months} mo`;
+  }
+  return `${Number.isInteger(years) ? years.toFixed(0) : years.toFixed(1)} ${years === 1 ? "year" : "yrs"}`;
 }
 function estimateCategoryFromScan(scan: NativeLibraryScan, key: NativeCleanupCategory): { count: number; mb: number } {
   const map: Record<NativeCleanupCategory, { count: number; mb: number }> = {
@@ -856,6 +959,48 @@ const styles = StyleSheet.create({
   sectionAction: { fontSize: 12, fontWeight: "700", color: colors.primary },
 
   catScroll: { paddingRight: spacing.xl, gap: 12 },
+  filterPanel: {
+    marginBottom: spacing.md,
+    gap: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    padding: spacing.md,
+    ...shadow.soft,
+  },
+  filterSlider: { gap: 8 },
+  filterSliderHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
+  filterSliderLabel: { fontSize: 12, fontWeight: "900", color: colors.text },
+  filterSliderValue: { fontSize: 12, fontWeight: "900", color: colors.primary },
+  filterTrack: { height: 24, justifyContent: "center" },
+  filterRail: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    height: 7,
+    borderRadius: radius.pill,
+    backgroundColor: colors.borderSoft,
+  },
+  filterFill: {
+    position: "absolute",
+    left: 0,
+    height: 7,
+    borderRadius: radius.pill,
+    backgroundColor: colors.primary,
+  },
+  filterThumb: {
+    position: "absolute",
+    width: 22,
+    height: 22,
+    marginLeft: -11,
+    borderRadius: 11,
+    backgroundColor: colors.white,
+    borderWidth: 3,
+    borderColor: colors.primary,
+  },
+  filterRangeRow: { flexDirection: "row", justifyContent: "space-between" },
+  filterRangeText: { fontSize: 10, fontWeight: "700", color: colors.textMuted },
   catCard: {
     width: 150,
     borderRadius: radius.lg,

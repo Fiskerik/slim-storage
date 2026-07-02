@@ -1064,8 +1064,8 @@ export async function loadCleanupPlan(
       ...settings,
       targetMode: targetModeByCategory[category],
       cardsPerRound: count,
-      minSizeMB: category === "large" ? 5 : settings.minSizeMB,
-      minAgeYears: category === "old" ? 1 : settings.minAgeYears,
+      minSizeMB: settings.minSizeMB,
+      minAgeYears: settings.minAgeYears,
     },
     options,
   );
