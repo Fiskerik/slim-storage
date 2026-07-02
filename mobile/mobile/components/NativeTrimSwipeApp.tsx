@@ -568,6 +568,7 @@ export function NativeTrimSwipeApp() {
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  const applyingActionsRef = useRef(false);
 
   const settings = roundSettings(stats.settings);
   const top = queue[0];
@@ -917,7 +918,13 @@ export function NativeTrimSwipeApp() {
   }
 
   async function confirmActions(deletes: NativePhoto[], trims: NativePhoto[]) {
+    if (applyingActionsRef.current) {
+      showToast("Already applying", "Please wait for the Photos confirmation.", "info");
+      return;
+    }
+    applyingActionsRef.current = true;
     setLoading(true);
+    try {
     const requestedTrimIds = new Set(trims.map((p) => p.id));
     const requestedDeleteIds = new Set(deletes.map((p) => p.id));
     const chargeableTrims = isPro ? trims : trims.slice(0, tokenBalance);
@@ -1017,6 +1024,9 @@ export function NativeTrimSwipeApp() {
       await notifyCleanupProgress("Cleanup complete", `Saved about ${formatMB(sessionRef.current.freed)}.`);
     }
     maybeShowInterstitialAfterCleanup(deletedCount + trimmedOkIds.size);
+    } finally {
+      applyingActionsRef.current = false;
+    }
   }
 
   function cancelPendingActions() {
@@ -2135,7 +2145,7 @@ function ConfirmActionsReview({
   deletes: NativePhoto[];
   trims: NativePhoto[];
   settings: NativeSettings;
-  onConfirm: (deletes: NativePhoto[], trims: NativePhoto[]) => void;
+  onConfirm: (deletes: NativePhoto[], trims: NativePhoto[]) => Promise<void> | void;
   onCancel: () => void;
   trimsRemaining?: number;
 }) {
@@ -2149,6 +2159,8 @@ function ConfirmActionsReview({
     () => new Set(trims.slice(0, Math.min(trims.length, trimSelectionLimit)).map((p) => p.id)),
   );
   const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
+  const [applying, setApplying] = useState(false);
+  const applyingRef = useRef(false);
 
   const chosenDeletes = deleteList.filter((p) => selectedDeletes.has(p.id));
   const chosenTrims = trimList.filter((p) => selectedTrims.has(p.id));
@@ -2157,7 +2169,21 @@ function ConfirmActionsReview({
   const total = deleteMB + trimMB;
   const nothingSelected = chosenDeletes.length + chosenTrims.length === 0;
 
+  async function handleApply() {
+    if (applyingRef.current || nothingSelected) return;
+    applyingRef.current = true;
+    setApplying(true);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    try {
+      await onConfirm(chosenDeletes, chosenTrims);
+    } finally {
+      applyingRef.current = false;
+      setApplying(false);
+    }
+  }
+
   function toggleDelete(id: string) {
+    if (applying) return;
     const next = new Set(selectedDeletes);
     if (next.has(id)) next.delete(id);
     else next.add(id);
@@ -2165,6 +2191,7 @@ function ConfirmActionsReview({
   }
 
   function toggleTrim(id: string) {
+    if (applying) return;
     const next = new Set(selectedTrims);
     if (next.has(id)) next.delete(id);
     else if (next.size < trimSelectionLimit) next.add(id);
@@ -2172,6 +2199,7 @@ function ConfirmActionsReview({
   }
 
   function moveToDelete(photo: NativePhoto) {
+    if (applying) return;
     setTrimList((current) => current.filter((item) => item.id !== photo.id));
     setDeleteList((current) =>
       current.some((item) => item.id === photo.id) ? current : [...current, photo],
@@ -2185,6 +2213,7 @@ function ConfirmActionsReview({
   }
 
   function moveToTrim(photo: NativePhoto) {
+    if (applying) return;
     if (!canAttemptTrim(photo, settings)) return;
     setDeleteList((current) => current.filter((item) => item.id !== photo.id));
     setTrimList((current) =>
@@ -2293,13 +2322,24 @@ function ConfirmActionsReview({
         )}
       </ScrollView>
       <View style={styles.reviewActionFooter}>
+        {applying ? (
+          <View style={styles.applyProgressCard}>
+            <View style={styles.applyProgressHeader}>
+              <Text style={styles.applyProgressTitle}>Preparing changes</Text>
+              <Text style={styles.applyProgressDetail}>Photos may ask for confirmation next.</Text>
+            </View>
+            <View style={styles.applyProgressTrack}>
+              <View style={styles.applyProgressFill} />
+            </View>
+          </View>
+        ) : null}
         <PrimaryButton
-          label={nothingSelected ? "Nothing selected" : `Apply - save ${formatMB(total)}`}
+          label={applying ? "Applying..." : nothingSelected ? "Nothing selected" : `Apply - save ${formatMB(total)}`}
           danger={chosenDeletes.length > 0}
-          disabled={nothingSelected}
-          onPress={() => onConfirm(chosenDeletes, chosenTrims)}
+          disabled={nothingSelected || applying}
+          onPress={handleApply}
         />
-        <SecondaryButton label="Keep them all" onPress={onCancel} />
+        <SecondaryButton label="Keep them all" disabled={applying} onPress={onCancel} />
       </View>
       <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </View>
@@ -3805,16 +3845,25 @@ function ActionButton({ label, tone, onPress, large, disabled }: { label: string
 
 function PrimaryButton({ label, danger, disabled, onPress }: { label: string; danger?: boolean; disabled?: boolean; onPress: () => void }) {
   return (
-    <Pressable disabled={disabled} onPress={onPress} style={[styles.primaryButton, danger && styles.dangerButton, disabled && styles.primaryButtonDisabled]}>
+    <Pressable
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.primaryButton,
+        danger && styles.dangerButton,
+        pressed && !disabled && styles.primaryButtonPressed,
+        disabled && styles.primaryButtonDisabled,
+      ]}
+    >
       <Text style={styles.primaryButtonText}>{label}</Text>
     </Pressable>
   );
 }
 
-function SecondaryButton({ label, onPress }: { label: string; onPress: () => void }) {
+function SecondaryButton({ label, disabled, onPress }: { label: string; disabled?: boolean; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={styles.secondaryButton}>
-      <Text style={styles.secondaryButtonText}>{label}</Text>
+    <Pressable disabled={disabled} onPress={onPress} style={[styles.secondaryButton, disabled && styles.secondaryButtonDisabled]}>
+      <Text style={[styles.secondaryButtonText, disabled && styles.secondaryButtonTextDisabled]}>{label}</Text>
     </Pressable>
   );
 }
@@ -3954,6 +4003,29 @@ const styles = StyleSheet.create({
   reviewList: { marginTop: 18, marginBottom: 12, flex: 1 },
   reviewListContent: { paddingBottom: 16 },
   reviewActionFooter: { gap: 10, paddingBottom: 112 },
+  applyProgressCard: {
+    borderRadius: 18,
+    backgroundColor: "#fff7ed",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#fed7aa",
+    padding: 13,
+    gap: 10,
+  },
+  applyProgressHeader: { gap: 2 },
+  applyProgressTitle: { color: "#1f2937", fontSize: 13, fontWeight: "900" },
+  applyProgressDetail: { color: "#64748b", fontSize: 11, fontWeight: "700" },
+  applyProgressTrack: {
+    height: 8,
+    overflow: "hidden",
+    borderRadius: 999,
+    backgroundColor: "#ffedd5",
+  },
+  applyProgressFill: {
+    width: "68%",
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: "#f97316",
+  },
   reviewRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: "#ffffff", padding: 10, marginBottom: 8 },
   reviewThumb: { width: 58, height: 58, borderRadius: 14 },
   reviewMoveButton: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa" },
@@ -4256,11 +4328,14 @@ const styles = StyleSheet.create({
 
   // Buttons
   primaryButton: { width: "100%", alignItems: "center", borderRadius: 18, backgroundColor: "#f97316", paddingVertical: 15, paddingHorizontal: 18 },
+  primaryButtonPressed: { transform: [{ scale: 0.985 }], opacity: 0.86 },
   primaryButtonDisabled: { backgroundColor: "#fdba74", opacity: 0.72 },
   dangerButton: { backgroundColor: "#dc2626" },
   primaryButtonText: { color: "#ffffff", fontSize: 15, fontWeight: "900" },
   secondaryButton: { width: "100%", alignItems: "center", borderRadius: 18, borderWidth: 1, borderColor: "#fed7aa", backgroundColor: "#ffffff", paddingVertical: 14, paddingHorizontal: 18 },
+  secondaryButtonDisabled: { opacity: 0.55 },
   secondaryButtonText: { color: "#c2410c", fontSize: 14, fontWeight: "800" },
+  secondaryButtonTextDisabled: { color: "#9ca3af" },
 
   // Nav
   bottomNav: { position: "absolute", left: 14, right: 14, bottom: 14, flexDirection: "row", gap: 8, borderRadius: 30, backgroundColor: "rgba(255, 255, 255, 0.98)", borderWidth: 1, borderColor: "#f59e0b", padding: 8, shadowColor: "#fb923c", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 22, elevation: 8 },
