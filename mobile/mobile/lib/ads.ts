@@ -146,6 +146,13 @@ export async function showRewardedAd(): Promise<number> {
 
       let earned = false;
       let settled = false;
+      let credited = false;
+      const creditReward = async (): Promise<number> => {
+        if (credited) return REWARDED_AD_TOKENS;
+        credited = true;
+        await addTokens(REWARDED_AD_TOKENS, "ad");
+        return REWARDED_AD_TOKENS;
+      };
       const settle = (value: number) => {
         if (settled) return;
         settled = true;
@@ -164,8 +171,7 @@ export async function showRewardedAd(): Promise<number> {
       });
       const unsubClose = ad.addAdEventListener(m.AdEventType.CLOSED, async () => {
         if (earned) {
-          await addTokens(REWARDED_AD_TOKENS, "ad");
-          settle(REWARDED_AD_TOKENS);
+          settle(await creditReward());
         } else settle(0);
       });
       const unsubErr = ad.addAdEventListener(m.AdEventType.ERROR, (err: unknown) => {
@@ -176,7 +182,13 @@ export async function showRewardedAd(): Promise<number> {
       ad.load();
 
       // Safety timeout
-      setTimeout(() => settle(earned ? REWARDED_AD_TOKENS : 0), 45000);
+      setTimeout(() => {
+        if (!earned) {
+          settle(0);
+          return;
+        }
+        void creditReward().then(settle).catch(() => settle(0));
+      }, 45000);
     } catch (err) {
       console.log("[ads] showRewardedAd exception", err);
       resolve(0);

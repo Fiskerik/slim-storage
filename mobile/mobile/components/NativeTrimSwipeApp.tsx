@@ -886,12 +886,9 @@ export function NativeTrimSwipeApp() {
       return;
     }
     if (!canAttemptTrim(photo, settings)) {
-      const status = trimStatusForSettings(photo, settings);
       showToast(
-        status.nextKinds.length === 0 ? "Already fully trimmed" : "Cannot trim this photo",
-        status.nextKinds.length === 0
-          ? "All selected trim data has already been removed. Keep or delete it instead."
-          : "The original is not downloaded locally. Keep or delete it instead.",
+        "Cannot trim this photo",
+        `${trimDisabledReason(photo, settings, "detail")}. Keep or delete it instead.`,
         "warning",
       );
       return;
@@ -1705,21 +1702,39 @@ function canAttemptTrim(
 
 function trimPillText(photo: NativePhoto, settings: NativeSettings): string {
   const status = trimStatusForSettings(photo, settings);
-  if (!status.canTrim) return "Not-trimmable";
+  if (!status.canTrim) return `Can't trim: ${trimDisabledReason(photo, settings, "detail")}`;
   const after = estimateTrimmedSizeForSettings(photo, settings);
   return `${status.nextLabel} ${formatMB(photo.sizeMB)} -> ${formatMB(after)}`;
 }
 
 function trimReviewHint(photo: NativePhoto, settings: NativeSettings): string {
   const status = trimStatusForSettings(photo, settings);
-  if (!status.canTrim) return "Not-trimmable";
+  if (!status.canTrim) return `Cannot trim: ${trimDisabledReason(photo, settings, "detail")}`;
   return `${status.nextLabel} - ${formatMB(photo.sizeMB)} to ${formatMB(estimateTrimmedSizeForSettings(photo, settings))}`;
 }
 
-function trimDisabledReason(photo: NativePhoto, settings: NativeSettings): string {
+function trimDisabledReason(photo: NativePhoto, settings: NativeSettings, variant: "short" | "detail" = "short"): string {
+  const source = photo.localUri || photo.uri;
   const status = trimStatusForSettings(photo, settings);
-  if (status.nextKinds.length === 0) return "Not-trimmable";
-  return "Unavailable";
+  if (photo.isCloudAsset || !source || source.startsWith("ph://")) {
+    return variant === "short" ? "iCloud only" : "photo is not downloaded locally";
+  }
+  if (photo.sizeMB <= 1) {
+    return variant === "short" ? "Too small" : "file is too small to save meaningful space";
+  }
+  if (photo.trimState?.blockedReason === "already-optimized") {
+    return variant === "short" ? "Optimized" : "already optimized; re-encoding would not make it smaller";
+  }
+  if (status.statusLabel === "Already trimmed" || status.nextLabel === "Already trimmed") {
+    return variant === "short" ? "Already trimmed" : "all selected trim data was already removed";
+  }
+  if (status.nextKinds.length === 0) {
+    return variant === "short" ? "No trim left" : "none of the selected trim actions apply";
+  }
+  if (estimateTrimSavingsForSettings(photo, settings) <= 0) {
+    return variant === "short" ? "No saving" : "selected trims are not expected to reduce this file";
+  }
+  return variant === "short" ? "Unavailable" : status.statusLabel;
 }
 
 function trimmedPhotoLabel(photo: NativePhoto, settings?: NativeSettings): string | null {
@@ -2229,7 +2244,7 @@ function ConfirmActionsReview({
             () => toggle(selectedDeletes, setSelectedDeletes, photo.id),
             canAttemptTrim(photo, settings)
               ? `Delete - frees ${photo.sizeMB.toFixed(1)} MB`
-              : `Delete - frees ${photo.sizeMB.toFixed(1)} MB - Not-trimmable`,
+              : `Delete - frees ${photo.sizeMB.toFixed(1)} MB - Cannot trim: ${trimDisabledReason(photo, settings, "detail")}`,
             "trim",
           ),
         )}
@@ -2794,18 +2809,30 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
   const [loadingPairs, setLoadingPairs] = useState(true);
   const [busy, setBusy] = useState(false);
   const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
+  const [localAvoidIds, setLocalAvoidIds] = useState<string[]>([]);
 
-  async function loadPairs() {
+  async function loadPairs(extraAvoidIds: string[] = []) {
     setLoadingPairs(true);
     try {
       const permission = await requestPhotoPermission();
       if (!permission.granted) { setPairs([]); return; }
-      const nextPairs = await loadRelatedPhotoPairs(6, {
+      const mergedAvoidIds = [...new Set([...localAvoidIds, ...extraAvoidIds])];
+      const pairSettings = roundSettings({
         ...settings,
         cardsPerRound: 12,
-        targetMode: "balanced",
         sessionMode: "classic",
       });
+      let nextPairs = await loadRelatedPhotoPairs(6, pairSettings, { avoidIds: mergedAvoidIds });
+      if (nextPairs.length === 0) {
+        const fallbackPhotos = await loadPhotoRound(12, pairSettings, {
+          avoidIds: mergedAvoidIds,
+          includeTrimmed: true,
+        });
+        nextPairs = [];
+        for (let i = 0; i + 1 < fallbackPhotos.length; i += 2) {
+          nextPairs.push([fallbackPhotos[i], fallbackPhotos[i + 1]]);
+        }
+      }
       setPairs(nextPairs);
       setIndex(0); setKept([]); setDeleted([]); setLoserModes({});
     } finally { setLoadingPairs(false); }
@@ -2837,9 +2864,16 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
 
   async function confirmOutcome() {
     setBusy(true);
-    const count = await onConfirmOutcome(kept, deleteLosers, trimLosers);
-    setBusy(false);
-    if (count > 0 || deleted.length === 0) void loadPairs();
+    try {
+      const count = await onConfirmOutcome(kept, deleteLosers, trimLosers);
+      if (count > 0 || deleted.length === 0) {
+        const roundIds = [...kept, ...deleted].map((photo) => photo.id);
+        setLocalAvoidIds((current) => [...new Set([...current, ...roundIds])].slice(-120));
+        void loadPairs(roundIds);
+      }
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (loadingPairs) return <Centered><ActivityIndicator color="#f97316" size="large" /><Text style={styles.muted}>Building This or That pairs...</Text></Centered>;
@@ -2930,6 +2964,7 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
       let fallbackNotice = "";
       let batch = await loadPhotoRound(48, firstSettings, {
         avoidIds: mergedAvoidIds,
+        includeTrimmed: true,
         onFallback: (detail) => {
           fallbackNotice = detail;
         },
@@ -2943,7 +2978,7 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
         fallbackNotice =
           `${targetLabel(firstSettings)} did not return matching local photos. ` +
           `Trying ${targetLabel(fallbackSettings)} instead.`;
-        batch = await loadPhotoRound(48, fallbackSettings, { avoidIds: mergedAvoidIds });
+        batch = await loadPhotoRound(48, fallbackSettings, { avoidIds: mergedAvoidIds, includeTrimmed: true });
         finalPool = pickStorageBudgetPool(batch);
       }
       if (finalPool.length === 0 && firstSettings.targetMode !== "balanced") {
@@ -2951,7 +2986,7 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
         fallbackNotice =
           `${targetLabel(firstSettings)} did not return matching local photos. ` +
           "Trying a balanced board instead.";
-        batch = await loadPhotoRound(48, broadSettings, { avoidIds: mergedAvoidIds });
+        batch = await loadPhotoRound(48, broadSettings, { avoidIds: mergedAvoidIds, includeTrimmed: true });
         finalPool = pickStorageBudgetPool(batch);
       }
       if (fallbackNotice) {
@@ -3005,12 +3040,15 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
 
   async function applyBudgetPlan() {
     setBusy(true);
-    const count = await onConfirmOutcome(keptAsIs, toDelete, toTrim);
-    setBusy(false);
-    if (count > 0 || toDelete.length === 0) {
-      const boardIds = photos.map((photo) => photo.id);
-      setLocalAvoidIds((current) => [...new Set([...current, ...boardIds])].slice(-120));
-      void loadBoard(boardIds);
+    try {
+      const count = await onConfirmOutcome(keptAsIs, toDelete, toTrim);
+      if (count > 0 || toDelete.length === 0) {
+        const boardIds = photos.map((photo) => photo.id);
+        setLocalAvoidIds((current) => [...new Set([...current, ...boardIds])].slice(-120));
+        void loadBoard(boardIds);
+      }
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -3079,7 +3117,7 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
           detail={`${notKeptPhotos.length} photos outside your keep set`}
           options={[
             { key: "delete", label: "Delete", detail: `Free ${formatMB(notKeptPhotos.reduce((sum, photo) => sum + photo.sizeMB, 0))}` },
-            { key: "trim", label: unkeptTrimCandidates.length > 0 ? "Trim" : "Not-trimmable", detail: `Try to save ~${formatMB(unkeptTrimCandidates.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0))}` },
+            { key: "trim", label: unkeptTrimCandidates.length > 0 ? "Trim" : "No trimmable photos", detail: `Try to save ~${formatMB(unkeptTrimCandidates.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0))}` },
           ]}
           value={unkeptAction}
           onChange={(value) => setUnkeptAction(value as "delete" | "trim")}
@@ -3092,7 +3130,7 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
           detail={`${keptPhotos.length} selected photos`}
           options={[
             { key: "keep", label: "Keep", detail: "Leave originals as they are" },
-            { key: "trim", label: keptTrimCandidates.length > 0 ? "Trim" : "Not-trimmable", detail: `Try to save ~${formatMB(keptTrimCandidates.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0))}` },
+            { key: "trim", label: keptTrimCandidates.length > 0 ? "Trim" : "No trimmable photos", detail: `Try to save ~${formatMB(keptTrimCandidates.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0))}` },
           ]}
           value={keptAction}
           onChange={(value) => setKeptAction(value as "keep" | "trim")}
@@ -3149,6 +3187,7 @@ function MemoryLaneScreen({ settings, tokens, avoidIds, trimsRemaining, onBack, 
         { ...settings, cardsPerRound: roundSize, targetMode: "old-only", sessionMode: "classic" },
         {
           avoidIds,
+          includeTrimmed: true,
           onFallback: (detail) => {
             fallbackNotice = detail;
           },
@@ -3202,9 +3241,12 @@ function MemoryLaneScreen({ settings, tokens, avoidIds, trimsRemaining, onBack, 
 
   async function confirmDeletes() {
     setBusy(true);
-    const count = await onConfirmOutcome(kept, deleted, toTrim);
-    setBusy(false);
-    if (count > 0 || deleted.length + toTrim.length === 0) void loadMemories();
+    try {
+      const count = await onConfirmOutcome(kept, deleted, toTrim);
+      if (count > 0 || deleted.length + toTrim.length === 0) void loadMemories();
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (loadingPhotos) return <Centered><ActivityIndicator color="#f97316" size="large" /><Text style={styles.muted}>Finding older memories...</Text></Centered>;
@@ -3850,13 +3892,13 @@ const styles = StyleSheet.create({
   reason: { overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(248, 250, 252, 0.18)", color: "#f8fafc", paddingHorizontal: 8, paddingVertical: 4, fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
   reasonTrimmed: { overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(251, 146, 60, 0.9)", color: "#fff7ed", paddingHorizontal: 8, paddingVertical: 4, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
   actions: { marginTop: 20, flexDirection: "row", gap: 10 },
-  actionButton: { flex: 1, alignItems: "center", justifyContent: "center", borderRadius: 17, paddingVertical: 15, borderWidth: 1 },
+  actionButton: { flex: 1, minHeight: 76, alignItems: "center", justifyContent: "center", borderRadius: 17, paddingVertical: 15, paddingHorizontal: 8, borderWidth: 1 },
   actionButtonLarge: { paddingVertical: 19 },
   actionButtonDisabled: { backgroundColor: "#f1f5f9", borderColor: "#cbd5e1", opacity: 0.75 },
   actionKeep: { backgroundColor: "#dcfce7", borderColor: "#22c55e" },
   actionTrim: { backgroundColor: "#ffedd5", borderColor: "#fb923c" },
   actionDelete: { backgroundColor: "#fee2e2", borderColor: "#ef4444" },
-  actionText: { color: "#1f2937", fontSize: 14, fontWeight: "900" },
+  actionText: { color: "#1f2937", fontSize: 14, lineHeight: 17, fontWeight: "900", textAlign: "center" },
   actionTextLarge: { fontSize: 17 },
   actionTextDisabled: { color: "#94a3b8" },
 

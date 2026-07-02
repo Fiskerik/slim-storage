@@ -124,6 +124,9 @@ export function TrimScreen({
   const estSaved = +(baseline * combinedMultiplier).toFixed(2);
   const width = Dimensions.get("window").width - 40;
   const height = Math.round(width * 1.05);
+  const blockedReason = photo && trimStatus && !trimStatus.canTrim
+    ? trimBlockedReason(photo, trimStatus)
+    : null;
 
   function togglePreset(key: Preset["key"]) {
     if (!isPro) {
@@ -235,7 +238,7 @@ export function TrimScreen({
             <Text style={styles.metaMode}>
               {trimStatus?.canTrim
                 ? `${trimStatus.nextLabel} · ${photo.sizeMB.toFixed(1)} -> ${estimateTrimmedSizeMB(photo, settings.trimKinds, { allowSecondPass, quality: effectiveQuality }).toFixed(1)} MB`
-                : "Not-trimmable"}
+                : `Cannot trim: ${blockedReason ?? "No selected trim applies"}`}
             </Text>
           </View>
           <Pill icon="sparkles-outline" value={trimStatus?.canTrim ? `~${estSaved.toFixed(1)} MB` : "Done"} label="save" tone="primary" />
@@ -307,7 +310,7 @@ export function TrimScreen({
             <>
               <Ionicons name="cut-outline" size={18} color={colors.white} />
               <Text style={styles.primaryText}>
-                {trimStatus?.canTrim ? `Trim - save ~${estSaved.toFixed(1)} MB` : "Not-trimmable"}
+                {trimStatus?.canTrim ? `Trim - save ~${estSaved.toFixed(1)} MB` : (blockedReason ?? "Cannot trim")}
               </Text>
             </>
           )}
@@ -317,6 +320,19 @@ export function TrimScreen({
       <View style={{ height: 100 }} />
     </ScrollView>
   );
+}
+
+function trimBlockedReason(
+  photo: NativePhoto,
+  status: ReturnType<typeof getTrimStatus>,
+): string {
+  const source = photo.localUri || photo.uri;
+  if (photo.isCloudAsset || !source || source.startsWith("ph://")) return "iCloud only";
+  if (photo.sizeMB <= 1) return "Too small";
+  if (photo.trimState?.blockedReason === "already-optimized") return "Already optimized";
+  if (status.statusLabel === "Already trimmed" || status.nextLabel === "Already trimmed") return "Already trimmed";
+  if (status.nextKinds.length === 0) return "No trim left";
+  return status.statusLabel;
 }
 
 const styles = StyleSheet.create({
@@ -426,7 +442,7 @@ const styles = StyleSheet.create({
     ...shadow.press,
   },
   primaryDisabled: { backgroundColor: colors.textSubtle, shadowOpacity: 0 },
-  primaryText: { color: colors.white, fontWeight: "900", fontSize: 14, letterSpacing: 0.3 },
+  primaryText: { color: colors.white, fontWeight: "900", fontSize: 14, letterSpacing: 0.3, textAlign: "center" },
 
   retryBtn: {
     marginTop: spacing.md,
