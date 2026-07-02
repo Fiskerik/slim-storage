@@ -8,8 +8,7 @@ import {
   StyleSheet,
   Text,
   View,
-  type GestureResponderEvent,
-  type LayoutChangeEvent,
+  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -21,7 +20,6 @@ import {
   Pill,
   ProgressRing,
   SectionHeader,
-  Skeleton,
 } from "./ui/primitives";
 import type {
   NativeCleanupCategory,
@@ -85,7 +83,6 @@ export type HomeDashboardProps = {
   onOptimizeStorage: () => void;
   onClaimWeeklyReward: () => void;
   onPickCategory: (key: Category["key"]) => void;
-  onChangeSettings: (patch: Partial<NativeSettings>) => void;
   onShare: () => void;
 };
 
@@ -129,9 +126,9 @@ export function HomeDashboard(props: HomeDashboardProps) {
     onOptimizeStorage,
     onClaimWeeklyReward,
     onPickCategory,
-    onChangeSettings,
     onShare,
   } = props;
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
 
   const float = useRef(new Animated.Value(0)).current;
@@ -144,7 +141,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
     ).start();
   }, [float]);
   const floatY = float.interpolate({ inputRange: [0, 1], outputRange: [0, -4] });
-
   const categories: Category[] = useMemo(
     () =>
       CAT_DEFS.map((def) => {
@@ -162,6 +158,10 @@ export function HomeDashboard(props: HomeDashboardProps) {
       }),
     [queue, scan, stats],
   );
+  const recommended =
+    categories
+      .filter((category) => category.count > 0)
+      .sort((a, b) => b.estMB - a.estMB)[0] ?? categories[0];
 
   const target = Math.max(potentialMB, totalFreedMB + 200, 1);
   const ringProgress = Math.min(1, totalFreedMB / target);
@@ -189,7 +189,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
   const oneTapSavings = scan
     ? scan.screenshotSavingsMB + scan.duplicateDeleteSavingsMB + scan.burstDeleteSavingsMB
     : Math.max(50, stats.mbFreed * 0.25);
-
   return (
     <View style={{ flex: 1 }}>
       <ScrollView
@@ -207,99 +206,14 @@ export function HomeDashboard(props: HomeDashboardProps) {
               <Ionicons name="flash" size={14} color={colors.honey} />
               <Text style={styles.tokenChipValue}>{isPro ? "∞" : tokens}</Text>
             </Pressable>
+            <Pressable onPress={() => setDetailsOpen(true)} hitSlop={10} style={styles.shareBtn}>
+              <Ionicons name="search-outline" size={18} color={colors.primary} />
+            </Pressable>
             <Pressable onPress={onShare} hitSlop={10} style={styles.shareBtn}>
-              <Ionicons name="share-outline" size={18} color={colors.primary} />
+              <Ionicons name="share-outline" size={17} color={colors.primary} />
             </Pressable>
           </View>
         </View>
-
-        {/* Hero ring */}
-        <Card style={styles.hero} tone="warm">
-          <View style={styles.heroLeft}>
-            <Text style={styles.heroEyebrow}>Reclaimed</Text>
-            <Text style={styles.heroFreed}>{freedDisplay}</Text>
-            <Text style={styles.heroSub}>of ~{potentialDisplay} possible</Text>
-            <View style={styles.pillRow}>
-              <Pill icon="flame" value={String(streakOf(stats))} label="streak" tone="honey" />
-              <Pill icon="checkmark-done" value={String(stats.reviewed)} label="reviewed" tone="sage" />
-            </View>
-            <View style={styles.heroBreakdown}>
-              <BreakdownLine color={colors.sage} label="Trim" value={formatMB(stats.trimMbFreed)} />
-              <BreakdownLine color={colors.danger} label="Delete" value={formatMB(stats.deleteMbFreed)} />
-            </View>
-          </View>
-          <Animated.View style={{ transform: [{ translateY: floatY }] }}>
-            <ProgressRing
-              progress={ringProgress}
-              size={132}
-              thickness={11}
-              fillColor={colors.sage}
-              trackColor={colors.borderSoft}
-            >
-              <View style={styles.thumbStack}>
-                {heroThumbs.length === 0 ? (
-                  <Ionicons name="images-outline" size={28} color={colors.primary} />
-                ) : (
-                  heroThumbs.map((p, i) => (
-                    <Image
-                      key={p.id}
-                      source={{ uri: p.uri }}
-                      style={[
-                        styles.thumbStackImg,
-                        {
-                          marginLeft: i === 0 ? 0 : -10,
-                          zIndex: heroThumbs.length - i,
-                        },
-                      ]}
-                      resizeMode="cover"
-                    />
-                  ))
-                )}
-              </View>
-              <Text style={styles.ringPct}>{Math.round(ringProgress * 100)}%</Text>
-            </ProgressRing>
-          </Animated.View>
-        </Card>
-
-        <SectionHeader
-          title="Library health"
-          action={<Text style={styles.sectionAction}>{healthScore}/100</Text>}
-        />
-        <Card style={styles.healthCard}>
-          <ProgressRing progress={healthScore / 100} size={92} thickness={8}>
-            <Text style={styles.healthValue}>{healthScore}</Text>
-            <Text style={styles.healthLabel}>score</Text>
-          </ProgressRing>
-          <View style={styles.healthCopy}>
-            <Text style={styles.goalTitle}>
-              {healthScore >= 82 ? "Looking tidy" : "Easy wins are waiting"}
-            </Text>
-            <Text style={styles.goalHint}>
-              Projected savings: {formatMB(projectedFreed)}. Top hogs: large photos, screenshots, and duplicate bursts.
-            </Text>
-          </View>
-        </Card>
-
-        <SectionHeader
-          title="Daily goal"
-          action={<Text style={styles.sectionAction}>{formatMB(today.mbFreed)} / {dailyGoalMB} MB</Text>}
-        />
-        <Card style={styles.dailyGoalCard}>
-          <View style={styles.dailyGoalTop}>
-            <View>
-              <Text style={styles.goalTitle}>Trim 50 MB today</Text>
-              <Text style={styles.goalHint}>
-                {dailyGoalProgress >= 1
-                  ? "Goal complete"
-                  : `${formatMB(Math.max(0, dailyGoalMB - today.mbFreed))} left`}
-              </Text>
-            </View>
-            <Text style={styles.goalPercent}>{Math.round(dailyGoalProgress * 100)}%</Text>
-          </View>
-          <View style={styles.goalTrack}>
-            <View style={[styles.goalFill, { width: `${dailyGoalProgress * 100}%` }]} />
-          </View>
-        </Card>
 
         {/* Today snapshot */}
         <SectionHeader
@@ -371,6 +285,18 @@ export function HomeDashboard(props: HomeDashboardProps) {
               </Text>
             </Pressable>
           </View>
+          <View style={styles.embeddedGoal}>
+            <View style={styles.embeddedGoalTop}>
+              <Text style={styles.embeddedGoalTitle}>Daily goal</Text>
+              <Text style={styles.embeddedGoalValue}>{formatMB(today.mbFreed)} / {dailyGoalMB} MB</Text>
+            </View>
+            <View style={styles.goalTrack}>
+              <View style={[styles.goalFill, { width: `${dailyGoalProgress * 100}%` }]} />
+            </View>
+            <Text style={styles.goalHint}>
+              {dailyGoalProgress >= 1 ? "Goal complete" : `${formatMB(Math.max(0, dailyGoalMB - today.mbFreed))} left today`}
+            </Text>
+          </View>
         </Card>
 
         {!isPro ? (
@@ -389,6 +315,25 @@ export function HomeDashboard(props: HomeDashboardProps) {
             />
           </Pressable>
         ) : null}
+
+        <SectionHeader title="Recommended cleanup" />
+        <Pressable
+          onPress={() => recommended && onPickCategory(recommended.key)}
+          style={styles.recommendedCard}
+        >
+          <View style={styles.recommendedIcon}>
+            <Ionicons name={recommended?.icon ?? "sparkles-outline"} size={22} color={colors.white} />
+          </View>
+          <View style={styles.recommendedCopy}>
+            <Text style={styles.recommendedTitle}>{recommended?.label ?? "Review photos"}</Text>
+            <Text style={styles.recommendedHint}>
+              {recommended ? `${recommended.count} photos - ~${formatMB(recommended.estMB)} possible` : "Find the next best cleanup set"}
+            </Text>
+          </View>
+          <View style={styles.reviewButton}>
+            <Text style={styles.reviewButtonText}>Review now</Text>
+          </View>
+        </Pressable>
 
         {/* Quick actions 2x2 */}
         <SectionHeader title="Quick actions" />
@@ -462,83 +407,87 @@ export function HomeDashboard(props: HomeDashboardProps) {
           </Pressable>
         </View>
 
-        {/* Categories carousel */}
-        <SectionHeader title="Smart folders" action={<Text style={styles.sectionAction}>Tap to preview</Text>} />
-        <View style={styles.filterPanel}>
-          <FilterSlider
-            label="Large photos"
-            value={stats.settings.minSizeMB}
-            min={0.5}
-            max={10}
-            step={0.5}
-            valueText={`>${formatThresholdMB(stats.settings.minSizeMB)}`}
-            minText=">0.5 MB"
-            maxText=">10 MB"
-            onChange={(minSizeMB) => onChangeSettings({ minSizeMB })}
-          />
-          <FilterSlider
-            label="Older than"
-            value={stats.settings.minAgeYears}
-            min={1 / 12}
-            max={3}
-            step={1 / 12}
-            valueText={`>${formatAgeThreshold(stats.settings.minAgeYears)}`}
-            minText=">1 mo"
-            maxText=">3 yrs"
-            onChange={(minAgeYears) => onChangeSettings({ minAgeYears })}
-          />
-        </View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.catScroll}
-        >
-          {scanBusy && queue.length === 0
-            ? Array.from({ length: 4 }).map((_, i) => (
-                <View key={i} style={{ marginRight: 12 }}>
-                  <Skeleton width={140} height={170} radius={radius.lg} />
-                </View>
-              ))
-            : categories.map((c) => (
-                <CategoryCard key={c.key} category={c} onPress={() => onPickCategory(c.key)} />
-              ))}
-        </ScrollView>
-
         {/* Recent activity */}
         <SectionHeader title="Recent activity" />
         <RecentList entries={stats.actionLog.slice(0, 5)} />
 
         <View style={{ height: 110 }} />
       </ScrollView>
-    </View>
-  );
-}
-
-function CategoryCard({ category, onPress }: { category: Category; onPress: () => void }) {
-  const scale = useRef(new Animated.Value(1)).current;
-  return (
-    <Pressable
-      onPressIn={() => Animated.spring(scale, { toValue: 0.97, useNativeDriver: true }).start()}
-      onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start()}
-      onPress={onPress}
-    >
-      <Animated.View style={[styles.catCard, { transform: [{ scale }] }]}>
-        <View style={styles.catThumbWrap}>
-          {category.thumb ? (
-            <Image source={{ uri: category.thumb }} style={styles.catThumb} resizeMode="cover" />
-          ) : (
-            <View style={[styles.catThumb, styles.catThumbEmpty]}>
-              <Ionicons name={category.icon} size={28} color={colors.primary} />
+      <Modal visible={detailsOpen} animationType="fade" transparent onRequestClose={() => setDetailsOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.detailModal}>
+            <View style={styles.detailModalHeader}>
+              <Text style={styles.detailModalTitle}>Library snapshot</Text>
+              <Pressable onPress={() => setDetailsOpen(false)} hitSlop={10} style={styles.modalClose}>
+                <Ionicons name="close" size={18} color={colors.primary} />
+              </Pressable>
             </View>
-          )}
-          <View style={styles.catIconBubble}>
-            <Ionicons name={category.icon} size={14} color={colors.primary} />
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailModalContent}>
+              <Card style={[styles.hero, styles.modalHero]} tone="warm">
+                <View style={styles.heroLeft}>
+                  <Text style={styles.heroEyebrow}>Reclaimed</Text>
+                  <Text style={styles.heroFreed}>{freedDisplay}</Text>
+                  <Text style={styles.heroSub}>of ~{potentialDisplay} possible</Text>
+                  <View style={styles.pillRow}>
+                    <Pill icon="flame" value={String(streakOf(stats))} label="streak" tone="honey" />
+                    <Pill icon="checkmark-done" value={String(stats.reviewed)} label="reviewed" tone="sage" />
+                  </View>
+                  <View style={styles.heroBreakdown}>
+                    <BreakdownLine color={colors.sage} label="Trim" value={formatMB(stats.trimMbFreed)} />
+                    <BreakdownLine color={colors.danger} label="Delete" value={formatMB(stats.deleteMbFreed)} />
+                  </View>
+                </View>
+                <Animated.View style={{ transform: [{ translateY: floatY }] }}>
+                  <ProgressRing
+                    progress={ringProgress}
+                    size={116}
+                    thickness={10}
+                    fillColor={colors.sage}
+                    trackColor={colors.borderSoft}
+                  >
+                    <View style={styles.thumbStack}>
+                      {heroThumbs.length === 0 ? (
+                        <Ionicons name="images-outline" size={26} color={colors.primary} />
+                      ) : (
+                        heroThumbs.map((p, i) => (
+                          <Image
+                            key={p.id}
+                            source={{ uri: p.uri }}
+                            style={[
+                              styles.thumbStackImg,
+                              {
+                                marginLeft: i === 0 ? 0 : -10,
+                                zIndex: heroThumbs.length - i,
+                              },
+                            ]}
+                            resizeMode="cover"
+                          />
+                        ))
+                      )}
+                    </View>
+                    <Text style={styles.ringPct}>{Math.round(ringProgress * 100)}%</Text>
+                  </ProgressRing>
+                </Animated.View>
+              </Card>
+              <Card style={styles.healthCard}>
+                <ProgressRing progress={healthScore / 100} size={82} thickness={8}>
+                  <Text style={styles.healthValue}>{healthScore}</Text>
+                  <Text style={styles.healthLabel}>score</Text>
+                </ProgressRing>
+                <View style={styles.healthCopy}>
+                  <Text style={styles.goalTitle}>
+                    {healthScore >= 82 ? "Looking tidy" : "Easy wins are waiting"}
+                  </Text>
+                  <Text style={styles.goalHint}>
+                    Projected savings: {formatMB(projectedFreed)}. Top hogs: large photos, screenshots, and duplicate bursts.
+                  </Text>
+                </View>
+              </Card>
+            </ScrollView>
           </View>
         </View>
-        <Text style={styles.catLabel}>{category.label}</Text>
-        <Text style={styles.catCount}>{category.count} · {formatMB(category.estMB)}</Text>
-      </Animated.View>
-    </Pressable>
+      </Modal>
+    </View>
   );
 }
 
@@ -558,62 +507,6 @@ function TodayStat({
       <Ionicons name={icon} size={20} color={tint} />
       <Text style={[styles.todayValue, { color: tint }]}>{value}</Text>
       <Text style={styles.todayLabel}>{label}</Text>
-    </View>
-  );
-}
-
-function FilterSlider({
-  label,
-  value,
-  min,
-  max,
-  step,
-  valueText,
-  minText,
-  maxText,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  valueText: string;
-  minText: string;
-  maxText: string;
-  onChange: (value: number) => void;
-}) {
-  const [width, setWidth] = useState(1);
-  const percent = Math.max(0, Math.min(1, (value - min) / (max - min)));
-
-  function commit(locationX: number) {
-    const raw = min + (Math.max(0, Math.min(width, locationX)) / width) * (max - min);
-    const snapped = +(Math.round(raw / step) * step).toFixed(4);
-    onChange(Math.max(min, Math.min(max, snapped)));
-  }
-
-  return (
-    <View style={styles.filterSlider}>
-      <View style={styles.filterSliderHeader}>
-        <Text style={styles.filterSliderLabel}>{label}</Text>
-        <Text style={styles.filterSliderValue}>{valueText}</Text>
-      </View>
-      <View
-        style={styles.filterTrack}
-        onLayout={(event: LayoutChangeEvent) => setWidth(Math.max(1, event.nativeEvent.layout.width))}
-        onStartShouldSetResponder={() => true}
-        onMoveShouldSetResponder={() => true}
-        onResponderGrant={(event: GestureResponderEvent) => commit(event.nativeEvent.locationX)}
-        onResponderMove={(event: GestureResponderEvent) => commit(event.nativeEvent.locationX)}
-      >
-        <View style={styles.filterRail} />
-        <View style={[styles.filterFill, { width: `${percent * 100}%` }]} />
-        <View style={[styles.filterThumb, { left: `${percent * 100}%` }]} />
-      </View>
-      <View style={styles.filterRangeRow}>
-        <Text style={styles.filterRangeText}>{minText}</Text>
-        <Text style={styles.filterRangeText}>{maxText}</Text>
-      </View>
     </View>
   );
 }
@@ -915,6 +808,21 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: colors.primary,
   },
+  embeddedGoal: {
+    marginTop: spacing.sm,
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.borderSoft,
+    gap: 7,
+  },
+  embeddedGoalTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  embeddedGoalTitle: { fontSize: 12, fontWeight: "900", color: colors.text },
+  embeddedGoalValue: { fontSize: 12, fontWeight: "900", color: colors.primary },
 
   weeklyCard: { gap: spacing.lg },
   weeklyDays: { flexDirection: "row", justifyContent: "space-between", gap: 6 },
@@ -957,6 +865,70 @@ const styles = StyleSheet.create({
   todayDivider: { width: StyleSheet.hairlineWidth, alignSelf: "stretch", backgroundColor: colors.border },
 
   sectionAction: { fontSize: 12, fontWeight: "700", color: colors.primary },
+
+  recommendedCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    padding: spacing.md,
+    ...shadow.soft,
+  },
+  recommendedIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primary,
+  },
+  recommendedCopy: { flex: 1, gap: 3 },
+  recommendedTitle: { fontSize: 16, fontWeight: "900", color: colors.text },
+  recommendedHint: { fontSize: 12, fontWeight: "700", color: colors.textMuted },
+  reviewButton: {
+    borderRadius: radius.pill,
+    backgroundColor: colors.primarySoft,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  reviewButtonText: { color: colors.primary, fontSize: 12, fontWeight: "900" },
+
+  modalBackdrop: {
+    flex: 1,
+    justifyContent: "center",
+    padding: spacing.xl,
+    backgroundColor: "rgba(15, 23, 42, 0.36)",
+  },
+  detailModal: {
+    maxHeight: "86%",
+    borderRadius: 24,
+    backgroundColor: colors.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    padding: spacing.md,
+    gap: spacing.md,
+    ...shadow.card,
+  },
+  detailModalContent: { gap: spacing.md, paddingBottom: 2 },
+  detailModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  detailModalTitle: { fontSize: 20, fontWeight: "900", color: colors.text },
+  modalHero: { marginTop: 0 },
+  modalClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primarySoft,
+  },
 
   catScroll: { paddingRight: spacing.xl, gap: 12 },
   filterPanel: {

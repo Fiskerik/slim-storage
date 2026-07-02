@@ -16,7 +16,6 @@ import { colors, radius, shadow, spacing, type } from "../constants/design";
 import { Card, Pill, SectionHeader } from "./ui/primitives";
 import {
   estimateTrimSavings,
-  estimateTrimmedSizeMB,
   getTrimStatus,
   loadPhotoRound,
   requestPhotoPermission,
@@ -237,7 +236,7 @@ export function TrimScreen({
             </Text>
             <Text style={styles.metaMode}>
               {trimStatus?.canTrim
-                ? `${trimStatus.nextLabel} · ${photo.sizeMB.toFixed(1)} -> ${estimateTrimmedSizeMB(photo, settings.trimKinds, { allowSecondPass, quality: effectiveQuality }).toFixed(1)} MB`
+                ? `Image size: ${photo.sizeMB.toFixed(1)} MB · Trim: -${estSaved.toFixed(1)} MB`
                 : `Cannot trim: ${blockedReason ?? "No selected trim applies"}`}
             </Text>
           </View>

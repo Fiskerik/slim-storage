@@ -16,6 +16,8 @@ import {
   StyleSheet,
   Text,
   View,
+  type GestureResponderEvent,
+  type LayoutChangeEvent,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -25,7 +27,6 @@ import {
   commitTrimsAndDeletes,
   deletePhotos,
   estimateTrimSavings,
-  estimateTrimmedSizeMB,
   getTrimStatus,
   loadCleanupPlan,
   loadRelatedPhotoPairs,
@@ -151,8 +152,8 @@ function roundSettings(settings: NativeSettings): NativeSettings {
   return {
     ...settings,
     cardsPerRound: Math.min(30, Math.max(5, Math.round(settings.cardsPerRound) || 10)),
-    minSizeMB: Math.min(10, Math.max(0.5, Math.round(settings.minSizeMB * 2) / 2)),
-    minAgeYears: Math.min(3, Math.max(1 / 12, Math.round(settings.minAgeYears * 12) / 12)),
+    minSizeMB: Math.min(500, Math.max(0.5, Math.round(settings.minSizeMB * 2) / 2)),
+    minAgeYears: Math.min(100, Math.max(1 / 12, Math.round(settings.minAgeYears * 12) / 12)),
     trimQuality: Math.min(0.98, Math.max(0.65, settings.trimQuality)),
     trimKinds: trimKinds.length > 0 ? [...new Set(trimKinds)] : ["metadata", "location", "compression"],
     trimReviewMode: settings.trimReviewMode === "trimmed-only" ? "trimmed-only" : "normal",
@@ -186,6 +187,22 @@ function formatAgeThreshold(years: number): string {
     return `${months}+ mo`;
   }
   return `${Number.isInteger(years) ? years.toFixed(0) : years.toFixed(1)}+ ${years === 1 ? "year" : "yrs"}`;
+}
+
+function formatGameSizeThreshold(value: number): string {
+  return `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)} MB`;
+}
+
+function formatGameAgeThreshold(years: number): string {
+  if (years < 1) {
+    const months = Math.max(1, Math.round(years * 12));
+    return `${months} mo`;
+  }
+  return `${Number.isInteger(years) ? years.toFixed(0) : years.toFixed(1)} ${years === 1 ? "year" : "yrs"}`;
+}
+
+function gameAgeYears(createdAt: number): number {
+  return (Date.now() - createdAt) / (365.25 * 24 * 3600 * 1000);
 }
 
 function nextFallbackTargetMode(current: NativeTargetMode): NativeTargetMode {
@@ -1576,6 +1593,7 @@ export function NativeTrimSwipeApp() {
             onChangeSettings={updateSettings}
             onConfirmActions={confirmActions}
             onCancelPending={cancelPendingActions}
+            onOpenShop={() => setScreen("shop")}
             onShare={shareProgress}
           />
         ) : screen === "stats" ? (
@@ -1644,6 +1662,8 @@ export function NativeTrimSwipeApp() {
             queue={queue}
             tokens={tokenBalance}
             onStartGame={startGame}
+            onPickCategory={openCleanupCategory}
+            onChangeSettings={updateSettings}
             onOpenThisOrThat={() => setScreen("this-or-that")}
             onOpenStorageBudget={() => setScreen("storage-budget")}
             onOpenMemoryLane={() => setScreen("memory-lane")}
@@ -1677,7 +1697,6 @@ export function NativeTrimSwipeApp() {
             }}
             onClaimWeeklyReward={claimWeeklyReward}
             onPickCategory={openCleanupCategory}
-            onChangeSettings={updateSettings}
             onShare={shareProgress}
           />
         ) : (
@@ -1709,10 +1728,6 @@ function estimateTrimSavingsForSettings(photo: NativePhoto, settings: NativeSett
   return estimateTrimSavings(photo, settings.trimKinds, trimOptionsForSettings(settings));
 }
 
-function estimateTrimmedSizeForSettings(photo: NativePhoto, settings: NativeSettings): number {
-  return estimateTrimmedSizeMB(photo, settings.trimKinds, trimOptionsForSettings(settings));
-}
-
 function canAttemptTrim(
   photo: NativePhoto,
   settingsOrKinds: NativeSettings | NativeTrimKind[] = ["metadata", "location", "compression"],
@@ -1733,17 +1748,10 @@ function canAttemptTrim(
   );
 }
 
-function trimPillText(photo: NativePhoto, settings: NativeSettings): string {
-  const status = trimStatusForSettings(photo, settings);
-  if (!status.canTrim) return `Can't trim: ${trimDisabledReason(photo, settings, "detail")}`;
-  const after = estimateTrimmedSizeForSettings(photo, settings);
-  return `${status.nextLabel} ${formatMB(photo.sizeMB)} -> ${formatMB(after)}`;
-}
-
 function trimReviewHint(photo: NativePhoto, settings: NativeSettings): string {
   const status = trimStatusForSettings(photo, settings);
   if (!status.canTrim) return `Cannot trim: ${trimDisabledReason(photo, settings, "detail")}`;
-  return `${status.nextLabel} - ${formatMB(photo.sizeMB)} to ${formatMB(estimateTrimmedSizeForSettings(photo, settings))}`;
+  return `Image size: ${formatMB(photo.sizeMB)} - Trim: -${formatMB(estimateTrimSavingsForSettings(photo, settings))}`;
 }
 
 function trimDisabledReason(photo: NativePhoto, settings: NativeSettings, variant: "short" | "detail" = "short"): string {
@@ -1939,7 +1947,7 @@ function SwipeScreen({
   top, next, queueCount, loading, error, permissionDenied, permissionLimited,
   settings, recap, pendingDeletes, pendingTrims, trimmingCount, timeLeft, largeControls, tokens,
   trimsRemaining, trimLimit, onAction, onReload, onOpenSettings,
-  isPro, onChangeSettings, onConfirmActions, onCancelPending, onShare,
+  isPro, onChangeSettings, onConfirmActions, onCancelPending, onOpenShop, onShare,
 }: {
   top?: NativePhoto; next?: NativePhoto; queueCount: number; loading: boolean;
   error: string | null; permissionDenied: boolean; permissionLimited: boolean;
@@ -1951,6 +1959,7 @@ function SwipeScreen({
   isPro: boolean; onChangeSettings: (patch: Partial<NativeSettings>) => void;
   onConfirmActions: (deletes: NativePhoto[], trims: NativePhoto[]) => Promise<void> | void;
   onCancelPending: () => void;
+  onOpenShop: () => void;
   onShare: () => void;
 }) {
   const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
@@ -2020,11 +2029,18 @@ function SwipeScreen({
       <View style={styles.actions}>
         <ActionButton label="Keep" tone="keep" large={largeControls} onPress={() => top && onAction(top, "keep")} />
         <ActionButton
-          label={!top ? "Trim" : trimsRemaining <= 0 ? "Limit hit" : canAttemptTrim(top, settings) ? "Trim" : trimDisabledReason(top, settings)}
+          label={!top ? "Trim" : !canAttemptTrim(top, settings) ? trimDisabledReason(top, settings) : trimsRemaining <= 0 ? "Limit hit" : "Trim"}
           tone="trim"
           large={largeControls}
-          disabled={trimsRemaining <= 0 || !top || !canAttemptTrim(top, settings)}
-          onPress={() => top && onAction(top, "trim")}
+          disabled={!top || !canAttemptTrim(top, settings)}
+          onPress={() => {
+            if (!top) return;
+            if (trimsRemaining <= 0) {
+              onOpenShop();
+              return;
+            }
+            onAction(top, "trim");
+          }}
         />
         <ActionButton label="Delete" tone="delete" large={largeControls} onPress={() => top && onAction(top, "delete")} />
       </View>
@@ -2104,14 +2120,18 @@ function PhotoCard({ photo, settings, stacked, onOpenFull }: { photo: NativePhot
   const Wrapper = onOpenFull ? Pressable : View;
   const trimStatus = trimStatusForSettings(photo, settings);
   const trimLabel = trimmedPhotoLabel(photo, settings);
+  const canTrim = canAttemptTrim(photo, settings);
   return (
     <Wrapper onLongPress={onOpenFull} delayLongPress={350} style={[styles.photoCard, stacked && styles.stackedCard]}>
       <Image source={{ uri: photo.uri }} style={styles.photoImage} resizeMode="cover" />
       <View style={styles.photoShade} />
       <View style={styles.photoTop}>
         {trimLabel ? <Text style={styles.trimmedLabel}>{trimLabel}</Text> : null}
-        <Text style={styles.pill}>Delete saves {photo.sizeMB.toFixed(1)} MB</Text>
-        <Text style={[styles.pill, !trimStatus.canTrim && styles.pillMuted]}>{trimPillText(photo, settings)}</Text>
+        <Text style={styles.pill}>Image size: {formatMB(photo.sizeMB)}</Text>
+        <Text style={styles.pill}>Delete: <Text style={styles.pillSaving}>-{formatMB(photo.sizeMB)}</Text></Text>
+        {canTrim ? (
+          <Text style={styles.pill}>Trim: <Text style={styles.pillSaving}>-{formatMB(estimateTrimSavingsForSettings(photo, settings))}</Text></Text>
+        ) : null}
       </View>
       <View style={styles.photoBottom}>
         <Text style={styles.photoTitle} numberOfLines={1}>{photo.title}</Text>
@@ -2733,14 +2753,58 @@ function OnboardingStep({ title, detail }: { title: string; detail: string }) {
 
 // ─── Games Screen ─────────────────────────────────────────────────────────────
 
-function GamesScreen({ stats, settings, queue, tokens, onStartGame, onOpenThisOrThat, onOpenStorageBudget, onOpenMemoryLane }: {
+type GameSmartFolder = {
+  key: NativeCleanupCategory;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  count: number;
+  estMB: number;
+  thumb?: string;
+};
+
+const GAME_SMART_FOLDER_DEFS: Array<{
+  key: NativeCleanupCategory;
+  label: (settings: NativeSettings) => string;
+  icon: keyof typeof Ionicons.glyphMap;
+  match: (photo: NativePhoto, settings: NativeSettings) => boolean;
+}> = [
+  { key: "large", label: (settings) => `>${formatGameSizeThreshold(settings.minSizeMB)}`, icon: "albums-outline", match: (photo, settings) => photo.sizeMB >= settings.minSizeMB },
+  { key: "old", label: (settings) => `>${formatGameAgeThreshold(settings.minAgeYears)}`, icon: "time-outline", match: (photo, settings) => gameAgeYears(photo.creationTime) >= settings.minAgeYears },
+  { key: "screenshots", label: () => "Screens", icon: "phone-portrait-outline", match: (photo) => photo.cleanupReasons.includes("Screenshot") || photo.title.toLowerCase().includes("screen") },
+  { key: "live", label: () => "Live", icon: "radio-button-on-outline", match: (photo) => photo.cleanupReasons.includes("Live Photo") },
+  { key: "duplicates", label: () => "Dupes", icon: "copy-outline", match: (photo) => photo.cleanupReasons.includes("Similar") },
+  { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (photo) => photo.cleanupReasons.includes("Burst") || photo.cleanupReasons.includes("Similar") },
+];
+
+function GamesScreen({ stats, settings, queue, tokens, onStartGame, onPickCategory, onChangeSettings, onOpenThisOrThat, onOpenStorageBudget, onOpenMemoryLane }: {
   stats: NativeStats; settings: NativeSettings; queue: NativePhoto[]; tokens: number; onStartGame: (patch: Partial<NativeSettings>) => void;
+  onPickCategory: (category: NativeCleanupCategory) => void;
+  onChangeSettings: (patch: Partial<NativeSettings>) => void;
   onOpenThisOrThat: () => void; onOpenStorageBudget: () => void; onOpenMemoryLane: () => void;
 }) {
   const today = dailyFor(stats, dateKey());
   const heroPhotos = queue.slice(0, 3);
   const gameThumbs = queue.slice(3, 7);
   const todayLabel = today.mbFreed > 0 ? `${formatMB(today.mbFreed)} today` : "Ready to clean";
+  const largestPhotoMB = Math.max(0.5, ...queue.map((photo) => photo.sizeMB));
+  const oldestPhotoAgeYears = Math.max(1 / 12, ...queue.map((photo) => gameAgeYears(photo.creationTime)));
+  const largeSliderMax = Math.max(0.5, largestPhotoMB);
+  const oldSliderMax = Math.max(1 / 12, oldestPhotoAgeYears);
+  const largeSliderValue = Math.min(settings.minSizeMB, largeSliderMax);
+  const oldSliderValue = Math.min(settings.minAgeYears, oldSliderMax);
+  const displayedSettings = { ...settings, minSizeMB: largeSliderValue, minAgeYears: oldSliderValue };
+  const smartFolders: GameSmartFolder[] = GAME_SMART_FOLDER_DEFS.map((def) => {
+    const matched = queue.filter((photo) => def.match(photo, displayedSettings));
+    const estMB = matched.reduce((sum, photo) => sum + (def.key === "screenshots" || def.key === "duplicates" || def.key === "bursts" ? photo.sizeMB : estimateTrimSavingsForSettings(photo, displayedSettings)), 0);
+    return {
+      key: def.key,
+      label: def.label(displayedSettings),
+      icon: def.icon,
+      count: matched.length || Math.max(0, Math.round(stats.reviewed * 0.15)),
+      estMB: estMB || Math.max(0, Math.round(stats.mbFreed * 0.1)),
+      thumb: matched[0]?.uri,
+    };
+  });
   return (
     <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
       <View style={styles.gamesVisualHero}>
@@ -2768,11 +2832,42 @@ function GamesScreen({ stats, settings, queue, tokens, onStartGame, onOpenThisOr
             </View>
           )}
         </View>
-        <View style={styles.gamesStatsRow}>
-          <GameMetric icon="eye-outline" value={today.reviewed} label="Reviewed" />
-          <GameMetric icon="cut-outline" value={today.trimmed} label="Trimmed" />
-          <GameMetric icon="trash-outline" value={today.deleted} label="Deleted" />
+      </View>
+      <View style={styles.focusPanel}>
+        <View style={styles.focusHeader}>
+          <View>
+            <Text style={styles.eyebrow}>Cleanup focus</Text>
+            <Text style={styles.focusTitle}>Tune smart folders</Text>
+          </View>
+          <Ionicons name="options-outline" size={22} color="#c2410c" />
         </View>
+        <GameFilterSlider
+          label="Large photos"
+          value={largeSliderValue}
+          min={0.5}
+          max={largeSliderMax}
+          step={0.5}
+          valueText={`>${formatGameSizeThreshold(largeSliderValue)}`}
+          minText=">0.5 MB"
+          maxText={`Largest photo (${formatGameSizeThreshold(largestPhotoMB)})`}
+          onChange={(minSizeMB) => onChangeSettings({ minSizeMB })}
+        />
+        <GameFilterSlider
+          label="Older than"
+          value={oldSliderValue}
+          min={1 / 12}
+          max={oldSliderMax}
+          step={1 / 12}
+          valueText={`>${formatGameAgeThreshold(oldSliderValue)}`}
+          minText=">1 mo"
+          maxText={`Oldest photo (${formatGameAgeThreshold(oldestPhotoAgeYears)})`}
+          onChange={(minAgeYears) => onChangeSettings({ minAgeYears })}
+        />
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.focusFolderScroll}>
+          {smartFolders.map((folder) => (
+            <GameSmartFolderCard key={folder.key} folder={folder} onPress={() => onPickCategory(folder.key)} />
+          ))}
+        </ScrollView>
       </View>
       <Pressable onPress={() => onStartGame({ sessionMode: "classic" })} style={styles.primaryGameVisualCard}>
         <View style={styles.primaryGameText}>
@@ -2793,16 +2888,6 @@ function GamesScreen({ stats, settings, queue, tokens, onStartGame, onOpenThisOr
         <VisualGameCard icon="calendar-outline" title="Memory Lane" detail="Old photos first" thumb={gameThumbs[3]?.uri} active={settings.targetMode === "old-only"} onPress={onOpenMemoryLane} />
       </View>
     </ScrollView>
-  );
-}
-
-function GameMetric({ icon, value, label }: { icon: keyof typeof Ionicons.glyphMap; value: number; label: string }) {
-  return (
-    <View style={styles.gameMetric}>
-      <Ionicons name={icon} size={16} color="#f97316" />
-      <Text style={styles.gameMetricValue}>{value}</Text>
-      <Text style={styles.gameMetricLabel}>{label}</Text>
-    </View>
   );
 }
 
@@ -2832,6 +2917,88 @@ function VisualGameCard({ icon, title, detail, thumb, active, onPress }: {
         <Text style={[styles.gameTitle, active && styles.gameTitleActive]} numberOfLines={1}>{title}</Text>
         <Text style={[styles.gameDetail, active && styles.gameDetailActive]} numberOfLines={1}>{detail}</Text>
       </View>
+    </Pressable>
+  );
+}
+
+function GameFilterSlider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  valueText,
+  minText,
+  maxText,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  valueText: string;
+  minText: string;
+  maxText: string;
+  onChange: (value: number) => void;
+}) {
+  const [width, setWidth] = useState(1);
+  const safeMax = Math.max(min, max);
+  const percent = safeMax === min ? 1 : Math.max(0, Math.min(1, (value - min) / (safeMax - min)));
+
+  function commit(locationX: number) {
+    if (safeMax <= min) {
+      onChange(min);
+      return;
+    }
+    const raw = min + (Math.max(0, Math.min(width, locationX)) / width) * (safeMax - min);
+    const snapped = +(Math.round(raw / step) * step).toFixed(4);
+    onChange(Math.max(min, Math.min(safeMax, snapped)));
+  }
+
+  return (
+    <View style={styles.focusSlider}>
+      <View style={styles.focusSliderHeader}>
+        <Text style={styles.focusSliderLabel}>{label}</Text>
+        <Text style={styles.focusSliderValue}>{valueText}</Text>
+      </View>
+      <View
+        style={styles.focusTrack}
+        onLayout={(event: LayoutChangeEvent) => setWidth(Math.max(1, event.nativeEvent.layout.width))}
+        onStartShouldSetResponder={() => true}
+        onMoveShouldSetResponder={() => true}
+        onResponderGrant={(event: GestureResponderEvent) => commit(event.nativeEvent.locationX)}
+        onResponderMove={(event: GestureResponderEvent) => commit(event.nativeEvent.locationX)}
+      >
+        <View style={styles.focusRail} />
+        <View style={[styles.focusFill, { width: `${percent * 100}%` }]} />
+        <View style={[styles.focusThumb, { left: `${percent * 100}%` }]} />
+      </View>
+      <View style={styles.focusRangeRow}>
+        <Text style={styles.focusRangeText}>{minText}</Text>
+        <Text style={styles.focusRangeText}>{maxText}</Text>
+      </View>
+    </View>
+  );
+}
+
+function GameSmartFolderCard({ folder, onPress }: { folder: GameSmartFolder; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={styles.focusFolderCard}>
+      <View style={styles.focusFolderThumbWrap}>
+        {folder.thumb ? (
+          <Image source={{ uri: folder.thumb }} style={styles.focusFolderThumb} resizeMode="cover" />
+        ) : (
+          <View style={[styles.focusFolderThumb, styles.focusFolderThumbEmpty]}>
+            <Ionicons name={folder.icon} size={24} color="#f97316" />
+          </View>
+        )}
+        <View style={styles.focusFolderIcon}>
+          <Ionicons name={folder.icon} size={13} color="#c2410c" />
+        </View>
+      </View>
+      <Text style={styles.focusFolderLabel} numberOfLines={1}>{folder.label}</Text>
+      <Text style={styles.focusFolderMeta} numberOfLines={1}>{folder.count} - {formatMB(folder.estMB)}</Text>
     </Pressable>
   );
 }
@@ -3980,7 +4147,7 @@ const styles = StyleSheet.create({
   photoShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(31, 41, 55, 0.12)" },
   photoTop: { position: "absolute", top: 14, left: 14, right: 14, flexDirection: "row", flexWrap: "wrap", gap: 8 },
   pill: { overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(15, 23, 42, 0.72)", color: "#f8fafc", paddingHorizontal: 10, paddingVertical: 6, fontSize: 11, fontWeight: "800" },
-  pillMuted: { backgroundColor: "rgba(100, 116, 139, 0.76)" },
+  pillSaving: { color: "#86efac", fontWeight: "900" },
   trimmedLabel: { overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(34, 197, 94, 0.92)", color: "#ffffff", paddingHorizontal: 9, paddingVertical: 6, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
   photoBottom: { position: "absolute", left: 18, right: 18, bottom: 18 },
   photoTitle: { color: "#f8fafc", fontSize: 25, fontWeight: "900" },
@@ -4135,10 +4302,27 @@ const styles = StyleSheet.create({
   heroPhoto: { width: "31%", height: 104, borderRadius: 18, backgroundColor: "#ffedd5", borderWidth: 3, borderColor: "#ffffff" },
   heroPhotoRaised: { height: 118, transform: [{ translateY: -4 }] },
   heroPhotoFallback: { flex: 1, height: 112, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: "#fb923c" },
-  gamesStatsRow: { flexDirection: "row", gap: 8 },
-  gameMetric: { flex: 1, alignItems: "center", borderRadius: 16, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", paddingVertical: 10, gap: 2 },
-  gameMetricValue: { color: "#1f2937", fontSize: 20, fontWeight: "900" },
-  gameMetricLabel: { color: "#64748b", fontSize: 9, fontWeight: "800", textTransform: "uppercase" },
+  focusPanel: { borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16, gap: 14 },
+  focusHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  focusTitle: { color: "#1f2937", fontSize: 18, fontWeight: "900", marginTop: 4 },
+  focusSlider: { gap: 8 },
+  focusSliderHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  focusSliderLabel: { color: "#1f2937", fontSize: 12, fontWeight: "900" },
+  focusSliderValue: { color: "#f97316", fontSize: 12, fontWeight: "900" },
+  focusTrack: { height: 24, justifyContent: "center" },
+  focusRail: { position: "absolute", left: 0, right: 0, height: 7, borderRadius: 999, backgroundColor: "#ffedd5" },
+  focusFill: { position: "absolute", left: 0, height: 7, borderRadius: 999, backgroundColor: "#f97316" },
+  focusThumb: { position: "absolute", width: 22, height: 22, marginLeft: -11, borderRadius: 11, backgroundColor: "#ffffff", borderWidth: 3, borderColor: "#f97316" },
+  focusRangeRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
+  focusRangeText: { color: "#64748b", fontSize: 10, fontWeight: "800", flexShrink: 1 },
+  focusFolderScroll: { gap: 10, paddingRight: 4 },
+  focusFolderCard: { width: 118, borderRadius: 16, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 9 },
+  focusFolderThumbWrap: { position: "relative" },
+  focusFolderThumb: { width: "100%", height: 74, borderRadius: 12, backgroundColor: "#ffedd5" },
+  focusFolderThumbEmpty: { alignItems: "center", justifyContent: "center" },
+  focusFolderIcon: { position: "absolute", right: 6, top: 6, width: 24, height: 24, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.92)", alignItems: "center", justifyContent: "center" },
+  focusFolderLabel: { marginTop: 8, color: "#1f2937", fontSize: 13, fontWeight: "900" },
+  focusFolderMeta: { marginTop: 2, color: "#64748b", fontSize: 10, fontWeight: "700" },
   homeStatRow: { flexDirection: "row", gap: 8 },
   homeStat: { flex: 1, borderRadius: 16, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 12 },
   homeStatValue: { color: "#c2410c", fontSize: 22, fontWeight: "900" },

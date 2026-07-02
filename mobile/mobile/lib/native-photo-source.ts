@@ -254,8 +254,8 @@ async function removeTrimTagIds(ids: string[]): Promise<void> {
 }
 
 function stripKindLabel(kind: NativeTrimKind, quality?: number): string {
-  if (kind === "metadata") return "Metadata stripped";
-  if (kind === "location") return "Location stripped";
+  if (kind === "metadata") return "Metadata removed";
+  if (kind === "location") return "Location removed";
   if (kind === "resize") return "Resized to 80%";
   if (kind === "format") return "Format optimized";
   return `Compressed${quality ? ` ${Math.round(quality * 100)}%` : ""}`;
@@ -266,9 +266,9 @@ function nextKindLabel(kinds: NativeTrimKind[], quality?: number): string {
   if (kinds.includes("resize") && kinds.includes("format")) return "Resize 80% + format check";
   if (kinds.includes("resize")) return "Resize to 80%";
   if (kinds.includes("format")) return "Try JPG/PNG";
-  if (kinds.includes("metadata") && kinds.includes("location")) return "Strip metadata + location";
-  if (kinds.includes("metadata")) return "Strip metadata";
-  if (kinds.includes("location")) return "Strip location";
+  if (kinds.includes("metadata") && kinds.includes("location")) return "Trim metadata + location";
+  if (kinds.includes("metadata")) return "Trim metadata";
+  if (kinds.includes("location")) return "Trim location";
   if (kinds.includes("compression")) return `Compress ${Math.round((quality ?? 0.75) * 100)}%`;
   return "Trim";
 }
