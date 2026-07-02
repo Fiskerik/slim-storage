@@ -1,5 +1,16 @@
 import type { ExpoConfig } from "expo/config";
 
+const DEFAULT_ADMOB_IOS_APP_ID = "ca-app-pub-8854735603167656~1027546750";
+const DEFAULT_ADMOB_ANDROID_APP_ID = "ca-app-pub-3940256099942544~3347511713";
+const ADMOB_APP_ID_PATTERN = /^ca-app-pub-\d+~\d+$/;
+
+function adMobAppId(value: string | undefined, fallback: string, name: string): string {
+  if (!value) return fallback;
+  if (ADMOB_APP_ID_PATTERN.test(value)) return value;
+  console.warn(`[ads] Ignoring invalid ${name}; expected an AdMob app id like ca-app-pub-...~...`);
+  return fallback;
+}
+
 const config: ExpoConfig = {
   name: "Trimswipe",
   slug: "slim-storage",
@@ -55,13 +66,16 @@ const config: ExpoConfig = {
     [
       "react-native-google-mobile-ads",
       {
-        iosAppId:
-          process.env.EXPO_PUBLIC_IRONSRC_IOS_APP_ID ??
-          process.env.EXPO_PUBLIC_ADMOB_IOS_APP_ID ??
-          "ca-app-pub-8854735603167656~1027546750",
-        androidAppId:
-          process.env.EXPO_PUBLIC_ADMOB_ANDROID_APP_ID ??
-          "ca-app-pub-3940256099942544~3347511713",
+        iosAppId: adMobAppId(
+          process.env.EXPO_PUBLIC_ADMOB_IOS_APP_ID,
+          DEFAULT_ADMOB_IOS_APP_ID,
+          "EXPO_PUBLIC_ADMOB_IOS_APP_ID",
+        ),
+        androidAppId: adMobAppId(
+          process.env.EXPO_PUBLIC_ADMOB_ANDROID_APP_ID,
+          DEFAULT_ADMOB_ANDROID_APP_ID,
+          "EXPO_PUBLIC_ADMOB_ANDROID_APP_ID",
+        ),
         userTrackingUsageDescription:
           "This identifier will be used to deliver personalized ads to you.",
       },
