@@ -153,10 +153,10 @@ function roundSettings(settings: NativeSettings): NativeSettings {
     ...settings,
     cardsPerRound: Math.min(30, Math.max(5, Math.round(settings.cardsPerRound) || 10)),
     minSizeMB: Math.min(500, Math.max(0.5, Math.round(settings.minSizeMB * 2) / 2)),
-    minAgeYears: Math.min(100, Math.max(1 / 12, Math.round(settings.minAgeYears * 12) / 12)),
+    minAgeYears: Math.min(100, Math.max(0, Math.round(settings.minAgeYears * 12) / 12)),
     trimQuality: Math.min(0.98, Math.max(0.65, settings.trimQuality)),
     trimKinds: trimKinds.length > 0 ? [...new Set(trimKinds)] : ["metadata", "location", "compression"],
-    trimReviewMode: settings.trimReviewMode === "trimmed-only" ? "trimmed-only" : "normal",
+    trimReviewMode: settings.trimReviewMode === "trimmed-only" || settings.trimReviewMode === "all" ? settings.trimReviewMode : "normal",
   };
 }
 
@@ -182,6 +182,7 @@ function formatSizeThreshold(value: number): string {
 }
 
 function formatAgeThreshold(years: number): string {
+  if (years <= 0) return "today";
   if (years < 1) {
     const months = Math.max(1, Math.round(years * 12));
     return `${months}+ mo`;
@@ -194,6 +195,7 @@ function formatGameSizeThreshold(value: number): string {
 }
 
 function formatGameAgeThreshold(years: number): string {
+  if (years <= 0) return "today";
   if (years < 1) {
     const months = Math.max(1, Math.round(years * 12));
     return `${months} mo`;
@@ -1189,7 +1191,7 @@ export function NativeTrimSwipeApp() {
     }
     if (category === "old") {
       [0.75, 0.5, 0.25].forEach((factor) => {
-        relaxedSettings.push(roundSettings({ ...baseSettings, minAgeYears: Math.max(1 / 12, baseSettings.minAgeYears * factor) }));
+        relaxedSettings.push(roundSettings({ ...baseSettings, minAgeYears: Math.max(0, baseSettings.minAgeYears * factor) }));
       });
     }
 
@@ -2917,9 +2919,9 @@ function GamesScreen({ stats, settings, queue, tokens, onStartGame, onPickCatego
   const gameThumbs = queue.slice(3, 7);
   const todayLabel = today.mbFreed > 0 ? `${formatMB(today.mbFreed)} today` : "Ready to clean";
   const largestPhotoMB = Math.max(0.5, ...queue.map((photo) => photo.sizeMB));
-  const oldestPhotoAgeYears = Math.max(1 / 12, ...queue.map((photo) => gameAgeYears(photo.creationTime)));
+  const oldestPhotoAgeYears = Math.max(0, ...queue.map((photo) => gameAgeYears(photo.creationTime)));
   const largeSliderMax = Math.max(0.5, largestPhotoMB);
-  const oldSliderMax = Math.max(1 / 12, oldestPhotoAgeYears);
+  const oldSliderMax = Math.max(0, oldestPhotoAgeYears);
   const largeSliderValue = Math.min(settings.minSizeMB, largeSliderMax);
   const oldSliderValue = Math.min(settings.minAgeYears, oldSliderMax);
   const displayedSettings = { ...settings, minSizeMB: largeSliderValue, minAgeYears: oldSliderValue };
@@ -2985,11 +2987,11 @@ function GamesScreen({ stats, settings, queue, tokens, onStartGame, onPickCatego
         <GameFilterSlider
           label="Older than"
           value={oldSliderValue}
-          min={1 / 12}
+          min={0}
           max={oldSliderMax}
           step={1 / 12}
           valueText={`>${formatGameAgeThreshold(oldSliderValue)}`}
-          minText=">1 mo"
+          minText="Today"
           maxText={`Oldest photo (${formatGameAgeThreshold(oldestPhotoAgeYears)})`}
           onChange={(minAgeYears) => onChangeSettings({ minAgeYears })}
         />
@@ -3135,12 +3137,16 @@ function GameSmartFolderCard({ folder, onPress }: { folder: GameSmartFolder; onP
 
 // ─── This or That ─────────────────────────────────────────────────────────────
 
-function LoserColumn({ title, tone, photos, settings, onMove }: { title: string; tone: "delete" | "trim"; photos: NativePhoto[]; settings: NativeSettings; onMove: (photo: NativePhoto) => void }) {
-  const total = photos.reduce((sum, photo) => sum + (tone === "delete" ? photo.sizeMB : estimateTrimSavingsForSettings(photo, settings)), 0);
+type ThisOrThatLoserMode = "delete" | "trim" | "skip";
+
+function LoserColumn({ title, tone, photos, settings, onMove }: { title: string; tone: ThisOrThatLoserMode; photos: NativePhoto[]; settings: NativeSettings; onMove: (photo: NativePhoto) => void }) {
+  const total = photos.reduce((sum, photo) => sum + (tone === "delete" ? photo.sizeMB : tone === "trim" ? estimateTrimSavingsForSettings(photo, settings) : 0), 0);
   return (
-    <View style={[styles.loserColumn, tone === "delete" ? styles.loserColumnDelete : styles.loserColumnTrim]}>
-      <Text style={tone === "delete" ? styles.deleteSummary : styles.trimSummary}>{title}</Text>
-      <Text style={styles.mutedSmall}>{photos.length} photos · {tone === "delete" ? formatMB(total) : `~${formatMB(total)}`}</Text>
+    <View style={[styles.loserColumn, tone === "delete" ? styles.loserColumnDelete : tone === "trim" ? styles.loserColumnTrim : styles.loserColumnSkip]}>
+      <Text style={tone === "delete" ? styles.deleteSummary : tone === "trim" ? styles.trimSummary : styles.skipSummary}>{title}</Text>
+      <Text style={styles.mutedSmall}>
+        {photos.length} photos {tone === "skip" ? "- no action" : `- ${tone === "delete" ? formatMB(total) : `~${formatMB(total)}`}`}
+      </Text>
       <View style={styles.loserThumbGrid}>
         {photos.map((photo) => (
           <LoserThumb key={photo.id} photo={photo} tone={tone} settings={settings} onMove={() => onMove(photo)} />
@@ -3150,7 +3156,7 @@ function LoserColumn({ title, tone, photos, settings, onMove }: { title: string;
   );
 }
 
-function LoserThumb({ photo, tone, settings, onMove }: { photo: NativePhoto; tone: "delete" | "trim"; settings: NativeSettings; onMove: () => void }) {
+function LoserThumb({ photo, tone, settings, onMove }: { photo: NativePhoto; tone: ThisOrThatLoserMode; settings: NativeSettings; onMove: () => void }) {
   const pan = useRef(new Animated.ValueXY()).current;
   const trimLabel = trimmedPhotoLabel(photo, settings);
   const panResponder = useMemo(
@@ -3171,7 +3177,7 @@ function LoserThumb({ photo, tone, settings, onMove }: { photo: NativePhoto; ton
       <Pressable onPress={onMove} style={styles.loserThumb}>
         <Image source={{ uri: photo.uri }} style={styles.loserThumbImage} resizeMode="cover" />
         {trimLabel ? <Text style={styles.trimmedLoserBadge}>{trimLabel}</Text> : null}
-        <Text style={styles.loserThumbText}>{tone === "delete" ? formatMB(photo.sizeMB) : `~${formatMB(estimateTrimSavingsForSettings(photo, settings))}`}</Text>
+        <Text style={styles.loserThumbText}>{tone === "delete" ? formatMB(photo.sizeMB) : tone === "trim" ? `~${formatMB(estimateTrimSavingsForSettings(photo, settings))}` : "Skip"}</Text>
       </Pressable>
     </Animated.View>
   );
@@ -3185,7 +3191,7 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
   const [index, setIndex] = useState(0);
   const [kept, setKept] = useState<NativePhoto[]>([]);
   const [deleted, setDeleted] = useState<NativePhoto[]>([]);
-  const [loserModes, setLoserModes] = useState<Record<string, "delete" | "trim">>({});
+  const [loserModes, setLoserModes] = useState<Record<string, ThisOrThatLoserMode>>({});
   const [loadingPairs, setLoadingPairs] = useState(true);
   const [busy, setBusy] = useState(false);
   const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
@@ -3220,8 +3226,9 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
 
   useEffect(() => { void loadPairs(); }, []);
   const pair = pairs[index];
-  const deleteLosers = deleted.filter((photo) => loserModes[photo.id] !== "trim");
+  const deleteLosers = deleted.filter((photo) => loserModes[photo.id] === "delete" || !loserModes[photo.id]);
   const trimLosers = deleted.filter((photo) => loserModes[photo.id] === "trim");
+  const skipLosers = deleted.filter((photo) => loserModes[photo.id] === "skip");
   const deleteFreed = deleteLosers.reduce((sum, photo) => sum + photo.sizeMB, 0);
   const trimFreed = trimLosers.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0);
   const totalFreed = deleteFreed + trimFreed;
@@ -3237,7 +3244,7 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
     setIndex((current) => current + 1);
   }
 
-  function setLoserMode(photo: NativePhoto, mode: "delete" | "trim") {
+  function setLoserMode(photo: NativePhoto, mode: ThisOrThatLoserMode) {
     if (mode === "trim" && !canAttemptTrim(photo, settings)) return;
     setLoserModes((current) => ({ ...current, [photo.id]: mode }));
   }
@@ -3278,16 +3285,18 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
         <MiniGameHeader title="This or That" detail="Round complete" tokens={tokens} onBack={onBack} />
         <View style={styles.dashboardHero}>
           <Text style={styles.heroTitle}>{deleted.length} losers ready</Text>
-          <Text style={styles.dashboardCopy}>Losers default to Delete. Move anything you still want to keep smaller into Trim before applying.</Text>
+          <Text style={styles.dashboardCopy}>Losers default to Delete. Move anything you want untouched into Trim or Skip before applying.</Text>
           <View style={styles.loserSummaryRow}>
             <Text style={styles.deleteSummary}>Delete {deleteLosers.length}: {formatMB(deleteFreed)}</Text>
             <Text style={styles.trimSummary}>Trim {trimLosers.length}: ~{formatMB(trimFreed)}</Text>
+            <Text style={styles.skipSummary}>Skip {skipLosers.length}</Text>
           </View>
           <View style={styles.loserColumns}>
             <LoserColumn title="Delete" tone="delete" photos={deleteLosers} settings={settings} onMove={(photo) => setLoserMode(photo, "trim")} />
-            <LoserColumn title="Trim" tone="trim" photos={trimLosers} settings={settings} onMove={(photo) => setLoserMode(photo, "delete")} />
+            <LoserColumn title="Trim" tone="trim" photos={trimLosers} settings={settings} onMove={(photo) => setLoserMode(photo, "skip")} />
           </View>
-          <PrimaryButton label={busy ? "Applying..." : `Apply, save ~${formatMB(totalFreed)}`} disabled={busy || deleted.length === 0} onPress={confirmOutcome} />
+          <LoserColumn title="Skip" tone="skip" photos={skipLosers} settings={settings} onMove={(photo) => setLoserMode(photo, "delete")} />
+          <PrimaryButton label={busy ? "Applying..." : `Apply, save ~${formatMB(totalFreed)}`} disabled={busy || deleteLosers.length + trimLosers.length === 0} onPress={confirmOutcome} />
           <SecondaryButton label="Play another round without deleting" onPress={() => void loadPairs()} />
         </View>
       </ScrollView>
@@ -4077,14 +4086,14 @@ function SettingsScreen({ settings, isPro, samplePhoto, onChange, onReload }: { 
       <Segmented
         label="Photo pool"
         value={settings.trimReviewMode}
-        options={[["normal", "Untrimmed"], ["trimmed-only", "Trimmed only"]]}
+        options={[["normal", "Untrimmed"], ["trimmed-only", "Trimmed only"], ["all", "All photos"]]}
         onChange={(trimReviewMode) => onChange({ trimReviewMode })}
       />
       <FocusDropdown value={settings.targetMode} onChange={(targetMode) => onChange({ targetMode })} />
       {settings.targetMode !== "balanced" ? (
         <>
           <SettingStepper label="Large threshold" value={settings.minSizeMB} suffix="MB" min={0.5} max={10} step={0.5} onChange={(minSizeMB) => onChange({ minSizeMB })} />
-          <SettingStepper label="Old threshold" value={settings.minAgeYears} suffix="years" min={1 / 12} max={3} step={1 / 12} onChange={(minAgeYears) => onChange({ minAgeYears })} />
+          <SettingStepper label="Old threshold" value={settings.minAgeYears} suffix="years" min={0} max={3} step={1 / 12} onChange={(minAgeYears) => onChange({ minAgeYears })} />
         </>
       ) : null}
       <SettingStepper label="Trim quality" value={Math.round(settings.trimQuality * 100)} suffix="%" min={65} max={98} step={1} onChange={(quality) => onChange({ trimQuality: quality / 100 })} />
@@ -4509,10 +4518,12 @@ const styles = StyleSheet.create({
   loserSummaryRow: { flexDirection: "row", gap: 8 },
   deleteSummary: { color: "#dc2626", fontSize: 13, fontWeight: "900" },
   trimSummary: { color: "#c2410c", fontSize: 13, fontWeight: "900" },
+  skipSummary: { color: "#64748b", fontSize: 13, fontWeight: "900" },
   loserColumns: { flexDirection: "row", gap: 10 },
   loserColumn: { flex: 1, minHeight: 170, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: 2, padding: 10, gap: 8 },
   loserColumnDelete: { borderColor: "#ef4444" },
   loserColumnTrim: { borderColor: "#fb923c" },
+  loserColumnSkip: { borderColor: "#cbd5e1", minHeight: 112 },
   loserThumbGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   loserThumb: { width: 56, height: 66, overflow: "hidden", borderRadius: 12, backgroundColor: "#111827" },
   loserThumbImage: { width: "100%", height: "100%" },
@@ -4521,8 +4532,8 @@ const styles = StyleSheet.create({
 
   // Storage budget
   budgetShell: { flex: 1 },
-  budgetContentWithFloating: { paddingTop: 78 },
-  floatingBudget: { position: "absolute", top: 16, left: 20, right: 20, zIndex: 10, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.96)", borderWidth: 1, borderColor: "#fed7aa", padding: 12, shadowColor: "#fb923c", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.16, shadowRadius: 16, elevation: 5 },
+  budgetContentWithFloating: { paddingTop: 118 },
+  floatingBudget: { position: "absolute", top: 22, left: 20, right: 20, zIndex: 10, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.96)", borderWidth: 1, borderColor: "#fed7aa", padding: 12, shadowColor: "#fb923c", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.16, shadowRadius: 16, elevation: 5 },
   floatingBudgetLabel: { color: "#f97316", fontSize: 10, fontWeight: "900", letterSpacing: 1.2, textTransform: "uppercase" },
   floatingBudgetValue: { marginTop: 2, color: "#1f2937", fontSize: 18, fontWeight: "900" },
   floatingBudgetOver: { color: "#dc2626" },

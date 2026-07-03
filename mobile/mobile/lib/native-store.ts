@@ -24,7 +24,7 @@ export type NativeTrimOutputMode = "replace" | "save-new";
 
 export type NativeTrimKind = "metadata" | "location" | "compression" | "resize" | "format";
 
-export type NativeTrimReviewMode = "normal" | "trimmed-only";
+export type NativeTrimReviewMode = "normal" | "trimmed-only" | "all";
 
 export type NativeSettings = {
   cardsPerRound: number;
@@ -210,7 +210,9 @@ function normalizeTrimKinds(value: unknown): NativeTrimKind[] {
 }
 
 function normalizeTrimReviewMode(value: unknown): NativeTrimReviewMode {
-  return value === "trimmed-only" ? "trimmed-only" : "normal";
+  if (value === "trimmed-only") return "trimmed-only";
+  if (value === "all") return "all";
+  return "normal";
 }
 
 function normalizeSessionMode(value: unknown): NativeSessionMode {
@@ -281,7 +283,7 @@ function normalizeStats(value: unknown): NativeStats {
       sessionMode: normalizeSessionMode(rawSettings.sessionMode),
       cardsPerRound: Math.min(30, Math.max(5, safeNumber(rawSettings.cardsPerRound, 10))),
       minSizeMB: Math.min(10, Math.max(0.5, safeNumber(rawSettings.minSizeMB, 5))),
-      minAgeYears: Math.min(3, Math.max(1 / 12, safeNumber(rawSettings.minAgeYears, 1))),
+      minAgeYears: Math.min(3, Math.max(0, safeNumber(rawSettings.minAgeYears, 1))),
       trimQuality: Math.min(0.98, Math.max(0.65, safeNumber(rawSettings.trimQuality, 0.9))),
       trimOutputMode: normalizeTrimOutputMode(rawSettings.trimOutputMode),
       trimKinds: normalizeTrimKinds(rawSettings.trimKinds),

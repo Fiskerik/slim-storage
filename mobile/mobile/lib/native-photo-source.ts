@@ -511,6 +511,9 @@ function shouldUseRoundPhoto(
   if (settings.trimReviewMode === "trimmed-only") {
     return trimmed && !isMaxTrimmedPhoto(photo, settings);
   }
+  if (settings.trimReviewMode === "all") {
+    return !excludeMaxTrimmed || !isMaxTrimmedPhoto(photo, settings);
+  }
   if (trimmed && !includeTrimmed) return false;
   return !excludeMaxTrimmed || !isMaxTrimmedPhoto(photo, settings);
 }

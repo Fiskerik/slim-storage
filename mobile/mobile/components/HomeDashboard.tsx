@@ -129,6 +129,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
     onShare,
   } = props;
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [todayExpanded, setTodayExpanded] = useState(false);
 
 
   const float = useRef(new Animated.Value(0)).current;
@@ -222,13 +223,16 @@ export function HomeDashboard(props: HomeDashboardProps) {
             <Text style={styles.sectionAction}>{formatMB(today.mbFreed)} freed</Text>
           }
         />
-        <Card style={styles.todayCard}>
-          <TodayStat icon="checkmark-circle-outline" tint={colors.sage} value={today.kept} label="Kept" />
+        <Pressable
+          onPress={() => setTodayExpanded((current) => !current)}
+          style={styles.todayCard}
+        >
+          <TodayStat icon="checkmark-circle-outline" tint={colors.sage} value={today.kept} label="Kept" expanded={todayExpanded} />
           <View style={styles.todayDivider} />
-          <TodayStat icon="cut-outline" tint={colors.honey} value={today.trimmed} label="Trimmed" />
+          <TodayStat icon="cut-outline" tint={colors.honey} value={today.trimmed} label="Trimmed" expanded={todayExpanded} />
           <View style={styles.todayDivider} />
-          <TodayStat icon="trash-outline" tint={colors.danger} value={today.deleted} label="Deleted" />
-        </Card>
+          <TodayStat icon="trash-outline" tint={colors.danger} value={today.deleted} label="Deleted" expanded={todayExpanded} />
+        </Pressable>
 
         <SectionHeader
           title="Daily tokens"
@@ -496,17 +500,21 @@ function TodayStat({
   tint,
   value,
   label,
+  expanded,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   tint: string;
   value: number;
   label: string;
+  expanded: boolean;
 }) {
   return (
-    <View style={styles.todayStat}>
-      <Ionicons name={icon} size={20} color={tint} />
-      <Text style={[styles.todayValue, { color: tint }]}>{value}</Text>
-      <Text style={styles.todayLabel}>{label}</Text>
+    <View style={[styles.todayStat, expanded && styles.todayStatExpanded]}>
+      <View style={styles.todayCompactStat}>
+        <Ionicons name={icon} size={18} color={tint} />
+        <Text style={[styles.todayValue, { color: tint }]}>{value}</Text>
+      </View>
+      {expanded ? <Text style={styles.todayLabel}>{label}</Text> : null}
     </View>
   );
 }
@@ -857,10 +865,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: spacing.lg,
+    borderRadius: radius.lg,
+    backgroundColor: colors.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    ...shadow.card,
   },
-  todayStat: { flex: 1, alignItems: "center", gap: 4 },
-  todayValue: { fontSize: 24, fontWeight: "900" },
+  todayStat: { flex: 1, alignItems: "center", justifyContent: "center", gap: 3 },
+  todayStatExpanded: { gap: 4 },
+  todayCompactStat: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
+  todayValue: { fontSize: 22, fontWeight: "900" },
   todayLabel: { fontSize: 11, color: colors.textMuted, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
   todayDivider: { width: StyleSheet.hairlineWidth, alignSelf: "stretch", backgroundColor: colors.border },
 

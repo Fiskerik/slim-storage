@@ -25,6 +25,15 @@ import type {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEKLY_TARGET_MB = 500;
+type ChartPeriod = "week" | "month" | "year";
+type SavingsBucket = {
+  key: string;
+  label: string;
+  dayLabel: string;
+  value: number;
+  sub: number;
+  deleteMbFreed: number;
+};
 
 export type StatsDashboardProps = {
   stats: NativeStats;
@@ -40,26 +49,15 @@ export function StatsDashboard({
   const weekRing = Math.min(1, week.mbFreed / WEEKLY_TARGET_MB);
   const streak = currentStreak(stats);
   const level = levelInfo(stats);
-  const [selectedDayKey, setSelectedDayKey] = useState<string | undefined>(() => dateKey());
+  const [chartPeriod, setChartPeriod] = useState<ChartPeriod>("week");
+  const [selectedBucketKey, setSelectedBucketKey] = useState<string | undefined>(() => dateKey());
 
   const chartData = useMemo(
-    () =>
-      Array.from({ length: 7 }, (_, i) => {
-        const d = new Date(Date.now() - (6 - i) * DAY_MS);
-        const key = dateKey(d);
-        const day = dailyFor(stats, key);
-        return {
-          key,
-          label: d.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 1),
-          dayLabel: d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }),
-          value: day.mbFreed,
-          sub: day.trimMbFreed,
-          deleteMbFreed: day.deleteMbFreed,
-        };
-      }),
-    [stats],
+    () => buildSavingsBuckets(stats, chartPeriod),
+    [chartPeriod, stats],
   );
-  const selectedDay = chartData.find((day) => day.key === selectedDayKey) ?? chartData[chartData.length - 1];
+  const selectedBucket = chartData.find((item) => item.key === selectedBucketKey) ?? chartData[chartData.length - 1];
+  const chartTitle = chartPeriod === "week" ? "7-day savings" : chartPeriod === "month" ? "Monthly savings" : "Yearly savings";
 
   const topHogs = useMemo(
     () =>
@@ -101,25 +99,46 @@ export function StatsDashboard({
         </ProgressRing>
       </Card>
 
-      {/* 7-day chart */}
-      <SectionHeader title="7-day savings" action={<Text style={styles.action}>Trim + Delete</Text>} />
+      {/* Savings chart */}
+      <SectionHeader title={chartTitle} action={<Text style={styles.action}>Trim + Delete</Text>} />
       <Card>
+        <View style={styles.chartTabs}>
+          {([
+            ["week", "Week"],
+            ["month", "Month"],
+            ["year", "Year"],
+          ] as const).map(([period, label]) => {
+            const active = chartPeriod === period;
+            return (
+              <Pressable
+                key={period}
+                onPress={() => {
+                  setChartPeriod(period);
+                  setSelectedBucketKey(undefined);
+                }}
+                style={[styles.chartTab, active && styles.chartTabActive]}
+              >
+                <Text style={[styles.chartTabText, active && styles.chartTabTextActive]}>{label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
         <BarChart
           data={chartData}
           height={120}
-          selectedKey={selectedDay?.key}
-          onSelect={(day) => setSelectedDayKey(day.key)}
+          selectedKey={selectedBucket?.key}
+          onSelect={(bucket) => setSelectedBucketKey(bucket.key)}
         />
         <View style={styles.legend}>
           <LegendDot color={colors.sage} label="Trim" />
           <LegendDot color={colors.danger} label="Delete" />
         </View>
-        {selectedDay ? (
+        {selectedBucket ? (
           <View style={styles.dayBreakdown}>
-            <Text style={styles.dayBreakdownTitle}>{selectedDay.dayLabel}</Text>
-            <BreakdownPill color={colors.sage} label="Trim" value={formatMB(selectedDay.sub ?? 0)} />
-            <BreakdownPill color={colors.danger} label="Delete" value={formatMB(selectedDay.deleteMbFreed)} />
-            <BreakdownPill color={colors.textSubtle} label="Total" value={formatMB(selectedDay.value)} />
+            <Text style={styles.dayBreakdownTitle}>{selectedBucket.dayLabel}</Text>
+            <BreakdownPill color={colors.sage} label="Trim" value={formatMB(selectedBucket.sub ?? 0)} />
+            <BreakdownPill color={colors.danger} label="Delete" value={formatMB(selectedBucket.deleteMbFreed)} />
+            <BreakdownPill color={colors.textSubtle} label="Total" value={formatMB(selectedBucket.value)} />
           </View>
         ) : null}
       </Card>
@@ -347,6 +366,94 @@ function sumDays(stats: NativeStats, days: number): NativeDailyStats {
     sessions: sum.sessions + day.sessions,
   }));
 }
+function emptyBucket(): NativeDailyStats {
+  return {
+    reviewed: 0,
+    kept: 0,
+    trimmed: 0,
+    deleted: 0,
+    mbFreed: 0,
+    trimMbFreed: 0,
+    deleteMbFreed: 0,
+    sessions: 0,
+  };
+}
+function addDailyStats(sum: NativeDailyStats, day: NativeDailyStats): NativeDailyStats {
+  return {
+    reviewed: sum.reviewed + day.reviewed,
+    kept: sum.kept + day.kept,
+    trimmed: sum.trimmed + day.trimmed,
+    deleted: sum.deleted + day.deleted,
+    mbFreed: sum.mbFreed + day.mbFreed,
+    trimMbFreed: sum.trimMbFreed + day.trimMbFreed,
+    deleteMbFreed: sum.deleteMbFreed + day.deleteMbFreed,
+    sessions: sum.sessions + day.sessions,
+  };
+}
+function bucketFromStats(key: string, label: string, dayLabel: string, stats: NativeDailyStats): SavingsBucket {
+  return {
+    key,
+    label,
+    dayLabel,
+    value: +stats.mbFreed.toFixed(2),
+    sub: +stats.trimMbFreed.toFixed(2),
+    deleteMbFreed: +stats.deleteMbFreed.toFixed(2),
+  };
+}
+function buildSavingsBuckets(stats: NativeStats, period: ChartPeriod): SavingsBucket[] {
+  if (period === "week") {
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(Date.now() - (6 - i) * DAY_MS);
+      const key = dateKey(d);
+      const day = dailyFor(stats, key);
+      return bucketFromStats(
+        key,
+        d.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 1),
+        d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }),
+        day,
+      );
+    });
+  }
+
+  const now = new Date();
+  if (period === "month") {
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const weekCount = Math.ceil(daysInMonth / 7);
+    return Array.from({ length: weekCount }, (_, index) => {
+      const startDay = index * 7 + 1;
+      const endDay = Math.min(daysInMonth, startDay + 6);
+      let sum = emptyBucket();
+      for (let day = startDay; day <= endDay; day += 1) {
+        sum = addDailyStats(sum, dailyFor(stats, dateKey(new Date(year, month, day))));
+      }
+      const monthLabel = new Date(year, month, startDay).toLocaleDateString(undefined, { month: "short" });
+      return bucketFromStats(
+        `${year}-${String(month + 1).padStart(2, "0")}-w${index + 1}`,
+        `W${index + 1}`,
+        `${monthLabel} ${startDay}-${endDay}`,
+        sum,
+      );
+    });
+  }
+
+  const year = now.getFullYear();
+  return Array.from({ length: 12 }, (_, month) => {
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    let sum = emptyBucket();
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      sum = addDailyStats(sum, dailyFor(stats, dateKey(new Date(year, month, day))));
+    }
+    const date = new Date(year, month, 1);
+    return bucketFromStats(
+      `${year}-${String(month + 1).padStart(2, "0")}`,
+      date.toLocaleDateString(undefined, { month: "short" }).slice(0, 1),
+      date.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
+      sum,
+    );
+  });
+}
 function currentStreak(stats: NativeStats): number {
   let streak = 0;
   for (let i = 0; i < 90; i += 1) {
@@ -443,6 +550,25 @@ const styles = StyleSheet.create({
   ringNum: { fontSize: 18, fontWeight: "900", color: colors.text },
   ringHint: { fontSize: 9, fontWeight: "800", color: colors.textMuted, letterSpacing: 1.2 },
 
+  chartTabs: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: spacing.md,
+    padding: 4,
+    borderRadius: radius.pill,
+    backgroundColor: colors.cardSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderSoft,
+  },
+  chartTab: {
+    flex: 1,
+    alignItems: "center",
+    borderRadius: radius.pill,
+    paddingVertical: 9,
+  },
+  chartTabActive: { backgroundColor: colors.primary },
+  chartTabText: { color: colors.textMuted, fontSize: 12, fontWeight: "900" },
+  chartTabTextActive: { color: colors.white },
   legend: { flexDirection: "row", gap: spacing.lg, marginTop: spacing.md, justifyContent: "center" },
   legendDot: { flexDirection: "row", gap: 6, alignItems: "center" },
   dotBlock: { width: 10, height: 10, borderRadius: 5 },
