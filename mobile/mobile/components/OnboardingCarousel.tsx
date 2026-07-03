@@ -16,12 +16,13 @@ import { colors, radius, shadow, spacing, type } from "../constants/design";
 import { PageDots, ProgressRing } from "./ui/primitives";
 
 export type OnboardingCarouselProps = {
+  appVersion: string;
   onDone: () => void;
 };
 
 const SLIDES = 3;
 
-export function OnboardingCarousel({ onDone }: OnboardingCarouselProps) {
+export function OnboardingCarousel({ appVersion, onDone }: OnboardingCarouselProps) {
   const [index, setIndex] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
   const width = Dimensions.get("window").width;
@@ -43,14 +44,13 @@ export function OnboardingCarousel({ onDone }: OnboardingCarouselProps) {
   return (
     <View style={styles.flex}>
       <View style={styles.topBar}>
-        <Text style={type.eyebrow}>Welcome</Text>
-        {!last ? (
-          <Pressable onPress={finish} hitSlop={10}>
-            <Text style={styles.skip}>Skip</Text>
-          </Pressable>
-        ) : (
-          <View style={{ width: 40 }} />
-        )}
+        <View>
+          <Text style={type.eyebrow}>Welcome</Text>
+          <Text style={styles.version}>TrimSwipe v{appVersion}</Text>
+        </View>
+        <Pressable onPress={finish} hitSlop={10}>
+          <Text style={styles.skip}>Skip</Text>
+        </Pressable>
       </View>
 
       <ScrollView
@@ -108,13 +108,13 @@ function SlideLoad({ width }: { width: number }) {
       <Animated.View style={[styles.heroIcon, { transform: [{ translateY: float }] }]}>
         <Ionicons name="images-outline" size={70} color={colors.primary} />
       </Animated.View>
-      <Text style={styles.slideTitle}>Load photos</Text>
+      <Text style={styles.slideTitle}>Clean by swiping</Text>
       <Text style={styles.slideBody}>
-        TrimSwipe scans on-device, spots the heavy stuff, and keeps your camera roll private.
+        TrimSwipe finds photos worth reviewing, then lets you keep, trim, delete, or skip them before anything changes.
       </Text>
       <View style={styles.previewCard}>
-        <Ionicons name="lock-closed-outline" size={16} color={colors.sageDeep} />
-        <Text style={styles.previewText}>Photos stay on your phone</Text>
+        <Ionicons name="checkmark-circle-outline" size={16} color={colors.sageDeep} />
+        <Text style={styles.previewText}>Every batch is previewed first</Text>
       </View>
     </View>
   );
@@ -124,14 +124,14 @@ function SlidePick({ width }: { width: number }) {
   return (
     <View style={[styles.slide, { width }]}>
       <View style={styles.gameGrid}>
-        <MiniGame icon="albums-outline" label="Big" tint={colors.primary} />
-        <MiniGame icon="copy-outline" label="Dupes" tint={colors.info} />
-        <MiniGame icon="phone-portrait-outline" label="Screens" tint={colors.danger} />
-        <MiniGame icon="sparkles-outline" label="Bursts" tint={colors.honey} />
+        <MiniGame icon="finger-print-outline" label="Metadata" tint={colors.primary} />
+        <MiniGame icon="location-outline" label="Location" tint={colors.info} />
+        <MiniGame icon="contract-outline" label="Compression" tint={colors.sageDeep} />
+        <MiniGame icon="resize-outline" label="Resize" tint={colors.honey} />
       </View>
-      <Text style={styles.slideTitle}>Pick your game</Text>
+      <Text style={styles.slideTitle}>What trim can change</Text>
       <Text style={styles.slideBody}>
-        Choose what to trim or delete. Swipe fast, keep favorites, and preview every batch.
+        Trim can strip metadata, location, and extra weight. In replace mode, the original is deleted after a smaller copy is saved.
       </Text>
     </View>
   );
@@ -157,10 +157,14 @@ function SlideProfit({ width }: { width: number }) {
         <Text style={styles.bigGB}>{(1.8 + saved * 4.2).toFixed(1)}</Text>
         <Text style={styles.bigGBLabel}>GB saved</Text>
       </ProgressRing>
-      <Text style={[styles.slideTitle, { marginTop: spacing.xxl }]}>Profit</Text>
+      <Text style={[styles.slideTitle, { marginTop: spacing.xxl }]}>Cloud backup window</Text>
       <Text style={styles.slideBody}>
-        Delete the clutter, or keep the photo and make a lighter copy. Green numbers show what you save.
+        Deleted originals and replaced photos can usually be recovered from Recently Deleted or cloud backup for up to 39 days.
       </Text>
+      <View style={styles.previewCard}>
+        <Ionicons name="cloud-done-outline" size={16} color={colors.sageDeep} />
+        <Text style={styles.previewText}>Let cloud backup finish before clearing Recently Deleted</Text>
+      </View>
     </View>
   );
 }
@@ -200,6 +204,7 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.sm,
   },
   skip: { fontSize: 13, fontWeight: "700", color: colors.textMuted },
+  version: { marginTop: 3, fontSize: 12, fontWeight: "800", color: colors.textMuted },
   slide: {
     alignItems: "center",
     justifyContent: "center",

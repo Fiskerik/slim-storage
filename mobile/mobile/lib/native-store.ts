@@ -67,6 +67,7 @@ export type NativeStats = {
   sessions: number;
   startedAt: string;
   onboardingComplete: boolean;
+  onboardingVersion: string | null;
   shareCount: number;
   dailyActivity: Record<string, NativeDailyStats>;
   dailyRewardClaims: Record<string, number>;
@@ -122,6 +123,7 @@ export const DEFAULT_NATIVE_STATS: NativeStats = {
   sessions: 0,
   startedAt: new Date().toISOString().slice(0, 10),
   onboardingComplete: false,
+  onboardingVersion: null,
   shareCount: 0,
   dailyActivity: {},
   dailyRewardClaims: {},
@@ -271,6 +273,7 @@ function normalizeStats(value: unknown): NativeStats {
     sessions: Math.max(0, safeNumber(raw.sessions)),
     startedAt: String(raw.startedAt ?? DEFAULT_NATIVE_STATS.startedAt),
     onboardingComplete: raw.onboardingComplete === undefined ? safeNumber(raw.reviewed) > 0 : Boolean(raw.onboardingComplete),
+    onboardingVersion: typeof raw.onboardingVersion === "string" ? raw.onboardingVersion : null,
     shareCount: Math.max(0, safeNumber(raw.shareCount)),
     dailyActivity: normalizeDailyActivity(raw.dailyActivity),
     dailyRewardClaims: normalizeRewardClaims(raw.dailyRewardClaims),

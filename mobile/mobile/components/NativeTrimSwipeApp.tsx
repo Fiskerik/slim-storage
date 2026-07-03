@@ -1,4 +1,5 @@
 import * as Haptics from "expo-haptics";
+import Constants from "expo-constants";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -118,6 +119,10 @@ type ConfirmRequest = {
 };
 
 const SWIPE_THRESHOLD = 110;
+const APP_VERSION =
+  Constants.expoConfig?.version ??
+  (Constants.manifest as { version?: string } | null)?.version ??
+  "1.0.8";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DAILY_REVIEW_TARGET = 10;
 const WEEKLY_SAVINGS_TARGET_MB = 500;
@@ -593,6 +598,7 @@ export function NativeTrimSwipeApp() {
   const top = queue[0];
   const next = queue[1];
   const trimCurrencyAvailable = isPro ? Number.MAX_SAFE_INTEGER : Math.max(0, tokenBalance);
+  const onboardingDue = statsLoaded && (!stats.onboardingComplete || stats.onboardingVersion !== APP_VERSION);
 
   function showToast(title: string, detail?: string, tone: ToastMessage["tone"] = "info") {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -712,7 +718,7 @@ export function NativeTrimSwipeApp() {
   }
 
   function completeOnboarding() {
-    commitStats((current) => ({ ...current, onboardingComplete: true }));
+    commitStats((current) => ({ ...current, onboardingComplete: true, onboardingVersion: APP_VERSION }));
   }
 
   async function shareProgress() {
@@ -839,10 +845,10 @@ export function NativeTrimSwipeApp() {
   }
 
   useEffect(() => {
-    if (!statsLoaded || !stats.onboardingComplete) return;
+    if (!statsLoaded || onboardingDue) return;
     void loadRound();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statsLoaded, stats.onboardingComplete, stats.startedAt]);
+  }, [statsLoaded, onboardingDue, stats.startedAt]);
 
   useEffect(() => {
     if (settings.sessionMode !== "time-attack" || loading || recap || pendingDeletes.length > 0) return undefined;
@@ -1663,6 +1669,11 @@ export function NativeTrimSwipeApp() {
   const potentialFromScan = libraryScan
     ? libraryScan.trimSavingsMB + libraryScan.deleteSavingsMB
     : Math.max(stats.mbFreed * 2, 500);
+  const scanInProgressText = scanProgress?.total
+    ? `Scanning ${scanProgress.scanned}/${scanProgress.total}`
+    : scanProgress
+      ? `Scanning ${scanProgress.scanned}`
+      : undefined;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -1677,8 +1688,8 @@ export function NativeTrimSwipeApp() {
             <ActivityIndicator color="#f97316" size="large" />
             <Text style={styles.muted}>Preparing TrimSwipe...</Text>
           </Centered>
-        ) : !stats.onboardingComplete ? (
-          <OnboardingCarousel onDone={completeOnboarding} />
+        ) : onboardingDue ? (
+          <OnboardingCarousel appVersion={APP_VERSION} onDone={completeOnboarding} />
         ) : screen === "swipe" ? (
           <SwipeScreen
             top={top}
@@ -1711,6 +1722,11 @@ export function NativeTrimSwipeApp() {
         ) : screen === "stats" ? (
           <StatsDashboard
             stats={stats}
+            scan={libraryScan}
+            scanBusy={scanBusy}
+            scanComplete={scanComplete}
+            scanInProgressText={scanInProgressText}
+            onQuickScan={runLibraryScan}
             onShare={shareProgress}
           />
         ) : screen === "this-or-that" ? (
@@ -1795,7 +1811,7 @@ export function NativeTrimSwipeApp() {
             scan={libraryScan}
             scanBusy={scanBusy}
             scanComplete={scanComplete}
-            scanInProgressText={scanProgress?.total ? `Scanning ${scanProgress.scanned}/${scanProgress.total}` : scanProgress ? `Scanning ${scanProgress.scanned}` : undefined}
+            scanInProgressText={scanInProgressText}
             tokens={tokenBalance}
             isPro={isPro}
             adBusy={adBusy}
@@ -1819,7 +1835,7 @@ export function NativeTrimSwipeApp() {
           <SettingsScreen settings={settings} isPro={isPro} samplePhoto={top ?? queue[0]} onChange={updateSettings} onReload={loadRound} />
         )}
 
-        {statsLoaded && stats.onboardingComplete ? <BottomNav screen={screen} onChange={setScreen} /> : null}
+        {statsLoaded && !onboardingDue ? <BottomNav screen={screen} onChange={setScreen} /> : null}
         <ConfirmSheet request={confirmRequest} busy={confirmBusy} />
         <Toast toast={toast} />
       </View>
@@ -2904,7 +2920,7 @@ const GAME_SMART_FOLDER_DEFS: Array<{
   { key: "old", label: (settings) => `>${formatGameAgeThreshold(settings.minAgeYears)}`, icon: "time-outline", match: (photo, settings) => gameAgeYears(photo.creationTime) >= settings.minAgeYears },
   { key: "screenshots", label: () => "Screens", icon: "phone-portrait-outline", match: (photo) => photo.cleanupReasons.includes("Screenshot") || photo.title.toLowerCase().includes("screen") },
   { key: "live", label: () => "Live", icon: "radio-button-on-outline", match: (photo) => photo.cleanupReasons.includes("Live Photo") },
-  { key: "duplicates", label: () => "Dupes", icon: "copy-outline", match: (photo) => photo.cleanupReasons.includes("Similar") },
+  { key: "duplicates", label: () => "Duplicates", icon: "copy-outline", match: (photo) => photo.cleanupReasons.includes("Similar") },
   { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (photo) => photo.cleanupReasons.includes("Burst") || photo.cleanupReasons.includes("Similar") },
 ];
 

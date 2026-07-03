@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -22,6 +23,7 @@ import type {
   NativeDailyStats,
   NativeStats,
 } from "../lib/native-store";
+import type { NativeLibraryScan } from "../lib/native-photo-source";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEKLY_TARGET_MB = 500;
@@ -37,11 +39,21 @@ type SavingsBucket = {
 
 export type StatsDashboardProps = {
   stats: NativeStats;
+  scan: NativeLibraryScan | null;
+  scanBusy: boolean;
+  scanComplete: boolean;
+  scanInProgressText?: string;
+  onQuickScan: () => void;
   onShare: () => void;
 };
 
 export function StatsDashboard({
   stats,
+  scan,
+  scanBusy,
+  scanComplete,
+  scanInProgressText,
+  onQuickScan,
   onShare,
 }: StatsDashboardProps) {
   const today = dailyFor(stats, dateKey());
@@ -58,6 +70,9 @@ export function StatsDashboard({
   );
   const selectedBucket = chartData.find((item) => item.key === selectedBucketKey) ?? chartData[chartData.length - 1];
   const chartTitle = chartPeriod === "week" ? "7-day savings" : chartPeriod === "month" ? "Monthly savings" : "Yearly savings";
+  const removableMB = scan
+    ? scan.screenshotSavingsMB + scan.mistakeDeleteSavingsMB + scan.duplicateDeleteSavingsMB
+    : 0;
 
   const topHogs = useMemo(
     () =>
@@ -97,6 +112,74 @@ export function StatsDashboard({
           <Text style={styles.ringNum}>{Math.round(weekRing * 100)}%</Text>
           <Text style={styles.ringHint}>WEEKLY</Text>
         </ProgressRing>
+      </Card>
+
+      <SectionHeader
+        title="Quick scan"
+        action={scanComplete ? <Text style={styles.action}>Latest hunch</Text> : undefined}
+      />
+      <Card style={styles.scanCard}>
+        <View style={styles.scanHeader}>
+          <View style={styles.scanIcon}>
+            {scanBusy ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <Ionicons name="search-outline" size={21} color={colors.primary} />
+            )}
+          </View>
+          <View style={styles.scanCopy}>
+            <Text style={styles.scanTitle}>
+              {scanBusy ? "Scanning library" : scan ? "Storage hunch" : "Run a quick scan"}
+            </Text>
+            <Text style={styles.scanHint}>
+              {scanBusy
+                ? scanInProgressText ?? "Checking photos..."
+                : scan
+                  ? `Last checked ${new Date(scan.scannedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                  : "Estimate library size, trim potential, screenshots, blurs, and duplicates."}
+            </Text>
+          </View>
+          <Pressable
+            onPress={onQuickScan}
+            disabled={scanBusy}
+            style={[styles.scanButton, scanBusy && styles.scanButtonDisabled]}
+          >
+            <Text style={styles.scanButtonText}>{scanBusy ? "Scanning" : "Quick scan"}</Text>
+          </Pressable>
+        </View>
+        {scan ? (
+          <>
+            <View style={styles.scanMetricGrid}>
+              <ScanMetric label="Photos" value={formatCount(scan.assetCount)} />
+              <ScanMetric label="Photo size" value={formatMB(scan.totalSizeMB)} />
+              <ScanMetric label="Trimmable" value={formatMB(scan.trimSavingsMB)} accent={colors.sage} />
+              <ScanMetric label="Removable" value={formatMB(removableMB)} accent={colors.danger} />
+            </View>
+            <View style={styles.scanBreakdown}>
+              <ScanBreakdownRow
+                icon="phone-portrait-outline"
+                label="Screenshots"
+                count={scan.screenshotCount}
+                value={scan.screenshotSavingsMB}
+                color={colors.primary}
+              />
+              <ScanBreakdownRow
+                icon="aperture-outline"
+                label="Blurs"
+                count={scan.mistakeCount}
+                value={scan.mistakeDeleteSavingsMB}
+                color={colors.honey}
+              />
+              <ScanBreakdownRow
+                icon="copy-outline"
+                label="Duplicates"
+                count={scan.duplicateRemovalCount}
+                value={scan.duplicateDeleteSavingsMB}
+                color={colors.info}
+              />
+            </View>
+          </>
+        ) : null}
       </Card>
 
       {/* Savings chart */}
@@ -232,6 +315,40 @@ function SmallStat({
       <Text style={[styles.smallStatValue, { color: tint }]}>{value}</Text>
       <Text style={styles.smallStatLabel}>{label}</Text>
     </Card>
+  );
+}
+
+function ScanMetric({ label, value, accent = colors.text }: { label: string; value: string; accent?: string }) {
+  return (
+    <View style={styles.scanMetric}>
+      <Text style={styles.scanMetricLabel}>{label}</Text>
+      <Text style={[styles.scanMetricValue, { color: accent }]} numberOfLines={1}>{value}</Text>
+    </View>
+  );
+}
+
+function ScanBreakdownRow({
+  icon,
+  label,
+  count,
+  value,
+  color,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  count: number;
+  value: number;
+  color: string;
+}) {
+  return (
+    <View style={styles.scanBreakdownRow}>
+      <View style={[styles.scanBreakdownIcon, { backgroundColor: color + "1f" }]}>
+        <Ionicons name={icon} size={15} color={color} />
+      </View>
+      <Text style={styles.scanBreakdownLabel}>{label}</Text>
+      <Text style={styles.scanBreakdownCount}>{formatCount(count)}</Text>
+      <Text style={styles.scanBreakdownValue}>{formatMB(value)}</Text>
+    </View>
   );
 }
 
@@ -474,6 +591,10 @@ function formatMB(v: number) {
   if (!Number.isFinite(v) || v <= 0) return "0 MB";
   return v >= 1024 ? `${(v / 1024).toFixed(2)} GB` : `${v.toFixed(1)} MB`;
 }
+function formatCount(value: number) {
+  if (!Number.isFinite(value)) return "0";
+  return Math.max(0, Math.round(value)).toLocaleString();
+}
 
 function buildBadges(stats: NativeStats) {
   const week = sumDays(stats, 7);
@@ -549,6 +670,50 @@ const styles = StyleSheet.create({
   pillRow: { flexDirection: "row", gap: 8, marginTop: spacing.md, flexWrap: "wrap" },
   ringNum: { fontSize: 18, fontWeight: "900", color: colors.text },
   ringHint: { fontSize: 9, fontWeight: "800", color: colors.textMuted, letterSpacing: 1.2 },
+
+  scanCard: { gap: spacing.md },
+  scanHeader: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  scanIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primarySoft,
+  },
+  scanCopy: { flex: 1, minWidth: 0 },
+  scanTitle: { fontSize: 15, fontWeight: "900", color: colors.text },
+  scanHint: { marginTop: 2, fontSize: 11, fontWeight: "700", color: colors.textMuted, lineHeight: 16 },
+  scanButton: {
+    borderRadius: radius.pill,
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 9,
+  },
+  scanButtonDisabled: { opacity: 0.55 },
+  scanButtonText: { color: colors.white, fontSize: 11, fontWeight: "900" },
+  scanMetricGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  scanMetric: {
+    width: "48%",
+    borderRadius: radius.md,
+    backgroundColor: colors.cardSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderSoft,
+    padding: spacing.md,
+  },
+  scanMetricLabel: { fontSize: 10, fontWeight: "900", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.8 },
+  scanMetricValue: { marginTop: 5, fontSize: 17, fontWeight: "900" },
+  scanBreakdown: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.borderSoft,
+    paddingTop: spacing.md,
+    gap: spacing.sm,
+  },
+  scanBreakdownRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  scanBreakdownIcon: { width: 28, height: 28, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  scanBreakdownLabel: { flex: 1, fontSize: 12, fontWeight: "800", color: colors.text },
+  scanBreakdownCount: { fontSize: 11, fontWeight: "800", color: colors.textMuted },
+  scanBreakdownValue: { width: 72, textAlign: "right", fontSize: 12, fontWeight: "900", color: colors.text },
 
   chartTabs: {
     flexDirection: "row",
