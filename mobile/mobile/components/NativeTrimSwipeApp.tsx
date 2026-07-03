@@ -1075,6 +1075,144 @@ export function NativeTrimSwipeApp() {
     void loadRound(nextSettings);
   }
 
+  function cleanupActionCount(plan: NativeCleanupPlan): number {
+    return plan.deleteCandidates.length + plan.trimCandidates.length;
+  }
+
+  function planTitleForCategory(category: NativeCleanupCategory, planSettings: NativeSettings): string {
+    if (category === "large") return `Photos >${formatSizeThreshold(planSettings.minSizeMB)}`;
+    if (category === "old") return `Photos >${formatAgeThreshold(planSettings.minAgeYears)} old`;
+    if (category === "screenshots") return "One-tap cleanup";
+    if (category === "live") return "Live Photos";
+    if (category === "duplicates") return "Duplicates";
+    if (category === "bursts") return "Bursts";
+    return "Likely mistakes";
+  }
+
+  async function buildExactCleanupPlan(
+    category: NativeCleanupCategory,
+    count: number,
+    planSettings: NativeSettings,
+    avoidIds: string[],
+  ): Promise<NativeCleanupPlan> {
+    if (category === "screenshots") {
+      const [screens, duplicates, bursts] = await Promise.all([
+        loadCleanupPlan("screenshots", 18, planSettings, { avoidIds }),
+        loadCleanupPlan("duplicates", 18, planSettings, { avoidIds }),
+        loadCleanupPlan("bursts", 18, planSettings, { avoidIds }),
+      ]);
+      const byId = new Map<string, NativePhoto>();
+      [...screens.deleteCandidates, ...duplicates.deleteCandidates.slice(1), ...bursts.deleteCandidates.slice(1)]
+        .forEach((photo) => byId.set(photo.id, photo));
+      const deleteCandidates = [...byId.values()];
+      return {
+        category: "screenshots",
+        title: "One-tap cleanup",
+        candidates: deleteCandidates,
+        deleteCandidates,
+        trimCandidates: [],
+        estimatedDeleteSavingsMB: +deleteCandidates.reduce((sum, photo) => sum + photo.sizeMB, 0).toFixed(2),
+        estimatedTrimSavingsMB: 0,
+      };
+    }
+
+    const plan = await loadCleanupPlan(category, count, planSettings, { avoidIds });
+    if (category === "duplicates" || category === "bursts") {
+      const deleteCandidates = plan.deleteCandidates.slice(1);
+      return {
+        ...plan,
+        title: planTitleForCategory(category, planSettings),
+        deleteCandidates,
+        estimatedDeleteSavingsMB: +deleteCandidates.reduce((sum, photo) => sum + photo.sizeMB, 0).toFixed(2),
+      };
+    }
+    return { ...plan, title: planTitleForCategory(category, planSettings) };
+  }
+
+  async function buildTrimmableFallbackPlan(
+    count: number,
+    baseSettings: NativeSettings,
+    avoidIds: string[],
+  ): Promise<NativeCleanupPlan> {
+    const modes: NativeTargetMode[] = ["big-only", "old-only", "balanced"];
+    const byId = new Map<string, NativePhoto>();
+    for (const mode of modes) {
+      for (const ids of [avoidIds, []]) {
+        const photos = await loadPhotoRound(
+          Math.max(count, 24),
+          roundSettings({ ...baseSettings, targetMode: mode, cardsPerRound: Math.max(count, 24) }),
+          { avoidIds: ids },
+        );
+        photos
+          .filter((photo) => canAttemptTrim(photo, baseSettings))
+          .forEach((photo) => {
+            if (byId.size < count) byId.set(photo.id, photo);
+          });
+        if (byId.size >= Math.min(6, count)) break;
+      }
+      if (byId.size >= Math.min(6, count)) break;
+    }
+    const trimCandidates = [...byId.values()].slice(0, count);
+    return {
+      category: "large",
+      title: "Trimmable photos",
+      candidates: trimCandidates,
+      deleteCandidates: [],
+      trimCandidates,
+      estimatedDeleteSavingsMB: 0,
+      estimatedTrimSavingsMB: +trimCandidates.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, baseSettings), 0).toFixed(2),
+    };
+  }
+
+  async function loadCleanupPlanWithFallback(
+    category: NativeCleanupCategory,
+    count: number,
+    baseSettings: NativeSettings,
+    avoidIds: string[],
+  ): Promise<{ plan: NativeCleanupPlan; fallbackNotice?: string }> {
+    const exact = await buildExactCleanupPlan(category, count, baseSettings, avoidIds);
+    if (cleanupActionCount(exact) > 0) return { plan: exact };
+
+    const withRecent = await buildExactCleanupPlan(category, count, baseSettings, []);
+    if (cleanupActionCount(withRecent) > 0) {
+      return {
+        plan: withRecent,
+        fallbackNotice: "Included recently reviewed photos because this filter had no new matches.",
+      };
+    }
+
+    const relaxedSettings: NativeSettings[] = [];
+    if (category === "large") {
+      [0.75, 0.5, 0.25].forEach((factor) => {
+        relaxedSettings.push(roundSettings({ ...baseSettings, minSizeMB: Math.max(0.5, baseSettings.minSizeMB * factor) }));
+      });
+    }
+    if (category === "old") {
+      [0.75, 0.5, 0.25].forEach((factor) => {
+        relaxedSettings.push(roundSettings({ ...baseSettings, minAgeYears: Math.max(1 / 12, baseSettings.minAgeYears * factor) }));
+      });
+    }
+
+    for (const relaxed of relaxedSettings) {
+      const plan = await buildExactCleanupPlan(category, count, relaxed, avoidIds);
+      if (cleanupActionCount(plan) > 0) {
+        return {
+          plan,
+          fallbackNotice: "No exact matches were found, so the filter was widened slightly.",
+        };
+      }
+    }
+
+    const fallbackPlan = await buildTrimmableFallbackPlan(count, baseSettings, avoidIds);
+    return {
+      plan: fallbackPlan,
+      fallbackNotice:
+        cleanupActionCount(fallbackPlan) > 0
+          ? "No exact matches were found, so a nearby trimmable set was loaded instead."
+          : undefined,
+    };
+  }
+
   async function openCleanupCategory(category: NativeCleanupCategory) {
     setCleanupPlanBusy(true);
     setCleanupPlan(null);
@@ -1088,38 +1226,10 @@ export function NativeTrimSwipeApp() {
       }
       setPermissionDenied(false);
       const avoidIds = recentSelectionIds(stats);
-      if (category === "screenshots") {
-        const [screens, duplicates, bursts] = await Promise.all([
-          loadCleanupPlan("screenshots", 18, settings, { avoidIds }),
-          loadCleanupPlan("duplicates", 18, settings, { avoidIds }),
-          loadCleanupPlan("bursts", 18, settings, { avoidIds }),
-        ]);
-        const byId = new Map<string, NativePhoto>();
-        [...screens.deleteCandidates, ...duplicates.deleteCandidates.slice(1), ...bursts.deleteCandidates.slice(1)]
-          .forEach((photo) => byId.set(photo.id, photo));
-        const deleteCandidates = [...byId.values()];
-        setCleanupPlan({
-          category: "screenshots",
-          title: "One-tap cleanup",
-          candidates: deleteCandidates,
-          deleteCandidates,
-          trimCandidates: [],
-          estimatedDeleteSavingsMB: +deleteCandidates.reduce((sum, photo) => sum + photo.sizeMB, 0).toFixed(2),
-          estimatedTrimSavingsMB: 0,
-        });
-        return;
-      }
-
-      const plan = await loadCleanupPlan(category, 24, settings, { avoidIds });
-      if (category === "duplicates" || category === "bursts") {
-        const deleteCandidates = plan.deleteCandidates.slice(1);
-        setCleanupPlan({
-          ...plan,
-          deleteCandidates,
-          estimatedDeleteSavingsMB: +deleteCandidates.reduce((sum, photo) => sum + photo.sizeMB, 0).toFixed(2),
-        });
-      } else {
-        setCleanupPlan(plan);
+      const { plan, fallbackNotice } = await loadCleanupPlanWithFallback(category, 24, settings, avoidIds);
+      setCleanupPlan(plan);
+      if (fallbackNotice) {
+        showToast("Filter widened", fallbackNotice, "info");
       }
     } catch (error) {
       showToast("Preview failed", error instanceof Error ? error.message : "Could not build this cleanup folder.", "error");
@@ -1645,6 +1755,10 @@ export function NativeTrimSwipeApp() {
             isPro={isPro}
             settings={settings}
             onBack={() => setScreen("home")}
+            onRetry={() => {
+              const category = cleanupPlan?.category;
+              if (category) void openCleanupCategory(category);
+            }}
             onConfirm={async (deletes, trims) => {
               await confirmActions(deletes, trims);
               setCleanupPlan(null);
@@ -1844,6 +1958,7 @@ function CleanupPlanScreen({
   isPro,
   settings,
   onBack,
+  onRetry,
   onConfirm,
   trimsRemaining,
   onOpenShop,
@@ -1853,6 +1968,7 @@ function CleanupPlanScreen({
   isPro: boolean;
   settings: NativeSettings;
   onBack: () => void;
+  onRetry?: () => void;
   onConfirm: (deletes: NativePhoto[], trims: NativePhoto[]) => Promise<void> | void;
   trimsRemaining: number;
   onOpenShop: () => void;
@@ -1905,7 +2021,8 @@ function CleanupPlanScreen({
         <Text style={styles.centerText}>
           No matching local photos were found for this preview. Pick another smart folder or reload after changing focus.
         </Text>
-        <PrimaryButton label="Back home" onPress={onBack} />
+        {onRetry ? <PrimaryButton label="Try broader preview" onPress={onRetry} /> : null}
+        <SecondaryButton label="Back home" onPress={onBack} />
       </Centered>
     );
   }
@@ -2301,7 +2418,7 @@ function ConfirmActionsReview({
   }
 
   return (
-    <View style={styles.content}>
+    <View style={[styles.content, styles.reviewScreen]}>
       <Text style={styles.heroTitle}>{title}</Text>
       {detail ? <Text style={styles.centerText}>{detail}</Text> : null}
       {beforeAfter ? <View style={styles.beforeAfterRow}>{beforeAfter}</View> : null}
@@ -2378,9 +2495,10 @@ function Recap({
   settings: NativeSettings;
   isPro: boolean;
   onChangeSettings: (patch: Partial<NativeSettings>) => void;
-  onNext: () => void;
+  onNext: () => Promise<void> | void;
   onShare: () => void;
 }) {
+  const [nextBusy, setNextBusy] = useState(false);
   const total = recap.kept + recap.trimmed + recap.deleted;
   const trimShare = recap.freed > 0 ? Math.min(1, (recap.trimmed * 3) / Math.max(1, total)) : 0;
   const deleteShare = recap.freed > 0 ? Math.min(1, (recap.deleted * 3) / Math.max(1, total)) : 0;
@@ -2389,6 +2507,18 @@ function Recap({
     : recap.trimmed > 0
       ? "Trims quietly reclaimed space without losing memories."
       : "A light pass still keeps the camera roll intentional.";
+
+  async function handleNext() {
+    if (nextBusy) return;
+    setNextBusy(true);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      await onNext();
+    } catch {
+      setNextBusy(false);
+    }
+  }
+
   return (
     <ScrollView contentContainerStyle={styles.recapContent} showsVerticalScrollIndicator={false}>
       <View style={styles.recapBadge}>
@@ -2409,8 +2539,8 @@ function Recap({
         <MiniStat label="Deleted" value={recap.deleted} />
       </View>
       <TrimKindSettings settings={settings} isPro={isPro} compact onChange={onChangeSettings} />
-      <PrimaryButton label="New set" onPress={onNext} />
-      <SecondaryButton label="Share progress" onPress={onShare} />
+      <PrimaryButton label={nextBusy ? "Loading..." : "New set"} disabled={nextBusy} onPress={handleNext} />
+      <SecondaryButton label="Share progress" disabled={nextBusy} onPress={onShare} />
     </ScrollView>
   );
 }
@@ -4167,9 +4297,10 @@ const styles = StyleSheet.create({
   actionTextDisabled: { color: "#94a3b8" },
 
   // FIX 2: Delete review list - proper bottom padding so buttons aren't hidden
+  reviewScreen: { flex: 1 },
   reviewList: { marginTop: 18, marginBottom: 12, flex: 1 },
   reviewListContent: { paddingBottom: 16 },
-  reviewActionFooter: { gap: 10, paddingBottom: 112 },
+  reviewActionFooter: { gap: 10 },
   applyProgressCard: {
     borderRadius: 18,
     backgroundColor: "#fff7ed",
