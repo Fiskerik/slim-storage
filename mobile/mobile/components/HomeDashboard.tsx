@@ -81,6 +81,7 @@ export type HomeDashboardProps = {
   onQuickScan: () => void;
   onDeepClean: () => void;
   onOptimizeStorage: () => void;
+  onOpenRecentlyDeleted: () => void;
   onClaimWeeklyReward: () => void;
   onPickCategory: (key: Category["key"]) => void;
   onShare: () => void;
@@ -124,6 +125,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
     onQuickScan,
     onDeepClean,
     onOptimizeStorage,
+    onOpenRecentlyDeleted,
     onClaimWeeklyReward,
     onPickCategory,
     onShare,
@@ -413,7 +415,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
 
         {/* Recent activity */}
         <SectionHeader title="Recent activity" />
-        <RecentList entries={stats.actionLog.slice(0, 5)} />
+        <RecentList entries={stats.actionLog.slice(0, 5)} onOpenRecentlyDeleted={onOpenRecentlyDeleted} />
 
         <View style={{ height: 110 }} />
       </ScrollView>
@@ -529,7 +531,7 @@ function BreakdownLine({ color, label, value }: { color: string; label: string; 
   );
 }
 
-function RecentList({ entries }: { entries: NativeActionLogEntry[] }) {
+function RecentList({ entries, onOpenRecentlyDeleted }: { entries: NativeActionLogEntry[]; onOpenRecentlyDeleted: () => void }) {
   if (entries.length === 0) {
     return (
       <Card style={styles.emptyCard}>
@@ -542,7 +544,12 @@ function RecentList({ entries }: { entries: NativeActionLogEntry[] }) {
   return (
     <Card padded={false} style={{ overflow: "hidden" }}>
       {entries.map((e, i) => (
-        <View key={e.id} style={[styles.recentRow, i !== 0 && styles.recentRowDivider]}>
+        <Pressable
+          key={e.id}
+          disabled={e.action !== "delete"}
+          onPress={e.action === "delete" ? onOpenRecentlyDeleted : undefined}
+          style={[styles.recentRow, i !== 0 && styles.recentRowDivider, e.action === "delete" && styles.recentRowAction]}
+        >
           <View
             style={[
               styles.recentDot,
@@ -565,18 +572,19 @@ function RecentList({ entries }: { entries: NativeActionLogEntry[] }) {
               {timeAgo(e.createdAt)}
             </Text>
           </View>
-          <Ionicons
-            name={
-              e.action === "delete"
-                ? "trash-outline"
-                : e.action === "trim"
-                  ? "cut-outline"
-                  : "checkmark-outline"
-            }
-            size={16}
-            color={colors.textSubtle}
-          />
-        </View>
+          {e.action === "delete" ? (
+            <View style={styles.restorePill}>
+              <Ionicons name="refresh-outline" size={13} color={colors.danger} />
+              <Text style={styles.restorePillText}>Restore</Text>
+            </View>
+          ) : (
+            <Ionicons
+              name={e.action === "trim" ? "cut-outline" : "checkmark-outline"}
+              size={16}
+              color={colors.textSubtle}
+            />
+          )}
+        </Pressable>
       ))}
     </Card>
   );
@@ -1027,6 +1035,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
   },
+  recentRowAction: { backgroundColor: "#fff7ed" },
   recentRowDivider: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.borderSoft,
@@ -1034,6 +1043,16 @@ const styles = StyleSheet.create({
   recentDot: { width: 10, height: 10, borderRadius: 5 },
   recentTitle: { fontSize: 13, fontWeight: "700", color: colors.text },
   recentMeta: { fontSize: 11, color: colors.textMuted, marginTop: 2, fontWeight: "600" },
+  restorePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: radius.pill,
+    backgroundColor: "#fee2e2",
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  restorePillText: { color: colors.danger, fontSize: 11, fontWeight: "900" },
 
   emptyCard: { alignItems: "center", gap: 6, paddingVertical: spacing.xl },
   emptyTitle: { fontSize: 14, fontWeight: "800", color: colors.text },

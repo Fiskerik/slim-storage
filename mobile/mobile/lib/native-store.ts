@@ -89,7 +89,7 @@ const STATS_FILE = "trimswipe-native-stats-v1.json";
 
 export const DEFAULT_NATIVE_SETTINGS: NativeSettings = {
   cardsPerRound: 10,
-  targetMode: "big-only",
+  targetMode: "big-or-old",
   sessionMode: "classic",
   minSizeMB: 5,
   minAgeYears: 1,
@@ -193,7 +193,6 @@ function normalizeTargetMode(value: unknown): NativeTargetMode {
     "icloud",
     "mistakes",
   ];
-  if (value === "big-or-old" || value === "old-and-large") return "big-only";
   if (value === "similar") return "duplicates";
   if (value === "bursts") return "multibursts";
   if (value === "mistakes") return "blurry";

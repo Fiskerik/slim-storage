@@ -142,6 +142,10 @@ function assetSizeMB(asset: MediaLibrary.Asset): number {
   return typeof fileSize === "number" && fileSize > 0 ? +(fileSize / (1024 * 1024)).toFixed(2) : 0;
 }
 
+function assetSortSizeMB(asset: MediaLibrary.Asset): number {
+  return Math.max(assetSizeMB(asset), estimatedAssetSizeMB(asset));
+}
+
 function estimatedAssetSizeMB(asset: MediaLibrary.Asset): number {
   const measured = assetSizeMB(asset);
   if (measured > 0) return measured;
@@ -574,7 +578,7 @@ function matchesAssetSettings(
 ): boolean {
   if (settings.targetMode === "balanced") return true;
 
-  const isLarge = assetSizeMB(asset) >= settings.minSizeMB;
+  const isLarge = assetSortSizeMB(asset) >= settings.minSizeMB;
   const isOld = ageYears(asset.creationTime) >= settings.minAgeYears;
 
   switch (settings.targetMode) {
@@ -629,7 +633,7 @@ function scoreAsset(asset: MediaLibrary.Asset, settings: NativeSettings): number
   return scorePhoto(
     {
       creationTime: asset.creationTime,
-      sizeMB: assetSizeMB(asset),
+      sizeMB: assetSortSizeMB(asset),
       cleanupReasons: [],
       title: asset.filename ?? "",
       isCloudAsset: assetSizeMB(asset) === 0,
@@ -791,6 +795,9 @@ async function assetToPhoto(
       sizeMB = 0;
     }
   }
+  if (sizeMB === 0) {
+    sizeMB = estimatedAssetSizeMB(asset);
+  }
 
   const created = new Date(asset.creationTime);
   const trimTags = await readTrimTags();
@@ -810,7 +817,7 @@ async function assetToPhoto(
     width: asset.width || 0,
     height: asset.height || 0,
     hasGPS: Boolean(info.location?.latitude && info.location?.longitude),
-    isCloudAsset: !localUri || localUri.startsWith("ph://") || sizeMB === 0,
+    isCloudAsset: !localUri || localUri.startsWith("ph://"),
     creationTime: asset.creationTime,
     cleanupReasons: classifyAsset(asset, info, sizeMB, duplicateLookup),
     trimState,
@@ -858,7 +865,7 @@ async function fetchCandidateAssets(
   count: number,
   settings: NativeSettings,
 ): Promise<MediaLibrary.Asset[]> {
-  const first = Math.min(250, Math.max(80, count * 8));
+  const first = Math.min(600, Math.max(180, count * 24));
   const smartAlbumsPromise = fetchSmartAlbumAssets(first);
 
   if (settings.targetMode === "balanced") {
@@ -1272,6 +1279,31 @@ export async function loadPhotoRound(
     options.onFallback?.(fallbackDetail(settings, matchedCount, count));
   }
   if (combined.length >= count) return combined.slice(0, count);
+
+  if (
+    settings.targetMode !== "balanced" &&
+    (settings.targetMode === "big-only" || settings.targetMode === "old-only" || settings.targetMode === "big-or-old" || settings.targetMode === "old-and-large") &&
+    combined.length < count
+  ) {
+    const deepAssets = await fetchAllPhotoAssets();
+    const deepDuplicateLookup = buildDuplicateLookup(deepAssets);
+    const usedIds = new Set(combined.map((photo) => photo.id));
+    const deepSelected = chooseAssets(
+      deepAssets.filter((asset) => !usedIds.has(asset.id) && !avoidIds.has(asset.id)),
+      count - combined.length,
+      settings,
+      deepDuplicateLookup,
+    );
+    const deepFresh = (await mapWithConcurrency(deepSelected, 3, (asset) => assetToPhoto(asset, deepDuplicateLookup))).filter(
+      (photo) =>
+        matchesPhotoSettings(photo, settings) &&
+        shouldUseRoundPhoto(photo, settings, avoidIds, excludeMaxTrimmed, includeTrimmed),
+    );
+    await upsertCache(deepFresh);
+    const deepCombined = [...combined, ...deepFresh].slice(0, count);
+    if (deepCombined.length >= count) return deepCombined;
+    if (deepCombined.length > combined.length) return deepCombined;
+  }
 
   // For strict modes (anything other than "balanced") we deliberately stop here
   // and return only matching photos. Returning a short round of correctly-

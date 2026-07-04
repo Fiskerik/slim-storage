@@ -1,5 +1,7 @@
 import * as Haptics from "expo-haptics";
 import Constants from "expo-constants";
+import * as FileSystem from "expo-file-system/legacy";
+import * as ImageManipulator from "expo-image-manipulator";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -162,6 +164,8 @@ function roundSettings(settings: NativeSettings): NativeSettings {
     trimQuality: Math.min(0.98, Math.max(0.65, settings.trimQuality)),
     trimKinds: trimKinds.length > 0 ? [...new Set(trimKinds)] : ["metadata", "location", "compression"],
     trimReviewMode: settings.trimReviewMode === "trimmed-only" || settings.trimReviewMode === "all" ? settings.trimReviewMode : "normal",
+    largeText: false,
+    highContrast: false,
   };
 }
 
@@ -593,6 +597,8 @@ export function NativeTrimSwipeApp() {
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const applyingActionsRef = useRef(false);
+  const settingsDirtyRef = useRef(false);
+  const pendingSettingsRef = useRef<NativeSettings | null>(null);
 
   const settings = roundSettings(stats.settings);
   const top = queue[0];
@@ -1054,6 +1060,15 @@ export function NativeTrimSwipeApp() {
     }
   }
 
+  function openRecentlyDeleted() {
+    showToast(
+      "Restore deleted photos",
+      "Photos opens now. Go to Albums > Recently Deleted, select the photo, then tap Recover.",
+      "info",
+    );
+    void Linking.openURL("photos-redirect://").catch(() => Linking.openSettings());
+  }
+
   function cancelPendingActions() {
     pendingDeletesRef.current = [];
     pendingTrimsRef.current = [];
@@ -1070,10 +1085,31 @@ export function NativeTrimSwipeApp() {
   }
 
   function updateSettings(patch: Partial<NativeSettings>) {
+    const nextSettings = roundSettings({ ...(pendingSettingsRef.current ?? settings), ...patch });
+    pendingSettingsRef.current = nextSettings;
+    settingsDirtyRef.current = true;
     commitStats((current) => ({
       ...current,
       settings: roundSettings({ ...current.settings, ...patch }),
     }));
+  }
+
+  function changeScreen(nextScreen: Screen) {
+    const leavingSettings = screen === "settings" && nextScreen !== "settings";
+    setScreen(nextScreen);
+    if (leavingSettings && settingsDirtyRef.current) {
+      const reloadSettings = pendingSettingsRef.current ?? settings;
+      settingsDirtyRef.current = false;
+      pendingSettingsRef.current = null;
+      void loadRound(reloadSettings);
+    }
+  }
+
+  async function reloadSettingsRound() {
+    const reloadSettings = pendingSettingsRef.current ?? settings;
+    settingsDirtyRef.current = false;
+    pendingSettingsRef.current = null;
+    await loadRound(reloadSettings);
   }
 
   function startGame(patch: Partial<NativeSettings>) {
@@ -1681,7 +1717,7 @@ export function NativeTrimSwipeApp() {
       <View
         ref={shareShotRef}
         collapsable={false}
-        style={[styles.shell, settings.highContrast && styles.shellHighContrast]}
+        style={styles.shell}
       >
         {!statsLoaded ? (
           <Centered>
@@ -1705,7 +1741,7 @@ export function NativeTrimSwipeApp() {
             pendingTrims={pendingTrims}
             trimmingCount={trimmingCount}
             timeLeft={timeLeft}
-            largeControls={settings.largeText}
+            largeControls={false}
             tokens={tokenBalance}
             trimsRemaining={trimCurrencyAvailable}
             trimLimit={trimCurrencyAvailable}
@@ -1827,15 +1863,16 @@ export function NativeTrimSwipeApp() {
               showToast("Open Settings", "Go to Photos > Optimize iPhone Storage.", "info");
               void Linking.openSettings();
             }}
+            onOpenRecentlyDeleted={openRecentlyDeleted}
             onClaimWeeklyReward={claimWeeklyReward}
             onPickCategory={openCleanupCategory}
             onShare={shareProgress}
           />
         ) : (
-          <SettingsScreen settings={settings} isPro={isPro} samplePhoto={top ?? queue[0]} onChange={updateSettings} onReload={loadRound} />
+          <SettingsScreen settings={settings} isPro={isPro} samplePhoto={top ?? queue[0]} onChange={updateSettings} onReload={reloadSettingsRound} />
         )}
 
-        {statsLoaded && !onboardingDue ? <BottomNav screen={screen} onChange={setScreen} /> : null}
+        {statsLoaded && !onboardingDue ? <BottomNav screen={screen} onChange={changeScreen} /> : null}
         <ConfirmSheet request={confirmRequest} busy={confirmBusy} />
         <Toast toast={toast} />
       </View>
@@ -3934,6 +3971,7 @@ function EmptyPanel({ title, detail, actionLabel, onAction }: { title: string; d
 // ─── Settings ────────────────────────────────────────────────────────────────
 
 const FOCUS_OPTIONS: [NativeTargetMode, string, string][] = [
+  ["big-or-old", "Large or old", "Photos over either threshold"],
   ["big-only", "Large", "Photos over the size threshold"],
   ["old-only", "Old", "Older memories first"],
   ["duplicates", "Duplicates", "Duplicates and near-duplicates"],
@@ -4015,6 +4053,150 @@ function QualityPreview({ photo, currentQuality }: { photo?: NativePhoto; curren
   );
 }
 
+type QualityPreviewItem = {
+  label: string;
+  quality: number;
+  color: string;
+  uri?: string;
+  sizeMB: number;
+  generated: boolean;
+};
+
+const QUALITY_PREVIEW_VARIANTS = [
+  { label: "100%", quality: 1, color: "#94a3b8" },
+  { label: "80%", quality: 0.8, color: "#fb923c" },
+  { label: "65%", quality: 0.65, color: "#ef4444" },
+];
+
+function projectedQualitySize(baseSize: number, quality: number): number {
+  if (quality === 1) return baseSize;
+  return +(baseSize * (0.38 + quality * 0.5)).toFixed(2);
+}
+
+function EnhancedQualityPreview({ photo, currentQuality }: { photo?: NativePhoto; currentQuality: number }) {
+  const baseSize = photo?.sizeMB ?? 4;
+  const [expanded, setExpanded] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [previews, setPreviews] = useState<QualityPreviewItem[]>(() =>
+    QUALITY_PREVIEW_VARIANTS.map((variant) => ({
+      ...variant,
+      uri: photo?.uri,
+      sizeMB: projectedQualitySize(baseSize, variant.quality),
+      generated: variant.quality === 1,
+    })),
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const generatedUris: string[] = [];
+    const sourceUri = photo?.localUri || photo?.uri;
+    const fallback = QUALITY_PREVIEW_VARIANTS.map((variant) => ({
+      ...variant,
+      uri: photo?.uri,
+      sizeMB: projectedQualitySize(baseSize, variant.quality),
+      generated: variant.quality === 1,
+    }));
+
+    setPreviews(fallback);
+    setActiveIndex(0);
+
+    if (!photo || !sourceUri || sourceUri.startsWith("ph://")) {
+      return () => undefined;
+    }
+
+    const previewSourceUri = sourceUri;
+
+    async function buildPreviews() {
+      const next: QualityPreviewItem[] = [fallback[0]];
+      for (const variant of QUALITY_PREVIEW_VARIANTS.slice(1)) {
+        try {
+          const result = await ImageManipulator.manipulateAsync(previewSourceUri, [], {
+            compress: variant.quality,
+            format: ImageManipulator.SaveFormat.JPEG,
+          });
+          generatedUris.push(result.uri);
+          const info = await FileSystem.getInfoAsync(result.uri);
+          const bytes = (info as FileSystem.FileInfo & { size?: number }).size ?? 0;
+          next.push({
+            ...variant,
+            uri: result.uri,
+            sizeMB: bytes > 0 ? +(bytes / (1024 * 1024)).toFixed(2) : projectedQualitySize(baseSize, variant.quality),
+            generated: bytes > 0,
+          });
+        } catch {
+          next.push(fallback[next.length]);
+        }
+      }
+      if (!cancelled) setPreviews(next);
+    }
+
+    void buildPreviews();
+
+    return () => {
+      cancelled = true;
+      generatedUris.forEach((uri) => {
+        void FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
+      });
+    };
+  }, [baseSize, photo]);
+
+  const activePreview = previews[activeIndex] ?? previews[0];
+  return (
+    <View style={styles.qualityPreview}>
+      <View style={styles.dashboardHeroTop}>
+        <View style={styles.scanQuickCopy}>
+          <Text style={styles.settingLabel}>Trim quality preview</Text>
+          <Text style={styles.mutedSmall}>{photo ? photo.title : "Load a deck to preview with one of your photos."}</Text>
+        </View>
+        {photo ? (
+          <Pressable onPress={() => setExpanded(true)} style={styles.qualityThumbButton}>
+            <Image source={{ uri: activePreview?.uri ?? photo.uri }} style={styles.qualityThumb} resizeMode="cover" />
+          </Pressable>
+        ) : null}
+      </View>
+      {previews.map((variant, index) => {
+        const saved = Math.max(0, baseSize - variant.sizeMB);
+        const active = Math.abs(currentQuality - variant.quality) < 0.08;
+        return (
+          <Pressable key={variant.label} onPress={() => { setActiveIndex(index); setExpanded(true); }} style={styles.qualityRow}>
+            <Text style={[styles.qualityLabel, active && { color: variant.color }]}>{variant.label}</Text>
+            <View style={styles.qualityTrack}>
+              <View style={[styles.qualityFill, { width: progressWidth(variant.sizeMB / baseSize), backgroundColor: variant.color }]} />
+            </View>
+            <Text style={styles.mutedSmall}>
+              {formatMB(variant.sizeMB)} - save {formatMB(saved)}{variant.generated ? "" : " est."}
+            </Text>
+          </Pressable>
+        );
+      })}
+      <Modal visible={expanded && Boolean(photo)} transparent animationType="fade" onRequestClose={() => setExpanded(false)}>
+        <View style={styles.qualityModalOverlay}>
+          <Pressable onPress={() => setExpanded(false)} hitSlop={12} style={styles.fullPhotoClose}>
+            <Ionicons name="close" size={24} color={colors.white} />
+          </Pressable>
+          {photo ? (
+            <View style={styles.qualityModalContent}>
+              <Image source={{ uri: activePreview?.uri ?? photo.uri }} style={styles.qualityModalImage} resizeMode="contain" />
+              <View style={styles.qualityCompareStrip}>
+                {previews.map((variant, index) => {
+                  const active = index === activeIndex;
+                  return (
+                    <Pressable key={variant.label} onPress={() => setActiveIndex(index)} style={[styles.qualityCompareItem, active && styles.qualityCompareItemActive]}>
+                      <Image source={{ uri: variant.uri ?? photo.uri }} style={styles.qualityCompareThumb} resizeMode="cover" />
+                      <Text style={[styles.qualityCompareLabel, active && { color: variant.color }]}>{variant.label}</Text>
+                      <Text style={styles.qualityCompareSize}>{formatMB(variant.sizeMB)}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
 const TRIM_KIND_OPTIONS: Array<{ kind: NativeTrimKind; label: string; detail: string; icon: keyof typeof Ionicons.glyphMap }> = [
   { kind: "metadata", label: "Metadata", detail: "Camera, lens, edits, app notes", icon: "document-text-outline" },
   { kind: "location", label: "Location", detail: "GPS coordinates when present", icon: "location-outline" },
@@ -4080,6 +4262,11 @@ function TrimKindSettings({
 
 function SettingsScreen({ settings, isPro, samplePhoto, onChange, onReload }: { settings: NativeSettings; isPro: boolean; samplePhoto?: NativePhoto; onChange: (patch: Partial<NativeSettings>) => void; onReload: () => Promise<void> | void }) {
   const [reloading, setReloading] = useState(false);
+  const showsThresholds =
+    settings.targetMode === "big-or-old" ||
+    settings.targetMode === "big-only" ||
+    settings.targetMode === "old-only" ||
+    settings.targetMode === "old-and-large";
 
   async function handleReload() {
     setReloading(true);
@@ -4106,7 +4293,7 @@ function SettingsScreen({ settings, isPro, samplePhoto, onChange, onReload }: { 
         onChange={(trimReviewMode) => onChange({ trimReviewMode })}
       />
       <FocusDropdown value={settings.targetMode} onChange={(targetMode) => onChange({ targetMode })} />
-      {settings.targetMode !== "balanced" ? (
+      {showsThresholds ? (
         <>
           <SettingStepper label="Large threshold" value={settings.minSizeMB} suffix="MB" min={0.5} max={10} step={0.5} onChange={(minSizeMB) => onChange({ minSizeMB })} />
           <SettingStepper label="Old threshold" value={settings.minAgeYears} suffix="years" min={0} max={3} step={1 / 12} onChange={(minAgeYears) => onChange({ minAgeYears })} />
@@ -4120,9 +4307,7 @@ function SettingsScreen({ settings, isPro, samplePhoto, onChange, onReload }: { 
         onChange={(trimOutputMode) => onChange({ trimOutputMode })}
       />
       <TrimKindSettings settings={settings} isPro={isPro} onChange={onChange} />
-      <QualityPreview photo={samplePhoto} currentQuality={settings.trimQuality} />
-      <BooleanSetting label="Larger controls" detail="Roomier buttons and key text for easier one-handed use." value={settings.largeText} onChange={(largeText) => onChange({ largeText })} />
-      <BooleanSetting label="High contrast" detail="Deepens the app background and panel borders." value={settings.highContrast} onChange={(highContrast) => onChange({ highContrast })} />
+      <EnhancedQualityPreview photo={samplePhoto} currentQuality={settings.trimQuality} />
       <View style={styles.settingsReloadWrap}>
         <PrimaryButton label={reloading ? "Reloading photos..." : "Reload with these settings"} disabled={reloading} onPress={() => void handleReload()} />
       </View>
@@ -4652,11 +4837,21 @@ const styles = StyleSheet.create({
   radioOuterActive: { borderColor: "#f97316" },
   radioInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#f97316" },
   qualityPreview: { marginTop: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16, gap: 12 },
+  qualityThumbButton: { borderRadius: 14, overflow: "hidden" },
   qualityThumb: { width: 58, height: 58, borderRadius: 14 },
   qualityRow: { gap: 6 },
   qualityLabel: { color: "#1f2937", fontSize: 13, fontWeight: "900" },
   qualityTrack: { height: 8, overflow: "hidden", borderRadius: 999, backgroundColor: "#f1f5f9" },
   qualityFill: { height: "100%", borderRadius: 999 },
+  qualityModalOverlay: { flex: 1, backgroundColor: "rgba(15, 23, 42, 0.96)", paddingHorizontal: 12, paddingTop: 84, paddingBottom: 34 },
+  qualityModalContent: { flex: 1, justifyContent: "center", gap: 18 },
+  qualityModalImage: { width: "100%", height: "68%" },
+  qualityCompareStrip: { flexDirection: "row", gap: 8 },
+  qualityCompareItem: { flex: 1, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.12)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)", padding: 8, gap: 6 },
+  qualityCompareItemActive: { borderColor: "#fb923c", backgroundColor: "rgba(251, 146, 60, 0.16)" },
+  qualityCompareThumb: { width: "100%", height: 76, borderRadius: 12, backgroundColor: "#111827" },
+  qualityCompareLabel: { color: "#ffffff", fontSize: 13, fontWeight: "900" },
+  qualityCompareSize: { color: "#cbd5e1", fontSize: 11, fontWeight: "800" },
   settingLabel: { color: "#9a3412", fontSize: 13, fontWeight: "700" },
   settingValue: { marginTop: 4, color: "#1f2937", fontSize: 20, fontWeight: "900" },
   stepper: { flexDirection: "row", gap: 8 },
