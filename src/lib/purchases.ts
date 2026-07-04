@@ -33,6 +33,8 @@ export type PurchaseState = {
   loading: boolean;
 };
 
+const FORCE_PRO_FOR_TESTING = true;
+
 type PurchaseBridgeResult = Partial<PurchaseState> & {
   success?: boolean;
   customerInfo?: CustomerInfoDTO;
@@ -101,6 +103,7 @@ async function purchaseBridgeCall(method: string, data?: Record<string, unknown>
  * Check if user has active "TrimSwipe Pro" entitlement.
  */
 export async function checkProStatus(): Promise<boolean> {
+  if (FORCE_PRO_FOR_TESTING) return true;
   if (!hasBridge()) {
     console.log("[purchases] no native bridge for checkProStatus");
     return false;

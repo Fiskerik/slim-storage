@@ -17,6 +17,7 @@ const LIFETIME_PRODUCT_ID =
   process.env.EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID ?? "lifetime_premium_1";
 const ENTITLEMENT_ID = process.env.EXPO_PUBLIC_RC_ENTITLEMENT_ID ?? "TrimswipePro";
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const FORCE_PRO_FOR_TESTING = true;
 
 type PurchaseRequest = {
   productId?: string;
@@ -157,6 +158,7 @@ export async function handlePurchaseMessage(
 // ─── Check Pro Entitlement ────────────────────────
 
 async function checkPro(): Promise<PurchaseResult> {
+  if (FORCE_PRO_FOR_TESTING) return { isPro: true };
   try {
     const info = await Purchases.getCustomerInfo();
     return { isPro: isProFromInfo(info) };
@@ -368,6 +370,7 @@ export type ShopProduct = {
 };
 
 export async function checkProStatus(): Promise<boolean> {
+  if (FORCE_PRO_FOR_TESTING) return true;
   const ok = await initializePurchases();
   if (!ok) return false;
   try {

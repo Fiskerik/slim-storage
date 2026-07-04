@@ -39,6 +39,7 @@ export type NativePhotoPermission = {
   granted: boolean;
   limited: boolean;
   canAskAgain: boolean;
+  accessLevel: "none" | "selected" | "limited" | "all";
 };
 
 export type NativePhotoRoundOptions = {
@@ -432,21 +433,68 @@ function estimateTrimKindSavings(
   return Math.max(photo.sizeMB * 0.18, Math.min(photo.sizeMB * 0.45, photo.sizeMB * 0.28));
 }
 
-function duplicateKey(asset: MediaLibrary.Asset): string {
-  return `${Math.round(asset.creationTime / 3000)}:${asset.width}x${asset.height}`;
-}
+const DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
+const BURST_WINDOW_MS = 8 * 1000;
 
 function burstKey(asset: MediaLibrary.Asset): string {
-  return `${Math.round(asset.creationTime / 1000)}:${asset.width}x${asset.height}`;
+  return `${Math.round(asset.creationTime / BURST_WINDOW_MS)}:${asset.width}x${asset.height}`;
+}
+
+function dimensionsClose(a: MediaLibrary.Asset, b: MediaLibrary.Asset): boolean {
+  const aw = Math.max(a.width || 0, a.height || 0);
+  const ah = Math.min(a.width || 0, a.height || 0);
+  const bw = Math.max(b.width || 0, b.height || 0);
+  const bh = Math.min(b.width || 0, b.height || 0);
+  if (aw <= 0 || ah <= 0 || bw <= 0 || bh <= 0) return true;
+  const widthDiff = Math.abs(aw - bw) / Math.max(aw, bw);
+  const heightDiff = Math.abs(ah - bh) / Math.max(ah, bh);
+  const aspectA = aw / Math.max(1, ah);
+  const aspectB = bw / Math.max(1, bh);
+  return widthDiff <= 0.08 && heightDiff <= 0.08 && Math.abs(aspectA - aspectB) <= 0.06;
+}
+
+function sizesClose(a: MediaLibrary.Asset, b: MediaLibrary.Asset): boolean {
+  const sizeA = estimatedAssetSizeMB(a);
+  const sizeB = estimatedAssetSizeMB(b);
+  if (sizeA <= 0 || sizeB <= 0) return true;
+  return Math.abs(sizeA - sizeB) / Math.max(sizeA, sizeB) <= 0.35;
+}
+
+function assetsLookSimilar(a: MediaLibrary.Asset, b: MediaLibrary.Asset, windowMs = DUPLICATE_WINDOW_MS): boolean {
+  const gapMs = Math.abs(a.creationTime - b.creationTime);
+  return gapMs <= windowMs && dimensionsClose(a, b) && sizesClose(a, b);
+}
+
+function buildDuplicateGroups(assets: MediaLibrary.Asset[]): MediaLibrary.Asset[][] {
+  const sorted = [...assets].sort((a, b) => b.creationTime - a.creationTime);
+  const used = new Set<string>();
+  const groups: MediaLibrary.Asset[][] = [];
+
+  for (let i = 0; i < sorted.length; i += 1) {
+    const anchor = sorted[i];
+    if (used.has(anchor.id)) continue;
+    const group = [anchor];
+
+    for (let j = i + 1; j < sorted.length; j += 1) {
+      const candidate = sorted[j];
+      const gapMs = Math.abs(anchor.creationTime - candidate.creationTime);
+      if (gapMs > DUPLICATE_WINDOW_MS) break;
+      if (!used.has(candidate.id) && assetsLookSimilar(anchor, candidate)) {
+        group.push(candidate);
+      }
+    }
+
+    if (group.length >= 2) {
+      group.forEach((asset) => used.add(asset.id));
+      groups.push(group);
+    }
+  }
+
+  return groups;
 }
 
 function buildDuplicateLookup(assets: MediaLibrary.Asset[]): Set<string> {
-  const counts = new Map<string, number>();
-  assets.forEach((asset) => {
-    const key = duplicateKey(asset);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  });
-  return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key));
+  return new Set(buildDuplicateGroups(assets).flatMap((group) => group.map((asset) => asset.id)));
 }
 
 function includesReason(photo: Pick<NativePhoto, "cleanupReasons" | "title">, reason: string): boolean {
@@ -590,7 +638,7 @@ function matchesAssetSettings(
       return isLarge && isOld;
     case "duplicates":
     case "similar":
-      return duplicateLookup.has(duplicateKey(asset));
+      return duplicateLookup.has(asset.id);
     case "blurry":
       return assetLooksLikeMistake(asset);
     case "screenshots":
@@ -599,7 +647,7 @@ function matchesAssetSettings(
       return assetLooksLikeLivePhoto(asset);
     case "multibursts":
     case "bursts":
-      return duplicateLookup.has(duplicateKey(asset));
+      return duplicateLookup.has(asset.id);
     case "icloud":
       return assetSizeMB(asset) === 0;
     case "mistakes":
@@ -656,10 +704,10 @@ function classifyAsset(
 
   if (ageYears(asset.creationTime) >= 5) reasons.add("Old");
   if (sizeMB >= 4) reasons.add("Large");
-  if (duplicateLookup.has(duplicateKey(asset))) reasons.add("Similar");
+  if (duplicateLookup.has(asset.id)) reasons.add("Similar");
   if (assetLooksLikeScreenshot(asset)) reasons.add("Screenshot");
   if (assetLooksLikeLivePhoto(asset)) reasons.add("Live Photo");
-  if (duplicateLookup.has(duplicateKey(asset))) reasons.add("Burst");
+  if (duplicateLookup.has(asset.id)) reasons.add("Burst");
   if (filename.includes("blur")) reasons.add("Blurry");
   if (filename.includes("dark") || filename.includes("night")) reasons.add("Dark");
   if (ratio > 2.2 || sizeMB < 0.35 || filename.includes("pocket")) reasons.add("Mistake?");
@@ -746,9 +794,9 @@ async function writeCache(photos: NativePhoto[]): Promise<void> {
   const byId = new Map(photos.map((photo) => [photo.id, photo]));
   const retained = [...byId.values()]
     .sort((a, b) => {
-      const sizeDiff = b.sizeMB - a.sizeMB;
-      if (Math.abs(sizeDiff) > 0.25) return sizeDiff;
-      return a.creationTime - b.creationTime;
+      const timeDiff = b.creationTime - a.creationTime;
+      if (Math.abs(timeDiff) > DAY_MS) return timeDiff;
+      return b.sizeMB - a.sizeMB;
     })
     .slice(0, CACHE_LIMIT);
 
@@ -955,26 +1003,25 @@ export async function scanPhotoLibrary(
   onProgress?: (progress: NativeLibraryScanProgress) => void,
 ): Promise<NativeLibraryScan> {
   const [assets, storage] = await Promise.all([fetchAllPhotoAssets(onProgress), readDeviceStorageMB()]);
-  const groups = new Map<string, Array<{ id: string; sizeMB: number }>>();
   const burstGroups = new Map<string, Array<{ id: string; sizeMB: number }>>();
+  const duplicateGroups = buildDuplicateGroups(assets);
+  const duplicateIds = new Set(duplicateGroups.flatMap((group) => group.map((asset) => asset.id)));
   const summaries = assets.map((asset) => {
     const measuredSizeMB = assetSizeMB(asset);
     const sizeMB = estimatedAssetSizeMB(asset);
-    const key = duplicateKey(asset);
     const burst = burstKey(asset);
     const summary = {
       id: asset.id,
-      key,
       burst,
       sizeMB,
       measured: measuredSizeMB > 0,
+      duplicate: duplicateIds.has(asset.id),
       mistake: assetLooksLikeMistake(asset),
       screenshot: assetLooksLikeScreenshot(asset),
       large: sizeMB >= 5,
       old: ageYears(asset.creationTime) >= 1,
       live: assetLooksLikeLivePhoto(asset),
     };
-    groups.set(key, [...(groups.get(key) ?? []), { id: asset.id, sizeMB }]);
     burstGroups.set(burst, [...(burstGroups.get(burst) ?? []), { id: asset.id, sizeMB }]);
     return summary;
   });
@@ -983,9 +1030,11 @@ export async function scanPhotoLibrary(
   let duplicateDeleteSavingsMB = 0;
   let duplicateRemovalCount = 0;
 
-  groups.forEach((items) => {
-    if (items.length < 2) return;
-    const removable = [...items].sort((a, b) => b.sizeMB - a.sizeMB).slice(1);
+  duplicateGroups.forEach((group) => {
+    const removable = group
+      .map((asset) => ({ id: asset.id, sizeMB: estimatedAssetSizeMB(asset) }))
+      .sort((a, b) => b.sizeMB - a.sizeMB)
+      .slice(1);
     duplicateRemovalCount += removable.length;
     removable.forEach((item) => {
       duplicateRemovalIds.add(item.id);
@@ -1136,6 +1185,11 @@ function chooseAssets(
   // fallback assets, or small/recent photos sneak into the round. Only the
   // "balanced" mode is allowed to draw from the whole pool.
   const pool = settings.targetMode === "balanced" ? assets : targeted;
+  if (settings.targetMode === "balanced") {
+    return shuffle(pool)
+      .sort((a, b) => b.creationTime - a.creationTime + (Math.random() - 0.5) * DAY_MS)
+      .slice(0, count);
+  }
 
   return shuffle(pool)
     .sort((a, b) => scoreAsset(b, settings) - scoreAsset(a, settings))
@@ -1144,7 +1198,7 @@ function chooseAssets(
 
 function relatedPairScore(a: MediaLibrary.Asset, b: MediaLibrary.Asset): number {
   const gapMs = Math.abs(a.creationTime - b.creationTime);
-  const sameDuplicateKey = duplicateKey(a) === duplicateKey(b);
+  const sameDuplicateKey = assetsLookSimilar(a, b);
   const sameDimensions = a.width === b.width && a.height === b.height;
   const sizeGap = Math.abs(estimatedAssetSizeMB(a) - estimatedAssetSizeMB(b));
 
@@ -1180,7 +1234,7 @@ export async function loadRelatedPhotoPairs(
   for (let i = 0; i < assets.length; i += 1) {
     for (let j = i + 1; j < Math.min(assets.length, i + 12); j += 1) {
       const gapMs = Math.abs(assets[i].creationTime - assets[j].creationTime);
-      if (gapMs > 6 * 60 * 60_000 && duplicateKey(assets[i]) !== duplicateKey(assets[j])) continue;
+      if (gapMs > DUPLICATE_WINDOW_MS && !assetsLookSimilar(assets[i], assets[j])) continue;
       const score = relatedPairScore(assets[i], assets[j]);
       if (score > 0) candidates.push({ a: assets[i], b: assets[j], score });
     }
@@ -1224,13 +1278,28 @@ export async function loadRelatedPhotoPairs(
     );
 }
 
-export async function requestPhotoPermission(): Promise<NativePhotoPermission> {
-  const permission = await MediaLibrary.requestPermissionsAsync();
+function photoAccessLevel(permission: MediaLibrary.PermissionResponse): NativePhotoPermission["accessLevel"] {
+  if (permission.status !== "granted") return "none";
+  if (permission.accessPrivileges === "all") return "all";
+  if (permission.accessPrivileges === "limited") return "selected";
+  return permission.granted ? "limited" : "none";
+}
+
+function normalizePhotoPermission(permission: MediaLibrary.PermissionResponse): NativePhotoPermission {
   return {
     granted: permission.status === "granted",
     limited: permission.accessPrivileges === "limited",
     canAskAgain: permission.canAskAgain,
+    accessLevel: photoAccessLevel(permission),
   };
+}
+
+export async function getPhotoPermissionStatus(): Promise<NativePhotoPermission> {
+  return normalizePhotoPermission(await MediaLibrary.getPermissionsAsync());
+}
+
+export async function requestPhotoPermission(): Promise<NativePhotoPermission> {
+  return normalizePhotoPermission(await MediaLibrary.requestPermissionsAsync());
 }
 
 export async function loadPhotoRound(
@@ -1252,16 +1321,18 @@ export async function loadPhotoRound(
     .sort((a, b) => scorePhoto(b, settings) - scorePhoto(a, settings))
     .slice(0, count);
 
-  if (cachedTargeted.length >= count) {
+  if (settings.targetMode !== "balanced" && cachedTargeted.length >= count) {
     return cachedTargeted;
   }
 
   const assets = await fetchCandidateAssets(count, settings);
   const duplicateLookup = buildDuplicateLookup(assets);
   const cachedIds = new Set(cachedTargeted.map((photo) => photo.id));
+  const selectedCount =
+    settings.targetMode === "balanced" ? count : count - cachedTargeted.length;
   const selected = chooseAssets(
     assets.filter((asset) => !cachedIds.has(asset.id) && !avoidIds.has(asset.id)),
-    count - cachedTargeted.length,
+    selectedCount,
     settings,
     duplicateLookup,
   );
@@ -1272,7 +1343,7 @@ export async function loadPhotoRound(
   );
   await upsertCache(fresh);
 
-  const combined = [...cachedTargeted, ...fresh];
+  const combined = settings.targetMode === "balanced" ? [...fresh, ...cachedTargeted] : [...cachedTargeted, ...fresh];
   const matchedCount = combined.filter((photo) => matchesPhotoSettings(photo, settings)).length;
   const reportedFallback = settings.targetMode !== "balanced" && matchedCount < count;
   if (reportedFallback) {
@@ -1280,11 +1351,7 @@ export async function loadPhotoRound(
   }
   if (combined.length >= count) return combined.slice(0, count);
 
-  if (
-    settings.targetMode !== "balanced" &&
-    (settings.targetMode === "big-only" || settings.targetMode === "old-only" || settings.targetMode === "big-or-old" || settings.targetMode === "old-and-large") &&
-    combined.length < count
-  ) {
+  if (settings.targetMode !== "balanced" && combined.length < count) {
     const deepAssets = await fetchAllPhotoAssets();
     const deepDuplicateLookup = buildDuplicateLookup(deepAssets);
     const usedIds = new Set(combined.map((photo) => photo.id));

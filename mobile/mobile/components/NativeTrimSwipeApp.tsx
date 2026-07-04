@@ -30,6 +30,7 @@ import {
   commitTrimsAndDeletes,
   deletePhotos,
   estimateTrimSavings,
+  getPhotoPermissionStatus,
   getTrimStatus,
   loadCleanupPlan,
   loadRelatedPhotoPairs,
@@ -41,6 +42,7 @@ import {
   type NativeLibraryScan,
   type NativeLibraryScanProgress,
   type NativePhoto,
+  type NativePhotoPermission,
 } from "../lib/native-photo-source";
 import {
   DEFAULT_NATIVE_STATS,
@@ -588,7 +590,7 @@ export function NativeTrimSwipeApp() {
   const pendingTrimsRef = useRef<NativePhoto[]>([]);
   const [pendingTrims, setPendingTrims] = useState<NativePhoto[]>([]);
   const [tokenBalance, setTokenBalance] = useState<number>(10);
-  const [isPro, setIsPro] = useState(false);
+  const [isPro, setIsPro] = useState(true);
   const [adBusy, setAdBusy] = useState(false);
   const cleanupCompletionsRef = useRef(0);
   const shareShotRef = useRef<View>(null);
@@ -667,7 +669,7 @@ export function NativeTrimSwipeApp() {
 
   useEffect(() => {
     const unsub = subscribeTokens((s) => setTokenBalance(s.tokens));
-    void checkProStatus().then(setIsPro).catch(() => {});
+    void checkProStatus().then(() => setIsPro(true)).catch(() => setIsPro(true));
     void initAds().catch(() => {});
     void registerCleanupBackgroundTask();
     void ensureCleanupNotifications();
@@ -2961,12 +2963,21 @@ const GAME_SMART_FOLDER_DEFS: Array<{
   { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (photo) => photo.cleanupReasons.includes("Burst") || photo.cleanupReasons.includes("Similar") },
 ];
 
+function photoAccessLabel(permission: NativePhotoPermission | null): string {
+  if (!permission) return "Checking...";
+  if (!permission.granted || permission.accessLevel === "none") return "Not allowed";
+  if (permission.accessLevel === "all") return "All photos";
+  if (permission.accessLevel === "selected") return "Selected";
+  return "Limited";
+}
+
 function GamesScreen({ stats, settings, queue, tokens, onStartGame, onPickCategory, onChangeSettings, onOpenThisOrThat, onOpenStorageBudget, onOpenMemoryLane }: {
   stats: NativeStats; settings: NativeSettings; queue: NativePhoto[]; tokens: number; onStartGame: (patch: Partial<NativeSettings>) => void;
   onPickCategory: (category: NativeCleanupCategory) => void;
   onChangeSettings: (patch: Partial<NativeSettings>) => void;
   onOpenThisOrThat: () => void; onOpenStorageBudget: () => void; onOpenMemoryLane: () => void;
 }) {
+  const [photoPermission, setPhotoPermission] = useState<NativePhotoPermission | null>(null);
   const today = dailyFor(stats, dateKey());
   const heroPhotos = queue.slice(0, 3);
   const gameThumbs = queue.slice(3, 7);
@@ -2990,6 +3001,35 @@ function GamesScreen({ stats, settings, queue, tokens, onStartGame, onPickCatego
       thumb: matched[0]?.uri,
     };
   });
+
+  useEffect(() => {
+    let cancelled = false;
+    getPhotoPermissionStatus()
+      .then((permission) => {
+        if (!cancelled) setPhotoPermission(permission);
+      })
+      .catch(() => {
+        if (!cancelled) setPhotoPermission(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function updatePhotoAccess() {
+    const current = photoPermission ?? (await getPhotoPermissionStatus().catch(() => null));
+    if (!current?.granted) {
+      const requested = await requestPhotoPermission();
+      setPhotoPermission(requested);
+      if (!requested.granted || requested.accessLevel !== "all") {
+        await Linking.openSettings();
+      }
+      return;
+    }
+    await Linking.openSettings();
+    setPhotoPermission(await getPhotoPermissionStatus().catch(() => current));
+  }
+
   return (
     <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
       <View style={styles.gamesVisualHero}>
@@ -3018,6 +3058,16 @@ function GamesScreen({ stats, settings, queue, tokens, onStartGame, onPickCatego
           )}
         </View>
       </View>
+      <Pressable onPress={updatePhotoAccess} style={styles.photoAccessCard}>
+        <View style={styles.photoAccessIcon}>
+          <Ionicons name="images-outline" size={18} color="#c2410c" />
+        </View>
+        <View style={styles.photoAccessCopy}>
+          <Text style={styles.photoAccessLabel}>Photo access</Text>
+          <Text style={styles.photoAccessValue}>{photoAccessLabel(photoPermission)}</Text>
+        </View>
+        <Text style={styles.photoAccessButton}>{photoPermission?.accessLevel === "all" ? "Settings" : "Permit"}</Text>
+      </Pressable>
       <View style={styles.focusPanel}>
         <View style={styles.focusHeader}>
           <View>
@@ -3210,29 +3260,13 @@ function LoserColumn({ title, tone, photos, settings, onMove }: { title: string;
 }
 
 function LoserThumb({ photo, tone, settings, onMove }: { photo: NativePhoto; tone: ThisOrThatLoserMode; settings: NativeSettings; onMove: () => void }) {
-  const pan = useRef(new Animated.ValueXY()).current;
   const trimLabel = trimmedPhotoLabel(photo, settings);
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 8,
-        onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }),
-        onPanResponderRelease: (_, gesture) => {
-          const shouldMove = tone === "delete" ? gesture.dx > 28 : gesture.dx < -28;
-          Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: true, tension: 80, friction: 8 }).start();
-          if (shouldMove) onMove();
-        },
-      }),
-    [onMove, pan, tone],
-  );
   return (
-    <Animated.View {...panResponder.panHandlers} style={{ transform: [{ translateX: pan.x }, { translateY: pan.y }] }}>
-      <Pressable onPress={onMove} style={styles.loserThumb}>
-        <Image source={{ uri: photo.uri }} style={styles.loserThumbImage} resizeMode="cover" />
-        {trimLabel ? <Text style={styles.trimmedLoserBadge}>{trimLabel}</Text> : null}
-        <Text style={styles.loserThumbText}>{tone === "delete" ? formatMB(photo.sizeMB) : tone === "trim" ? `~${formatMB(estimateTrimSavingsForSettings(photo, settings))}` : "Skip"}</Text>
-      </Pressable>
-    </Animated.View>
+    <Pressable onPress={onMove} style={styles.loserThumb}>
+      <Image source={{ uri: photo.uri }} style={styles.loserThumbImage} resizeMode="cover" />
+      {trimLabel ? <Text style={styles.trimmedLoserBadge}>{trimLabel}</Text> : null}
+      <Text style={styles.loserThumbText}>{tone === "delete" ? formatMB(photo.sizeMB) : tone === "trim" ? `~${formatMB(estimateTrimSavingsForSettings(photo, settings))}` : "Save"}</Text>
+    </Pressable>
   );
 }
 
@@ -3302,6 +3336,14 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
     setLoserModes((current) => ({ ...current, [photo.id]: mode }));
   }
 
+  function cycleLoserMode(photo: NativePhoto) {
+    const mode = loserModes[photo.id] ?? "delete";
+    const nextMode: ThisOrThatLoserMode =
+      mode === "delete" ? (canAttemptTrim(photo, settings) ? "trim" : "skip") : mode === "trim" ? "skip" : "delete";
+    setLoserMode(photo, nextMode);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }
+
   async function confirmOutcome() {
     setBusy(true);
     try {
@@ -3338,17 +3380,17 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
         <MiniGameHeader title="This or That" detail="Round complete" tokens={tokens} onBack={onBack} />
         <View style={styles.dashboardHero}>
           <Text style={styles.heroTitle}>{deleted.length} losers ready</Text>
-          <Text style={styles.dashboardCopy}>Losers default to Delete. Move anything you want untouched into Trim or Skip before applying.</Text>
+          <Text style={styles.dashboardCopy}>Losers default to Delete. Tap a thumbnail to cycle Delete, Trim, Save.</Text>
           <View style={styles.loserSummaryRow}>
             <Text style={styles.deleteSummary}>Delete {deleteLosers.length}: {formatMB(deleteFreed)}</Text>
             <Text style={styles.trimSummary}>Trim {trimLosers.length}: ~{formatMB(trimFreed)}</Text>
-            <Text style={styles.skipSummary}>Skip {skipLosers.length}</Text>
+            <Text style={styles.skipSummary}>Save {skipLosers.length}</Text>
           </View>
           <View style={styles.loserColumns}>
-            <LoserColumn title="Delete" tone="delete" photos={deleteLosers} settings={settings} onMove={(photo) => setLoserMode(photo, "trim")} />
-            <LoserColumn title="Trim" tone="trim" photos={trimLosers} settings={settings} onMove={(photo) => setLoserMode(photo, "skip")} />
+            <LoserColumn title="Delete" tone="delete" photos={deleteLosers} settings={settings} onMove={cycleLoserMode} />
+            <LoserColumn title="Trim" tone="trim" photos={trimLosers} settings={settings} onMove={cycleLoserMode} />
           </View>
-          <LoserColumn title="Skip" tone="skip" photos={skipLosers} settings={settings} onMove={(photo) => setLoserMode(photo, "delete")} />
+          <LoserColumn title="Save" tone="skip" photos={skipLosers} settings={settings} onMove={cycleLoserMode} />
           <PrimaryButton label={busy ? "Applying..." : `Apply, save ~${formatMB(totalFreed)}`} disabled={busy || deleteLosers.length + trimLosers.length === 0} onPress={confirmOutcome} />
           <SecondaryButton label="Play another round without deleting" onPress={() => void loadPairs()} />
         </View>
@@ -3694,16 +3736,40 @@ function MemoryLaneScreen({ settings, tokens, avoidIds, trimsRemaining, onBack, 
   if (loadingPhotos) return <Centered><ActivityIndicator color="#f97316" size="large" /><Text style={styles.muted}>Finding older memories...</Text></Centered>;
 
   if (!photo) {
+    const hasReviewedAny = kept.length + deleted.length + toTrim.length > 0;
+    const hasActions = deleted.length + toTrim.length > 0;
+    if (!hasReviewedAny) {
+      return (
+        <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
+          <MiniGameHeader title="Memory Lane" detail="No memories loaded" tokens={tokens} onBack={onBack} />
+          <View style={styles.dashboardHero}>
+            <Text style={styles.heroTitle}>No memories found</Text>
+            <Text style={styles.dashboardCopy}>
+              The current photo access selection did not return older local photos for Memory Lane.
+            </Text>
+            <PrimaryButton label="Reload photos" disabled={busy} onPress={() => void loadMemories()} />
+          </View>
+        </ScrollView>
+      );
+    }
     return (
       <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
         <MiniGameHeader title="Memory Lane" detail="Round complete" tokens={tokens} onBack={onBack} />
         <View style={styles.dashboardHero}>
           <Text style={styles.heroTitle}>{kept.length} kept, {toTrim.length} trimmed, {deleted.length} cleared</Text>
           <Text style={styles.dashboardCopy}>
-            {toTrim.length} marked to trim. Applying choices would save about {formatMB(freed + trimFreed)}.
+            {hasActions
+              ? `${toTrim.length} marked to trim. Applying choices would save about ${formatMB(freed + trimFreed)}.`
+              : "No photos were marked to trim or delete."}
           </Text>
-          <PrimaryButton label={busy ? "Applying..." : `Apply choices, save ${formatMB(freed + trimFreed)}`} disabled={busy} onPress={confirmDeletes} />
-          <SecondaryButton label="Play another round without deleting" onPress={() => void loadMemories()} />
+          {hasActions ? (
+            <>
+              <PrimaryButton label={busy ? "Applying..." : `Apply choices, save ${formatMB(freed + trimFreed)}`} disabled={busy} onPress={confirmDeletes} />
+              <SecondaryButton label="Play another round without deleting" onPress={() => void loadMemories()} />
+            </>
+          ) : (
+            <PrimaryButton label="Play another round" disabled={busy} onPress={() => void loadMemories()} />
+          )}
         </View>
       </ScrollView>
     );
@@ -4697,6 +4763,12 @@ const styles = StyleSheet.create({
   visualGameImage: { width: "100%", height: "100%" },
   visualGameFallback: { width: "100%", height: "100%", alignItems: "center", justifyContent: "center", backgroundColor: "#fff7ed" },
   visualGameIcon: { position: "absolute", right: 8, top: 8, width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: "rgba(249, 115, 22, 0.92)" },
+  photoAccessCard: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 14 },
+  photoAccessIcon: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: "#fff7ed" },
+  photoAccessCopy: { flex: 1, gap: 2 },
+  photoAccessLabel: { color: "#64748b", fontSize: 10, fontWeight: "900", letterSpacing: 1.2, textTransform: "uppercase" },
+  photoAccessValue: { color: "#1f2937", fontSize: 16, fontWeight: "900" },
+  photoAccessButton: { overflow: "hidden", borderRadius: 999, backgroundColor: "#f97316", color: "#ffffff", paddingHorizontal: 12, paddingVertical: 7, fontSize: 12, fontWeight: "900" },
 
   // Mini game shared
   miniGameHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
