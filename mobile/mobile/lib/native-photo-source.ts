@@ -103,7 +103,7 @@ const CACHE_FILE = "trimswipe-native-photo-cache-v2.json";
 const TRIM_TAGS_FILE = "trimswipe-native-trim-tags-v1.json";
 const CACHE_LIMIT = 700;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_TRIM_KINDS: NativeTrimKind[] = ["metadata", "location"];
+const DEFAULT_TRIM_KINDS: NativeTrimKind[] = ["metadata", "location", "compression"];
 const MIN_TRIM_SIZE_MB = 1;
 const RESIZE_SCALE = 0.8;
 const STANDARD_IPHONE_DIMENSIONS = new Set([
@@ -383,6 +383,7 @@ function isStandardIPhoneSize(photo: Partial<Pick<NativePhoto, "width" | "height
 function estimateTrimKindSavings(
   photo: Pick<NativePhoto, "sizeMB" | "hasGPS"> & Partial<Pick<NativePhoto, "width" | "height" | "title">>,
   kind: NativeTrimKind,
+  quality = 0.75,
 ): number {
   if (kind === "metadata") {
     return Math.max(photo.hasGPS ? 0.18 : 0.08, Math.min(photo.sizeMB * 0.08, 0.85));
@@ -396,7 +397,8 @@ function estimateTrimKindSavings(
   if (kind === "format") {
     return isHeicPhotoName(photo.title ?? "") ? Math.max(0.1, photo.sizeMB * 0.12) : 0;
   }
-  return Math.max(photo.sizeMB * 0.18, Math.min(photo.sizeMB * 0.45, photo.sizeMB * 0.28));
+  const projectedRatio = Math.max(0.5, Math.min(0.95, 0.38 + Math.max(0.5, Math.min(0.98, quality)) * 0.5));
+  return Math.max(photo.sizeMB * 0.08, Math.min(photo.sizeMB * 0.5, photo.sizeMB * (1 - projectedRatio)));
 }
 
 const SIMILAR_SESSION_WINDOW_MS = 90 * 1000;
@@ -1135,7 +1137,7 @@ export async function loadCleanupPlan(
     old: "Photos >1 year old",
     screenshots: "Screenshots",
     live: "Live Photos",
-    duplicates: "Similar photos",
+    duplicates: "No category",
     bursts: "Bursts",
     mistakes: "Likely mistakes",
   };
@@ -1691,7 +1693,7 @@ export function estimateTrimSavings(
   );
   if (!status.canTrim) return 0;
   return +status.nextKinds
-    .reduce((sum, kind) => sum + estimateTrimKindSavings(photo, kind), 0)
+    .reduce((sum, kind) => sum + estimateTrimKindSavings(photo, kind, options.quality), 0)
     .toFixed(2);
 }
 

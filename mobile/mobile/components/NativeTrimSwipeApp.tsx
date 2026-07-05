@@ -21,6 +21,7 @@ import {
   View,
   type GestureResponderEvent,
   type LayoutChangeEvent,
+  type ViewStyle,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -60,7 +61,7 @@ import {
   type NativeTrimKind,
 } from "../lib/native-store";
 import { HomeDashboard } from "./HomeDashboard";
-import type { WeeklyRewardState } from "./HomeDashboard";
+import type { DailyRewardState } from "./HomeDashboard";
 import { StatsDashboard } from "./StatsDashboard";
 import { OnboardingCarousel } from "./OnboardingCarousel";
 import { TrimScreen } from "./TrimScreen";
@@ -163,7 +164,7 @@ function roundSettings(settings: NativeSettings): NativeSettings {
     cardsPerRound: Math.min(30, Math.max(5, Math.round(settings.cardsPerRound) || 10)),
     minSizeMB: Math.min(500, Math.max(0.5, Math.round(settings.minSizeMB * 2) / 2)),
     minAgeYears: Math.min(100, Math.max(0, Math.round(settings.minAgeYears * 12) / 12)),
-    trimQuality: Math.min(0.98, Math.max(0.65, settings.trimQuality)),
+    trimQuality: Math.min(0.98, Math.max(0.5, settings.trimQuality)),
     trimKinds: trimKinds.length > 0 ? [...new Set(trimKinds)] : ["metadata", "location", "compression"],
     trimReviewMode: settings.trimReviewMode === "trimmed-only" || settings.trimReviewMode === "all" ? settings.trimReviewMode : "normal",
     largeText: false,
@@ -179,7 +180,7 @@ function targetLabel(settings: NativeSettings): string {
   if (settings.targetMode === "old-and-large") {
     return `${prefix}${formatAgeThreshold(settings.minAgeYears)} and ${formatSizeThreshold(settings.minSizeMB)}+`;
   }
-  if (settings.targetMode === "duplicates" || settings.targetMode === "similar") return `${prefix}Similar`;
+  if (settings.targetMode === "duplicates" || settings.targetMode === "similar") return `${prefix}No category`;
   if (settings.targetMode === "blurry" || settings.targetMode === "mistakes") return `${prefix}Blurry`;
   if (settings.targetMode === "screenshots") return `${prefix}Screenshots`;
   if (settings.targetMode === "live-photos") return `${prefix}Live Photos`;
@@ -332,35 +333,14 @@ function qualifiesForDailyReward(day: NativeDailyStats): boolean {
   return day.trimmed > 0 || day.deleted > 0 || day.sessions > 0;
 }
 
-function weeklyRewardState(stats: NativeStats): WeeklyRewardState {
+function dailyRewardState(stats: NativeStats): DailyRewardState {
   const today = dateKey();
-  const days = Array.from({ length: 7 }, (_, index) => {
-    const date = addDays(new Date(), index - 6);
-    const key = dateKey(date);
-    const day = dailyFor(stats, key);
-    return {
-      key,
-      label: date.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 3),
-      qualified: (stats.dailyRewardClaims[key] ?? 0) > 0,
-      claimed: (stats.dailyRewardClaims[key] ?? 0) > 0,
-      today: key === today,
-    };
-  });
-
-  let streak = 0;
-  let cursor = new Date();
-  while ((stats.dailyRewardClaims[dateKey(cursor)] ?? 0) > 0) {
-    streak += 1;
-    cursor = addDays(cursor, -1);
-  }
-
   const claimedToday = (stats.dailyRewardClaims[today] ?? 0) > 0;
   return {
-    days,
     canClaimToday: !claimedToday,
     claimedToday,
     rewardAmount: DAILY_CLAIM_TOKENS,
-    streak: Math.min(7, streak),
+    nextResetLabel: "00:00",
   };
 }
 
@@ -700,8 +680,8 @@ export function NativeTrimSwipeApp() {
     void showInterstitialAd();
   }
 
-  async function claimWeeklyReward() {
-    const reward = weeklyRewardState(stats);
+  async function claimDailyTokens() {
+    const reward = dailyRewardState(stats);
     const today = dateKey();
     if (!reward.canClaimToday || reward.claimedToday) return;
     await addTokens(reward.rewardAmount, "grant");
@@ -713,7 +693,7 @@ export function NativeTrimSwipeApp() {
       },
     }));
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    showToast("Tokens claimed", `+${reward.rewardAmount} tokens added.`, "success");
+    showToast("Tokens claimed", `+${reward.rewardAmount} free tokens added.`, "success");
   }
 
 
@@ -1128,7 +1108,7 @@ export function NativeTrimSwipeApp() {
     if (category === "old") return `Photos >${formatAgeThreshold(planSettings.minAgeYears)} old`;
     if (category === "screenshots") return "One-tap cleanup";
     if (category === "live") return "Live Photos";
-    if (category === "duplicates") return "Similar photos";
+    if (category === "duplicates") return "No category";
     if (category === "bursts") return "Bursts";
     return "Likely mistakes";
   }
@@ -1704,7 +1684,7 @@ export function NativeTrimSwipeApp() {
 
   const todayStats = dailyFor(stats, dateKey());
   const recentPhotosForHero: NativePhoto[] = queue.slice(0, 3);
-  const weeklyReward = weeklyRewardState(stats);
+  const dailyReward = dailyRewardState(stats);
   const potentialFromScan = libraryScan
     ? libraryScan.trimSavingsMB + libraryScan.deleteSavingsMB
     : Math.max(stats.mbFreed * 2, 500);
@@ -1825,7 +1805,12 @@ export function NativeTrimSwipeApp() {
             onOpenShop={() => setScreen("shop")}
           />
         ) : screen === "shop" ? (
-          <ShopScreen onBack={() => setScreen("games")} onToast={showToast} />
+          <ShopScreen
+            onBack={() => setScreen("games")}
+            onToast={showToast}
+            dailyReward={dailyReward}
+            onClaimDailyTokens={claimDailyTokens}
+          />
         ) : screen === "games" ? (
           <GamesScreen
             stats={stats}
@@ -1854,7 +1839,6 @@ export function NativeTrimSwipeApp() {
             tokens={tokenBalance}
             isPro={isPro}
             adBusy={adBusy}
-            weeklyReward={weeklyReward}
             onStartSwipe={() => { setScreen("swipe"); void loadRound(); }}
             onOpenTrim={() => setScreen("trim")}
             onOpenGames={() => setScreen("games")}
@@ -1867,7 +1851,6 @@ export function NativeTrimSwipeApp() {
               void Linking.openSettings();
             }}
             onOpenRecentlyDeleted={openRecentlyDeleted}
-            onClaimWeeklyReward={claimWeeklyReward}
             onPickCategory={openCleanupCategory}
             onShare={shareProgress}
           />
@@ -2852,7 +2835,7 @@ function OnboardingScreen({ scan, scanBusy, scanError, scanProgress, permissionD
       <View style={styles.dashboardHero}>
         <Text style={styles.eyebrow}>Welcome</Text>
         <Text style={styles.heroTitle}>See what your camera roll is costing.</Text>
-        <Text style={styles.dashboardCopy}>Start with a scan. TrimSwipe estimates photo storage, trim potential, similar sessions, and bad shots worth reviewing.</Text>
+        <Text style={styles.dashboardCopy}>Start with a scan. TrimSwipe estimates photo storage, trim potential, uncategorized groups, and bad shots worth reviewing.</Text>
         {permissionLimited ? <Text style={styles.warning}>Limited photo access is enabled.</Text> : null}
         {scanError ? <Text style={styles.warning}>{scanError}</Text> : null}
         <PrimaryButton label={scanBusy ? progressText : scan ? "Scan again" : "Scan photo library"} disabled={scanBusy} onPress={onScan} />
@@ -2868,7 +2851,7 @@ function OnboardingScreen({ scan, scanBusy, scanError, scanProgress, permissionD
         <View style={styles.onboardingSteps}>
           <OnboardingStep title="Device-aware bars" detail="The full bar is your iPhone or iPad storage capacity." />
           <OnboardingStep title="Trim estimate" detail="See how much space compression can save without deleting." />
-          <OnboardingStep title="Review estimate" detail="See likely similar-session and mistake savings before making choices." />
+          <OnboardingStep title="Review estimate" detail="See likely uncategorized-group and mistake savings before making choices." />
         </View>
       )}
     </ScrollView>
@@ -2898,9 +2881,9 @@ function ScanResults({ scan }: { scan: NativeLibraryScan }) {
       <View style={styles.storageBars}>
         <StorageBar label="Photo library now" detail={`${formatMB(scan.totalSizeMB)} allocated`} valueMB={scan.totalSizeMB} capacityMB={capacityMB} tone="now" />
         <StorageBar label="After Trim" detail={`${formatMB(scan.trimSavingsMB)} estimated savings`} valueMB={afterTrimMB} capacityMB={capacityMB} tone="trim" />
-        <StorageBar label="After Delete" detail={`${formatMB(scan.deleteSavingsMB)} from similar photos and likely mistakes`} valueMB={afterDeleteMB} capacityMB={capacityMB} tone="delete" />
+        <StorageBar label="After Delete" detail={`${formatMB(scan.deleteSavingsMB)} from uncategorized photos and likely mistakes`} valueMB={afterDeleteMB} capacityMB={capacityMB} tone="delete" />
       </View>
-      <Text style={styles.scanFootnote}>Delete estimate includes {scan.duplicateRemovalCount} similar-session candidates and {scan.mistakeCount} likely blurry, dark, or accidental photos.</Text>
+      <Text style={styles.scanFootnote}>Delete estimate includes {scan.duplicateRemovalCount} uncategorized candidates and {scan.mistakeCount} likely blurry, dark, or accidental photos.</Text>
     </View>
   );
 }
@@ -2960,7 +2943,7 @@ const GAME_SMART_FOLDER_DEFS: Array<{
   { key: "old", label: (settings) => `>${formatGameAgeThreshold(settings.minAgeYears)}`, icon: "time-outline", match: (photo, settings) => gameAgeYears(photo.creationTime) >= settings.minAgeYears },
   { key: "screenshots", label: () => "Screens", icon: "phone-portrait-outline", match: (photo) => photo.cleanupReasons.includes("Screenshot") || photo.title.toLowerCase().includes("screen") },
   { key: "live", label: () => "Live", icon: "radio-button-on-outline", match: (photo) => photo.cleanupReasons.includes("Live Photo") },
-  { key: "duplicates", label: () => "Similar", icon: "copy-outline", match: (photo) => photo.cleanupReasons.includes("Similar") },
+  { key: "duplicates", label: () => "No category", icon: "copy-outline", match: (photo) => photo.cleanupReasons.includes("Similar") },
   { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (photo) => photo.cleanupReasons.includes("Burst") },
 ];
 
@@ -2982,6 +2965,7 @@ function GamesScreen({ stats, settings, queue, tokens, onStartGame, onPickCatego
   const today = dailyFor(stats, dateKey());
   const heroPhotos = queue.slice(0, 3);
   const gameThumbs = queue.slice(3, 7);
+  const mainGameThumbs = queue.slice(0, 3);
   const todayLabel = today.mbFreed > 0 ? `${formatMB(today.mbFreed)} today` : "Ready to clean";
   const largestPhotoMB = Math.max(0.5, ...queue.map((photo) => photo.sizeMB));
   const oldestPhotoAgeYears = Math.max(0, ...queue.map((photo) => gameAgeYears(photo.creationTime)));
@@ -3053,9 +3037,7 @@ function GamesScreen({ stats, settings, queue, tokens, onStartGame, onPickCatego
               />
             ))
           ) : (
-            <View style={styles.heroPhotoFallback}>
-              <Ionicons name="images-outline" size={34} color="#ffffff" />
-            </View>
+            <PlaceholderPhoto variant="swipe" style={styles.heroPhotoFallback} />
           )}
         </View>
       </View>
@@ -3106,6 +3088,20 @@ function GamesScreen({ stats, settings, queue, tokens, onStartGame, onPickCatego
         </ScrollView>
       </View>
       <Pressable onPress={() => onStartGame({ sessionMode: "classic" })} style={styles.primaryGameVisualCard}>
+        <View style={styles.primaryGamePhotoStrip}>
+          {mainGameThumbs.length > 0 ? (
+            mainGameThumbs.map((photo, index) => (
+              <Image
+                key={photo.id}
+                source={{ uri: photo.uri }}
+                style={[styles.primaryGamePhoto, index === 1 && styles.primaryGamePhotoRaised]}
+                resizeMode="cover"
+              />
+            ))
+          ) : (
+            <PlaceholderPhoto variant="swipe" style={styles.primaryGamePhotoPlaceholder} />
+          )}
+        </View>
         <View style={styles.primaryGameText}>
           <View style={styles.primaryGameBadge}><Text style={styles.primaryGameBadgeText}>Main game</Text></View>
           <Text style={styles.primaryGameTitle}>TrimSwipe</Text>
@@ -3118,20 +3114,42 @@ function GamesScreen({ stats, settings, queue, tokens, onStartGame, onPickCatego
         </View>
       </Pressable>
       <View style={styles.gameGrid}>
-        <VisualGameCard icon="swap-horizontal-outline" title="This or That" detail="Pick the keeper" thumb={gameThumbs[0]?.uri} onPress={onOpenThisOrThat} />
-        <VisualGameCard icon="speedometer-outline" title="Storage Budget" detail="Stay under 50 MB" thumb={gameThumbs[1]?.uri} onPress={onOpenStorageBudget} />
-        <VisualGameCard icon="timer-outline" title="Speed Round" detail="60 seconds" thumb={gameThumbs[2]?.uri} active={settings.sessionMode === "time-attack"} onPress={() => onStartGame({ sessionMode: "time-attack" })} />
-        <VisualGameCard icon="calendar-outline" title="Memory Lane" detail="Old photos first" thumb={gameThumbs[3]?.uri} active={settings.targetMode === "old-only"} onPress={onOpenMemoryLane} />
+        <VisualGameCard icon="swap-horizontal-outline" title="This or That" detail="Pick the keeper" thumb={gameThumbs[0]?.uri} variant="choice" onPress={onOpenThisOrThat} />
+        <VisualGameCard icon="speedometer-outline" title="Storage Budget" detail="Stay under 50 MB" thumb={gameThumbs[1]?.uri} variant="budget" onPress={onOpenStorageBudget} />
+        <VisualGameCard icon="timer-outline" title="Speed Round" detail="60 seconds" thumb={gameThumbs[2]?.uri} variant="speed" active={settings.sessionMode === "time-attack"} onPress={() => onStartGame({ sessionMode: "time-attack" })} />
+        <VisualGameCard icon="calendar-outline" title="Memory Lane" detail="Old photos first" thumb={gameThumbs[3]?.uri} variant="memory" active={settings.targetMode === "old-only"} onPress={onOpenMemoryLane} />
       </View>
     </ScrollView>
   );
 }
 
-function VisualGameCard({ icon, title, detail, thumb, active, onPress }: {
+type PlaceholderVariant = "swipe" | "choice" | "budget" | "speed" | "memory" | "folder";
+
+function PlaceholderPhoto({ variant, style }: { variant: PlaceholderVariant; style?: ViewStyle }) {
+  const palette: Record<PlaceholderVariant, [string, string, string]> = {
+    swipe: ["#fed7aa", "#fb923c", "#7c2d12"],
+    choice: ["#dbeafe", "#60a5fa", "#1e3a8a"],
+    budget: ["#dcfce7", "#22c55e", "#14532d"],
+    speed: ["#fee2e2", "#ef4444", "#7f1d1d"],
+    memory: ["#fef3c7", "#f59e0b", "#78350f"],
+    folder: ["#f1f5f9", "#94a3b8", "#334155"],
+  };
+  const [sky, accent, dark] = palette[variant];
+  return (
+    <View style={[styles.placeholderPhoto, { backgroundColor: sky }, style]}>
+      <View style={[styles.placeholderSun, { backgroundColor: accent }]} />
+      <View style={[styles.placeholderHillBack, { backgroundColor: dark }]} />
+      <View style={[styles.placeholderHillFront, { backgroundColor: accent }]} />
+    </View>
+  );
+}
+
+function VisualGameCard({ icon, title, detail, thumb, variant, active, onPress }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   detail: string;
   thumb?: string;
+  variant: PlaceholderVariant;
   active?: boolean;
   onPress: () => void;
 }) {
@@ -3141,9 +3159,7 @@ function VisualGameCard({ icon, title, detail, thumb, active, onPress }: {
         {thumb ? (
           <Image source={{ uri: thumb }} style={styles.visualGameImage} resizeMode="cover" />
         ) : (
-          <View style={styles.visualGameFallback}>
-            <Ionicons name={icon} size={28} color="#f97316" />
-          </View>
+          <PlaceholderPhoto variant={variant} />
         )}
         <View style={styles.visualGameIcon}>
           <Ionicons name={icon} size={16} color="#ffffff" />
@@ -3225,9 +3241,7 @@ function GameSmartFolderCard({ folder, onPress }: { folder: GameSmartFolder; onP
         {folder.thumb ? (
           <Image source={{ uri: folder.thumb }} style={styles.focusFolderThumb} resizeMode="cover" />
         ) : (
-          <View style={[styles.focusFolderThumb, styles.focusFolderThumbEmpty]}>
-            <Ionicons name={folder.icon} size={24} color="#f97316" />
-          </View>
+          <PlaceholderPhoto variant="folder" style={styles.focusFolderThumb} />
         )}
         <View style={styles.focusFolderIcon}>
           <Ionicons name={folder.icon} size={13} color="#c2410c" />
@@ -3279,6 +3293,7 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
   const [index, setIndex] = useState(0);
   const [kept, setKept] = useState<NativePhoto[]>([]);
   const [deleted, setDeleted] = useState<NativePhoto[]>([]);
+  const [skippedPairs, setSkippedPairs] = useState(0);
   const [loserModes, setLoserModes] = useState<Record<string, ThisOrThatLoserMode>>({});
   const [loadingPairs, setLoadingPairs] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -3308,7 +3323,7 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
         }
       }
       setPairs(nextPairs);
-      setIndex(0); setKept([]); setDeleted([]); setLoserModes({});
+      setIndex(0); setKept([]); setDeleted([]); setSkippedPairs(0); setLoserModes({});
     } finally { setLoadingPairs(false); }
   }
 
@@ -3332,15 +3347,33 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
     setIndex((current) => current + 1);
   }
 
+  function skipPair() {
+    if (!pair) return;
+    void Haptics.selectionAsync();
+    setSkippedPairs((current) => current + 1);
+    setIndex((current) => current + 1);
+  }
+
+  function deleteBoth() {
+    if (!pair) return;
+    setDeleted((current) => [...current, pair[0], pair[1]]);
+    setLoserModes((current) => ({
+      ...current,
+      [pair[0].id]: "delete",
+      [pair[1].id]: "delete",
+    }));
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    setIndex((current) => current + 1);
+  }
+
   function setLoserMode(photo: NativePhoto, mode: ThisOrThatLoserMode) {
-    if (mode === "trim" && !canAttemptTrim(photo, settings)) return;
     setLoserModes((current) => ({ ...current, [photo.id]: mode }));
   }
 
   function cycleLoserMode(photo: NativePhoto) {
     const mode = loserModes[photo.id] ?? "delete";
     const nextMode: ThisOrThatLoserMode =
-      mode === "delete" ? (canAttemptTrim(photo, settings) ? "trim" : "skip") : mode === "trim" ? "skip" : "delete";
+      mode === "delete" ? "trim" : mode === "trim" ? "skip" : "delete";
     setLoserMode(photo, nextMode);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }
@@ -3362,7 +3395,7 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
   if (loadingPairs) return <Centered><ActivityIndicator color="#f97316" size="large" /><Text style={styles.muted}>Building This or That pairs...</Text></Centered>;
 
   if (!pair) {
-    if (deleted.length === 0) {
+    if (deleted.length === 0 && kept.length === 0 && skippedPairs === 0) {
       return (
         <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
           <MiniGameHeader title="This or That" detail="No pairs yet" tokens={tokens} onBack={onBack} />
@@ -3409,6 +3442,14 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
       <View style={styles.thisThatRow}>
         <ChoicePhoto photo={pair[0]} label="A" onPress={() => pick(0)} onLongPress={() => setFullPhoto(pair[0])} />
         <ChoicePhoto photo={pair[1]} label="B" onPress={() => pick(1)} onLongPress={() => setFullPhoto(pair[1])} />
+      </View>
+      <View style={styles.thisThatActionRow}>
+        <Pressable onPress={skipPair} style={styles.pairSecondaryButton}>
+          <Text style={styles.pairSecondaryText}>Skip</Text>
+        </Pressable>
+        <Pressable onPress={deleteBoth} style={styles.pairDangerButton}>
+          <Text style={styles.pairDangerText}>Delete both</Text>
+        </Pressable>
       </View>
       <Text style={styles.centerText}>Queued savings: {formatMB(deleteFreed)}</Text>
       <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
@@ -4041,7 +4082,7 @@ const FOCUS_OPTIONS: [NativeTargetMode, string, string][] = [
   ["big-or-old", "Large or old", "Photos over either threshold"],
   ["big-only", "Large", "Photos over the size threshold"],
   ["old-only", "Old", "Older memories first"],
-  ["similar", "Similar", "Photos from the same short session"],
+  ["similar", "No category", "Photos without a stronger cleanup category"],
   ["blurry", "Blurry", "Likely blurry, dark, or accidental shots"],
   ["multibursts", "Bursts", "Rapid-fire photo groups"],
   ["screenshots", "Screens", "Screenshots and screen grabs"],
@@ -4129,10 +4170,10 @@ type QualityPreviewItem = {
   generated: boolean;
 };
 
-const QUALITY_PREVIEW_VARIANTS = [
+const BASE_QUALITY_PREVIEW_VARIANTS = [
   { label: "100%", quality: 1, color: "#94a3b8" },
-  { label: "80%", quality: 0.8, color: "#fb923c" },
-  { label: "65%", quality: 0.65, color: "#ef4444" },
+  { label: "75%", quality: 0.75, color: "#fb923c" },
+  { label: "50%", quality: 0.5, color: "#ef4444" },
 ];
 
 function projectedQualitySize(baseSize: number, quality: number): number {
@@ -4140,12 +4181,23 @@ function projectedQualitySize(baseSize: number, quality: number): number {
   return +(baseSize * (0.38 + quality * 0.5)).toFixed(2);
 }
 
+function qualityPreviewVariants(currentQuality: number) {
+  const variants = [
+    ...BASE_QUALITY_PREVIEW_VARIANTS,
+    { label: `${Math.round(currentQuality * 100)}%`, quality: currentQuality, color: colors.primary },
+  ];
+  return variants
+    .filter((variant, index, all) => all.findIndex((item) => Math.abs(item.quality - variant.quality) < 0.005) === index)
+    .sort((a, b) => b.quality - a.quality);
+}
+
 function EnhancedQualityPreview({ photo, currentQuality }: { photo?: NativePhoto; currentQuality: number }) {
   const baseSize = photo?.sizeMB ?? 4;
+  const variants = useMemo(() => qualityPreviewVariants(currentQuality), [currentQuality]);
   const [expanded, setExpanded] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [previews, setPreviews] = useState<QualityPreviewItem[]>(() =>
-    QUALITY_PREVIEW_VARIANTS.map((variant) => ({
+    variants.map((variant) => ({
       ...variant,
       uri: photo?.uri,
       sizeMB: projectedQualitySize(baseSize, variant.quality),
@@ -4157,7 +4209,7 @@ function EnhancedQualityPreview({ photo, currentQuality }: { photo?: NativePhoto
     let cancelled = false;
     const generatedUris: string[] = [];
     const sourceUri = photo?.localUri || photo?.uri;
-    const fallback = QUALITY_PREVIEW_VARIANTS.map((variant) => ({
+    const fallback = variants.map((variant) => ({
       ...variant,
       uri: photo?.uri,
       sizeMB: projectedQualitySize(baseSize, variant.quality),
@@ -4175,7 +4227,7 @@ function EnhancedQualityPreview({ photo, currentQuality }: { photo?: NativePhoto
 
     async function buildPreviews() {
       const next: QualityPreviewItem[] = [fallback[0]];
-      for (const variant of QUALITY_PREVIEW_VARIANTS.slice(1)) {
+      for (const variant of variants.slice(1)) {
         try {
           const result = await ImageManipulator.manipulateAsync(previewSourceUri, [], {
             compress: variant.quality,
@@ -4205,7 +4257,7 @@ function EnhancedQualityPreview({ photo, currentQuality }: { photo?: NativePhoto
         void FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
       });
     };
-  }, [baseSize, photo]);
+  }, [baseSize, photo, variants]);
 
   const activePreview = previews[activeIndex] ?? previews[0];
   return (
@@ -4231,7 +4283,7 @@ function EnhancedQualityPreview({ photo, currentQuality }: { photo?: NativePhoto
               <View style={[styles.qualityFill, { width: progressWidth(variant.sizeMB / baseSize), backgroundColor: variant.color }]} />
             </View>
             <Text style={styles.mutedSmall}>
-              {formatMB(variant.sizeMB)} - save {formatMB(saved)}{variant.generated ? "" : " est."}
+              {formatMB(variant.sizeMB)} - save {formatMB(saved)} ({Math.round((saved / Math.max(baseSize, 0.01)) * 100)}%){variant.generated ? "" : " est."}
             </Text>
           </Pressable>
         );
@@ -4269,6 +4321,13 @@ const TRIM_KIND_OPTIONS: Array<{ kind: NativeTrimKind; label: string; detail: st
   { kind: "location", label: "Location", detail: "GPS coordinates when present", icon: "location-outline" },
   { kind: "compression", label: "Compression", detail: "Final shrink pass for already-stripped photos", icon: "contract-outline" },
 ];
+
+function trimKindDetail(option: (typeof TRIM_KIND_OPTIONS)[number], quality: number): string {
+  if (option.kind === "metadata") return `${option.detail} - roughly 1-8%`;
+  if (option.kind === "location") return `${option.detail} - roughly 0.1-0.5 MB`;
+  const savedPercent = Math.max(0, Math.round((1 - projectedQualitySize(1, quality)) * 100));
+  return `${option.detail} - roughly ${savedPercent}% at ${Math.round(quality * 100)}% quality`;
+}
 
 function TrimKindSettings({
   settings,
@@ -4314,7 +4373,7 @@ function TrimKindSettings({
               <Ionicons name={isPro ? option.icon : "lock-closed-outline"} size={17} color={active ? "#c2410c" : "#64748b"} />
               <View style={styles.reviewCopy}>
                 <Text style={[styles.trimKindLabel, active && styles.trimKindLabelActive]}>{option.label}</Text>
-                {!compact ? <Text style={styles.mutedSmall}>{option.detail}</Text> : null}
+                {!compact ? <Text style={styles.mutedSmall}>{trimKindDetail(option, settings.trimQuality)}</Text> : null}
               </View>
               <View style={[styles.checkbox, active && styles.checkboxOn]}>
                 {active ? <Text style={styles.checkboxMark}>✓</Text> : null}
@@ -4359,6 +4418,7 @@ function SettingsScreen({ settings, isPro, samplePhoto, onChange, onReload }: { 
         options={[["normal", "Untrimmed"], ["trimmed-only", "Trimmed only"], ["all", "All photos"]]}
         onChange={(trimReviewMode) => onChange({ trimReviewMode })}
       />
+      <SettingStepper label="Daily goal" value={settings.dailyGoalMB} suffix="MB" min={5} max={500} step={5} onChange={(dailyGoalMB) => onChange({ dailyGoalMB })} />
       <FocusDropdown value={settings.targetMode} onChange={(targetMode) => onChange({ targetMode })} />
       {showsThresholds ? (
         <>
@@ -4366,7 +4426,15 @@ function SettingsScreen({ settings, isPro, samplePhoto, onChange, onReload }: { 
           <SettingStepper label="Old threshold" value={settings.minAgeYears} suffix="years" min={0} max={3} step={1 / 12} onChange={(minAgeYears) => onChange({ minAgeYears })} />
         </>
       ) : null}
-      <SettingStepper label="Trim quality" value={Math.round(settings.trimQuality * 100)} suffix="%" min={65} max={98} step={1} onChange={(quality) => onChange({ trimQuality: quality / 100 })} />
+      <SettingStepper
+        label="Trim quality"
+        value={Math.round(settings.trimQuality * 100)}
+        suffix="%"
+        min={isPro ? 50 : 65}
+        max={98}
+        step={1}
+        onChange={(quality) => onChange({ trimQuality: Math.max(isPro ? 50 : 65, quality) / 100 })}
+      />
       <Segmented
         label="Trim output"
         value={settings.trimOutputMode}
@@ -4741,6 +4809,10 @@ const styles = StyleSheet.create({
   gameGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   primaryGameCard: { width: "100%", borderRadius: 24, backgroundColor: "#f97316", padding: 20, gap: 8, shadowColor: "#fb923c", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 18, elevation: 6 },
   primaryGameVisualCard: { width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 24, backgroundColor: "#f97316", padding: 20, gap: 14, shadowColor: "#fb923c", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 18, elevation: 6 },
+  primaryGamePhotoStrip: { flexDirection: "row", alignItems: "center", width: 92 },
+  primaryGamePhoto: { width: 38, height: 54, marginRight: -18, borderRadius: 12, borderWidth: 2, borderColor: "rgba(255,255,255,0.75)", backgroundColor: "#fed7aa" },
+  primaryGamePhotoRaised: { transform: [{ translateY: -5 }] },
+  primaryGamePhotoPlaceholder: { width: 80, height: 58, borderRadius: 16 },
   primaryGameText: { flex: 1, gap: 8 },
   primaryGameIcons: { flexDirection: "row", gap: 7 },
   primaryGameBadge: { alignSelf: "flex-start", borderRadius: 999, backgroundColor: "rgba(255, 255, 255, 0.22)", paddingHorizontal: 10, paddingVertical: 5 },
@@ -4763,6 +4835,10 @@ const styles = StyleSheet.create({
   visualGameImageWrap: { position: "relative", height: 94, overflow: "hidden", borderRadius: 16, backgroundColor: "#fff7ed" },
   visualGameImage: { width: "100%", height: "100%" },
   visualGameFallback: { width: "100%", height: "100%", alignItems: "center", justifyContent: "center", backgroundColor: "#fff7ed" },
+  placeholderPhoto: { width: "100%", height: "100%", overflow: "hidden", borderRadius: 12 },
+  placeholderSun: { position: "absolute", right: 14, top: 12, width: 24, height: 24, borderRadius: 12, opacity: 0.9 },
+  placeholderHillBack: { position: "absolute", left: -18, right: 34, bottom: -16, height: 58, borderTopRightRadius: 58, opacity: 0.55 },
+  placeholderHillFront: { position: "absolute", left: 24, right: -20, bottom: -18, height: 70, borderTopLeftRadius: 68, opacity: 0.78 },
   visualGameIcon: { position: "absolute", right: 8, top: 8, width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: "rgba(249, 115, 22, 0.92)" },
   photoAccessCard: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 14 },
   photoAccessIcon: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: "#fff7ed" },
@@ -4781,6 +4857,11 @@ const styles = StyleSheet.create({
 
   // This or That
   thisThatRow: { flexDirection: "row", gap: 10 },
+  thisThatActionRow: { flexDirection: "row", gap: 10 },
+  pairSecondaryButton: { flex: 1, alignItems: "center", borderRadius: 18, borderWidth: 1, borderColor: "#fed7aa", backgroundColor: "#ffffff", paddingVertical: 14, paddingHorizontal: 12 },
+  pairSecondaryText: { color: "#c2410c", fontSize: 14, fontWeight: "900" },
+  pairDangerButton: { flex: 1, alignItems: "center", borderRadius: 18, backgroundColor: "#dc2626", paddingVertical: 14, paddingHorizontal: 12 },
+  pairDangerText: { color: "#ffffff", fontSize: 14, fontWeight: "900" },
   choicePhoto: { flex: 1, aspectRatio: 0.72, overflow: "hidden", borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa" },
   choiceImage: { width: "100%", height: "100%" },
   choiceShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(31, 41, 55, 0.18)" },

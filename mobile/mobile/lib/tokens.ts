@@ -128,6 +128,6 @@ export const TOKEN_PACKS: Record<string, number> = {
 };
 
 export const REWARDED_AD_TOKENS = 5;
-export const DAILY_CLAIM_TOKENS = 10;
+export const DAILY_CLAIM_TOKENS = 5;
 
 export type { TokenState };

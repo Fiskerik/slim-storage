@@ -21,20 +21,24 @@ import {
   type ShopProduct,
 } from "../lib/purchases";
 import {
+  DAILY_CLAIM_TOKENS,
   REWARDED_AD_TOKENS,
   TOKEN_PACKS,
   subscribeTokens,
 } from "../lib/tokens";
 import { showRewardedAd } from "../lib/ads";
+import type { DailyRewardState } from "./HomeDashboard";
 
 export type ShopScreenProps = {
   onBack: () => void;
   onToast?: (title: string, detail?: string, tone?: "info" | "success" | "warning" | "error") => void;
+  dailyReward?: DailyRewardState;
+  onClaimDailyTokens?: () => void;
 };
 
 const TOKEN_ORDER = ["tokens_50", "tokens_100", "tokens_200", "tokens_500"];
 
-export function ShopScreen({ onBack, onToast }: ShopScreenProps) {
+export function ShopScreen({ onBack, onToast, dailyReward, onClaimDailyTokens }: ShopScreenProps) {
   const [products, setProducts] = useState<ShopProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -213,6 +217,29 @@ export function ShopScreen({ onBack, onToast }: ShopScreenProps) {
         {!isPro ? (
           <>
             <SectionHeader title="Free tokens" />
+            <Pressable
+              disabled={!dailyReward?.canClaimToday || dailyReward.claimedToday}
+              onPress={onClaimDailyTokens}
+              style={[
+                styles.dailyClaimCard,
+                (!dailyReward?.canClaimToday || dailyReward.claimedToday) && styles.dailyClaimCardDisabled,
+              ]}
+            >
+              <View style={styles.dailyClaimIcon}>
+                <Ionicons name="gift-outline" size={25} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.dailyClaimTitle}>
+                  {dailyReward?.claimedToday ? "Daily tokens claimed" : "Claim daily tokens"}
+                </Text>
+                <Text style={styles.dailyClaimSub}>
+                  +{dailyReward?.rewardAmount ?? DAILY_CLAIM_TOKENS} free tokens - resets at {dailyReward?.nextResetLabel ?? "00:00"}
+                </Text>
+              </View>
+              <Text style={styles.dailyClaimButtonText}>
+                {dailyReward?.claimedToday ? "Done" : "Claim"}
+              </Text>
+            </Pressable>
             <Pressable disabled={adBusy} onPress={handleWatchAd} style={styles.adCard}>
               <View style={styles.adIcon}>
                 <Ionicons name="play-circle" size={28} color={colors.sage} />
@@ -421,6 +448,21 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     borderWidth: StyleSheet.hairlineWidth, borderColor: colors.sage,
   },
+  dailyClaimCard: {
+    flexDirection: "row", alignItems: "center", gap: spacing.md,
+    backgroundColor: colors.card, borderRadius: radius.lg,
+    padding: spacing.lg,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.primary,
+    ...shadow.soft,
+  },
+  dailyClaimCardDisabled: { opacity: 0.68, borderColor: colors.border },
+  dailyClaimIcon: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center",
+  },
+  dailyClaimTitle: { fontSize: 16, fontWeight: "900", color: colors.text },
+  dailyClaimSub: { fontSize: 12, color: colors.textMuted, marginTop: 2, fontWeight: "700" },
+  dailyClaimButtonText: { color: colors.primary, fontSize: 13, fontWeight: "900" },
   adIcon: {
     width: 44, height: 44, borderRadius: 22,
     backgroundColor: colors.white, alignItems: "center", justifyContent: "center",

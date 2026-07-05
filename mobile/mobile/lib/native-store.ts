@@ -36,6 +36,7 @@ export type NativeSettings = {
   trimOutputMode: NativeTrimOutputMode;
   trimKinds: NativeTrimKind[];
   trimReviewMode: NativeTrimReviewMode;
+  dailyGoalMB: number;
   largeText: boolean;
   highContrast: boolean;
 };
@@ -89,14 +90,15 @@ const STATS_FILE = "trimswipe-native-stats-v1.json";
 
 export const DEFAULT_NATIVE_SETTINGS: NativeSettings = {
   cardsPerRound: 10,
-  targetMode: "big-or-old",
+  targetMode: "old-and-large",
   sessionMode: "classic",
   minSizeMB: 5,
   minAgeYears: 1,
   trimQuality: 0.9,
   trimOutputMode: "replace",
-  trimKinds: ["metadata", "location"],
+  trimKinds: ["metadata", "location", "compression"],
   trimReviewMode: "normal",
+  dailyGoalMB: 50,
   largeText: false,
   highContrast: false,
 };
@@ -285,10 +287,11 @@ function normalizeStats(value: unknown): NativeStats {
       cardsPerRound: Math.min(30, Math.max(5, safeNumber(rawSettings.cardsPerRound, 10))),
       minSizeMB: Math.min(10, Math.max(0.5, safeNumber(rawSettings.minSizeMB, 5))),
       minAgeYears: Math.min(3, Math.max(0, safeNumber(rawSettings.minAgeYears, 1))),
-      trimQuality: Math.min(0.98, Math.max(0.65, safeNumber(rawSettings.trimQuality, 0.9))),
+      trimQuality: Math.min(0.98, Math.max(0.5, safeNumber(rawSettings.trimQuality, 0.9))),
       trimOutputMode: normalizeTrimOutputMode(rawSettings.trimOutputMode),
       trimKinds: normalizeTrimKinds(rawSettings.trimKinds),
       trimReviewMode: normalizeTrimReviewMode(rawSettings.trimReviewMode),
+      dailyGoalMB: Math.min(1000, Math.max(5, safeNumber(rawSettings.dailyGoalMB, DEFAULT_NATIVE_SETTINGS.dailyGoalMB))),
       largeText: Boolean(rawSettings.largeText),
       highContrast: Boolean(rawSettings.highContrast),
     },

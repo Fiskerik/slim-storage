@@ -42,20 +42,11 @@ type Category = {
   thumb?: string;
 };
 
-export type WeeklyRewardDay = {
-  key: string;
-  label: string;
-  qualified: boolean;
-  claimed: boolean;
-  today: boolean;
-};
-
-export type WeeklyRewardState = {
-  days: WeeklyRewardDay[];
+export type DailyRewardState = {
   canClaimToday: boolean;
   claimedToday: boolean;
   rewardAmount: number;
-  streak: number;
+  nextResetLabel: string;
 };
 
 export type HomeDashboardProps = {
@@ -72,7 +63,6 @@ export type HomeDashboardProps = {
   tokens: number;
   isPro: boolean;
   adBusy?: boolean;
-  weeklyReward: WeeklyRewardState;
   onStartSwipe: () => void;
   onOpenTrim: () => void;
   onOpenGames: () => void;
@@ -82,7 +72,6 @@ export type HomeDashboardProps = {
   onDeepClean: () => void;
   onOptimizeStorage: () => void;
   onOpenRecentlyDeleted: () => void;
-  onClaimWeeklyReward: () => void;
   onPickCategory: (key: Category["key"]) => void;
   onShare: () => void;
 };
@@ -98,7 +87,7 @@ const CAT_DEFS: Array<{
   { key: "old", label: (s) => `>${formatAgeThreshold(s.minAgeYears)}`, icon: "time-outline", match: (p, s) => ageYears(p.creationTime) >= s.minAgeYears },
   { key: "screenshots", label: () => "Screens", icon: "phone-portrait-outline", match: (p) => p.cleanupReasons.includes("Screenshot") || p.title.toLowerCase().includes("screen") },
   { key: "live", label: () => "Live", icon: "radio-button-on-outline", match: (p) => p.cleanupReasons.includes("Live Photo") },
-  { key: "duplicates", label: () => "Similar", icon: "copy-outline", match: (p) => p.cleanupReasons.includes("Similar") },
+  { key: "duplicates", label: () => "No category", icon: "copy-outline", match: (p) => p.cleanupReasons.includes("Similar") },
   { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (p) => p.cleanupReasons.includes("Burst") },
 ];
 
@@ -116,7 +105,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
     tokens,
     isPro,
     adBusy,
-    weeklyReward,
     onStartSwipe,
     onOpenTrim,
     onOpenGames,
@@ -126,12 +114,10 @@ export function HomeDashboard(props: HomeDashboardProps) {
     onDeepClean,
     onOptimizeStorage,
     onOpenRecentlyDeleted,
-    onClaimWeeklyReward,
     onPickCategory,
     onShare,
   } = props;
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [todayExpanded, setTodayExpanded] = useState(false);
 
 
   const float = useRef(new Animated.Value(0)).current;
@@ -173,8 +159,9 @@ export function HomeDashboard(props: HomeDashboardProps) {
   const potentialDisplay = formatMB(target);
 
   const heroThumbs = recentPhotos.slice(0, 3);
-  const dailyGoalMB = 50;
+  const dailyGoalMB = Math.max(5, stats.settings.dailyGoalMB);
   const dailyGoalProgress = Math.min(1, today.mbFreed / dailyGoalMB);
+  const dailyGoalComplete = dailyGoalProgress >= 1;
   const scanHint = scanBusy
     ? props.scanInProgressText ?? "Scanning..."
     : scanComplete
@@ -225,71 +212,13 @@ export function HomeDashboard(props: HomeDashboardProps) {
             <Text style={styles.sectionAction}>{formatMB(today.mbFreed)} freed</Text>
           }
         />
-        <Pressable
-          onPress={() => setTodayExpanded((current) => !current)}
-          style={styles.todayCard}
-        >
-          <TodayStat icon="checkmark-circle-outline" tint={colors.sage} value={today.kept} label="Kept" expanded={todayExpanded} />
-          <View style={styles.todayDivider} />
-          <TodayStat icon="cut-outline" tint={colors.honey} value={today.trimmed} label="Trimmed" expanded={todayExpanded} />
-          <View style={styles.todayDivider} />
-          <TodayStat icon="trash-outline" tint={colors.danger} value={today.deleted} label="Deleted" expanded={todayExpanded} />
-        </Pressable>
-
-        <SectionHeader
-          title="Daily tokens"
-          action={<Text style={styles.sectionAction}>{weeklyReward.streak}/7 claimed</Text>}
-        />
-        <Card style={styles.weeklyCard}>
-          <View style={styles.weeklyDays}>
-            {weeklyReward.days.map((day, index) => (
-              <View key={day.key} style={styles.weeklyDay}>
-                <View
-                  style={[
-                    styles.weeklyDot,
-                    day.qualified && styles.weeklyDotDone,
-                    day.claimed && styles.weeklyDotClaimed,
-                    day.today && styles.weeklyDotToday,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.weeklyDotText,
-                      (day.qualified || day.claimed) && styles.weeklyDotTextActive,
-                    ]}
-                  >
-                    {index + 1}
-                  </Text>
-                </View>
-                <Text style={styles.weeklyLabel}>{day.label}</Text>
-              </View>
-            ))}
-          </View>
-          <View style={styles.weeklyFooter}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.goalTitle}>
-                {weeklyReward.claimedToday
-                  ? "Reward claimed"
-                  : weeklyReward.canClaimToday
-                    ? `Claim ${weeklyReward.rewardAmount} tokens`
-                    : "Come back tomorrow"}
-              </Text>
-              <Text style={styles.goalHint}>
-                Claim once per day. Missed days cannot be collected later.
-              </Text>
-            </View>
-            <Pressable
-              disabled={!weeklyReward.canClaimToday || weeklyReward.claimedToday}
-              onPress={onClaimWeeklyReward}
-              style={[
-                styles.claimButton,
-                (!weeklyReward.canClaimToday || weeklyReward.claimedToday) && styles.claimButtonDisabled,
-              ]}
-            >
-              <Text style={styles.claimButtonText}>
-                {weeklyReward.claimedToday ? "Done" : "Claim"}
-              </Text>
-            </Pressable>
+        <View style={styles.todayCard}>
+          <View style={styles.todayStatsRow}>
+            <TodayStat icon="checkmark-circle-outline" tint={colors.sage} value={today.kept} label="Kept" />
+            <View style={styles.todayDivider} />
+            <TodayStat icon="cut-outline" tint={colors.honey} value={today.trimmed} label="Trimmed" />
+            <View style={styles.todayDivider} />
+            <TodayStat icon="trash-outline" tint={colors.danger} value={today.deleted} label="Deleted" />
           </View>
           <View style={styles.embeddedGoal}>
             <View style={styles.embeddedGoalTop}>
@@ -297,13 +226,21 @@ export function HomeDashboard(props: HomeDashboardProps) {
               <Text style={styles.embeddedGoalValue}>{formatMB(today.mbFreed)} / {dailyGoalMB} MB</Text>
             </View>
             <View style={styles.goalTrack}>
-              <View style={[styles.goalFill, { width: `${dailyGoalProgress * 100}%` }]} />
+              <View
+                style={[
+                  styles.goalFill,
+                  {
+                    width: `${dailyGoalProgress * 100}%`,
+                    backgroundColor: dailyGoalComplete ? colors.sage : colors.primary,
+                  },
+                ]}
+              />
             </View>
             <Text style={styles.goalHint}>
-              {dailyGoalProgress >= 1 ? "Goal complete" : `${formatMB(Math.max(0, dailyGoalMB - today.mbFreed))} left today`}
+              {dailyGoalComplete ? "Goal complete" : `${formatMB(Math.max(0, dailyGoalMB - today.mbFreed))} left today`}
             </Text>
           </View>
-        </Card>
+        </View>
 
         {!isPro ? (
           <Pressable onPress={onWatchAd} disabled={adBusy} style={styles.adBanner}>
@@ -485,7 +422,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                     {healthScore >= 82 ? "Looking tidy" : "Easy wins are waiting"}
                   </Text>
                   <Text style={styles.goalHint}>
-                    Projected savings: {formatMB(projectedFreed)}. Top hogs: large photos, screenshots, and similar sessions.
+                    Projected savings: {formatMB(projectedFreed)}. Top hogs: large photos, screenshots, and uncategorized groups.
                   </Text>
                 </View>
               </Card>
@@ -502,21 +439,19 @@ function TodayStat({
   tint,
   value,
   label,
-  expanded,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   tint: string;
   value: number;
   label: string;
-  expanded: boolean;
 }) {
   return (
-    <View style={[styles.todayStat, expanded && styles.todayStatExpanded]}>
+    <View style={styles.todayStat}>
       <View style={styles.todayCompactStat}>
         <Ionicons name={icon} size={18} color={tint} />
         <Text style={[styles.todayValue, { color: tint }]}>{value}</Text>
       </View>
-      {expanded ? <Text style={styles.todayLabel}>{label}</Text> : null}
+      <Text style={styles.todayLabel}>{label}</Text>
     </View>
   );
 }
@@ -870,19 +805,21 @@ const styles = StyleSheet.create({
   claimButtonText: { color: colors.white, fontSize: 13, fontWeight: "900" },
 
   todayCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     borderRadius: radius.lg,
     backgroundColor: colors.card,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
+    gap: spacing.md,
     ...shadow.card,
   },
+  todayStatsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   todayStat: { flex: 1, alignItems: "center", justifyContent: "center", gap: 3 },
-  todayStatExpanded: { gap: 4 },
   todayCompactStat: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
   todayValue: { fontSize: 22, fontWeight: "900" },
   todayLabel: { fontSize: 11, color: colors.textMuted, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
