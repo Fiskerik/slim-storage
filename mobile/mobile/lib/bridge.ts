@@ -18,6 +18,14 @@ type BridgeResponse = {
 
 type PurchaseModule = typeof import("./purchases");
 
+const STANDARD_IPHONE_DIMENSIONS = new Set([
+  "4032x3024",
+  "5712x4284",
+  "8064x6048",
+  "3840x2160",
+  "1920x1080",
+]);
+
 let purchaseModulePromise: Promise<PurchaseModule> | null = null;
 
 function loadPurchaseModule(): Promise<PurchaseModule> {
@@ -201,6 +209,70 @@ function hasExifFlag(info: MediaLibrary.AssetInfo, keys: string[]): boolean {
   });
 }
 
+function assetLooksLikeScreenshot(asset: MediaLibrary.Asset): boolean {
+  const filename = asset.filename?.toLowerCase() ?? "";
+  const normalizedFilename = filename.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const subtypes = (asset as MediaLibrary.Asset & { mediaSubtypes?: string[] }).mediaSubtypes ?? [];
+  return (
+    subtypes.some((subtype) => subtype.toLowerCase().includes("screenshot")) ||
+    normalizedFilename.includes("screenshot") ||
+    normalizedFilename.includes("screen shot") ||
+    normalizedFilename.includes("screen-shot") ||
+    normalizedFilename.includes("screen_shot") ||
+    normalizedFilename.startsWith("skarmavbild") ||
+    normalizedFilename.startsWith("skarmbild")
+  );
+}
+
+function assetExtension(asset: MediaLibrary.Asset): string {
+  const filename = asset.filename?.toLowerCase() ?? "";
+  const match = filename.match(/\.([a-z0-9]+)$/);
+  return match?.[1] ?? "";
+}
+
+function assetHasCameraInfo(info: MediaLibrary.AssetInfo): boolean {
+  const exif = (info.exif ?? {}) as Record<string, unknown>;
+  return ["Make", "Model", "LensModel", "FNumber", "FocalLength", "ISOSpeedRatings", "ExposureTime"].some((key) => {
+    const value = exif[key];
+    if (typeof value === "string") return value.trim().length > 0;
+    return typeof value === "number" && Number.isFinite(value) && value !== 0;
+  });
+}
+
+function assetLooksLikeTrimmedOutput(asset: MediaLibrary.Asset, info: MediaLibrary.AssetInfo): boolean {
+  if (assetLooksLikeScreenshot(asset)) return false;
+  const filename = (asset.filename ?? "").trim();
+  const basename = filename.replace(/\.[^.]+$/, "");
+  const uuidishName =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(basename) ||
+    /^[0-9a-f]{32}$/i.test(basename);
+  const extension = assetExtension(asset);
+  const trimOutputFormat = extension === "" || extension === "jpg" || extension === "jpeg" || extension === "png";
+  return uuidishName && trimOutputFormat && !assetHasCameraInfo(info);
+}
+
+function assetLooksLikeMistake(asset: MediaLibrary.Asset, sizeMB: number): boolean {
+  const filename = asset.filename?.toLowerCase() ?? "";
+  const width = asset.width || 0;
+  const height = asset.height || 0;
+  const aspectRatio = width > 0 && height > 0 ? Math.max(width, height) / Math.max(1, Math.min(width, height)) : 1;
+  return aspectRatio > 2.2 || sizeMB < 0.35 || filename.includes("pocket");
+}
+
+function assetLooksUncategorized(
+  asset: MediaLibrary.Asset,
+  info: MediaLibrary.AssetInfo,
+  sizeMB: number,
+  duplicateLookup: Set<string>,
+): boolean {
+  if (duplicateLookup.has(duplicateKey(asset))) return false;
+  if (assetLooksLikeTrimmedOutput(asset, info)) return false;
+  if (assetLooksLikeScreenshot(asset)) return false;
+  if (assetLooksLikeMistake(asset, sizeMB)) return false;
+  const filename = asset.filename?.toLowerCase() ?? "";
+  return assetHasCameraInfo(info) || filename.startsWith("img_") || STANDARD_IPHONE_DIMENSIONS.has(`${asset.width}x${asset.height}`);
+}
+
 function classifyAsset(
   asset: MediaLibrary.Asset,
   info: MediaLibrary.AssetInfo,
@@ -216,9 +288,12 @@ function classifyAsset(
   const aspectRatio =
     width > 0 && height > 0 ? Math.max(width, height) / Math.max(1, Math.min(width, height)) : 1;
 
+  if (assetLooksLikeTrimmedOutput(asset, info)) reasons.add("Trimmed");
+  if (assetLooksLikeScreenshot(asset)) reasons.add("Screenshot");
   if (ageYears >= 5) reasons.add("Old");
   if (sizeMB >= 4) reasons.add("Large");
   if (duplicateLookup.has(duplicateKey(asset))) reasons.add("Uncategorized");
+  if (assetLooksUncategorized(asset, info, sizeMB, duplicateLookup)) reasons.add("Uncategorized");
   if (
     hasExifFlag(info, ["Blur", "Blurred", "MotionBlur", "SubjectArea"]) ||
     filename.includes("blur")
@@ -235,6 +310,7 @@ function classifyAsset(
     reasons.add("No context");
   }
   if (
+    assetLooksLikeMistake(asset, sizeMB) ||
     aspectRatio > 2.2 ||
     sizeMB < 0.35 ||
     filename.includes("img_e") ||
@@ -289,6 +365,7 @@ function diversifyAssets(
   const buckets: Record<string, MediaLibrary.Asset[]> = {
     Old: [],
     Large: [],
+    Screenshot: [],
     Uncategorized: [],
     Blurry: [],
     Dark: [],
@@ -307,6 +384,7 @@ function diversifyAssets(
         : 1;
     if (ageYears >= oldThreshold) buckets.Old.push(asset);
     if (sizeMB >= largeThreshold) buckets.Large.push(asset);
+    if (assetLooksLikeScreenshot(asset)) buckets.Screenshot.push(asset);
     if (duplicateLookup.has(duplicateKey(asset))) buckets.Uncategorized.push(asset);
     if (filename.includes("blur")) buckets.Blurry.push(asset);
     if (filename.includes("dark") || filename.includes("night")) buckets.Dark.push(asset);

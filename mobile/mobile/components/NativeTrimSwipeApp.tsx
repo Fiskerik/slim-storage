@@ -657,7 +657,7 @@ export function NativeTrimSwipeApp() {
 
   useEffect(() => {
     const unsub = subscribeTokens((s) => setTokenBalance(s.tokens));
-    void checkProStatus().then(() => setIsPro(true)).catch(() => setIsPro(true));
+    void checkProStatus().then(setIsPro).catch(() => setIsPro(false));
     void initAds().catch(() => {});
     void registerCleanupBackgroundTask();
     void ensureCleanupNotifications();
@@ -1760,6 +1760,7 @@ export function NativeTrimSwipeApp() {
           <ThisOrThatScreen
             settings={settings}
             tokens={tokenBalance}
+            isPro={isPro}
             onBack={() => setScreen("games")}
             onConfirmOutcome={confirmThisOrThatOutcome}
           />
@@ -1767,6 +1768,7 @@ export function NativeTrimSwipeApp() {
           <StorageBudgetScreen
             settings={settings}
             tokens={tokenBalance}
+            isPro={isPro}
             trimsRemaining={trimCurrencyAvailable}
             avoidIds={recentSelectionIds(stats)}
             onBack={() => setScreen("games")}
@@ -1777,6 +1779,7 @@ export function NativeTrimSwipeApp() {
           <MemoryLaneScreen
             settings={settings}
             tokens={tokenBalance}
+            isPro={isPro}
             avoidIds={recentSelectionIds(stats)}
             trimsRemaining={trimCurrencyAvailable}
             onBack={() => setScreen("games")}
@@ -1818,6 +1821,7 @@ export function NativeTrimSwipeApp() {
             onToast={showToast}
             dailyReward={dailyReward}
             onClaimDailyTokens={claimDailyTokens}
+            onProStatusChange={setIsPro}
           />
         ) : screen === "games" ? (
           <GamesScreen
@@ -1825,6 +1829,7 @@ export function NativeTrimSwipeApp() {
             settings={settings}
             queue={queue}
             tokens={tokenBalance}
+            isPro={isPro}
             onStartGame={startGame}
             onPickCategory={openCleanupCategory}
             onChangeSettings={updateSettings}
@@ -2196,7 +2201,7 @@ function SwipeScreen({
           <Text style={styles.swipeSubtitle}>{sessionModeLabel(settings.sessionMode)} mode. A cleaner set of photos, one quick decision at a time.</Text>
         </View>
         <View style={styles.swipeStatusColumn}>
-          <TokenPill tokens={tokens} />
+          <TokenPill tokens={tokens} isPro={isPro} />
           <Text style={styles.queuePill}>{queueCount} left</Text>
           {settings.sessionMode === "time-attack" ? <Text style={styles.timerPill}>{timeLeft}s</Text> : null}
           {trimmingCount > 0 ? <Text style={styles.trimBadge}>Trimming {trimmingCount}</Text> : null}
@@ -2966,7 +2971,7 @@ const GAME_SMART_FOLDER_DEFS: Array<{
   { key: "old", label: (settings) => `>${formatGameAgeThreshold(settings.minAgeYears)}`, icon: "time-outline", match: (photo, settings) => gameAgeYears(photo.creationTime) >= settings.minAgeYears },
   { key: "screenshots", label: () => "Screens", icon: "phone-portrait-outline", match: (photo) => photo.cleanupReasons.includes("Screenshot") || photo.title.toLowerCase().includes("screen") },
   { key: "live", label: () => "Live", icon: "radio-button-on-outline", match: (photo) => photo.cleanupReasons.includes("Live Photo") },
-  { key: "duplicates", label: () => "Uncategorized", icon: "copy-outline", match: (photo) => photo.cleanupReasons.includes("Similar") },
+  { key: "duplicates", label: () => "Uncategorized", icon: "copy-outline", match: (photo) => photo.cleanupReasons.includes("Similar") || photo.cleanupReasons.includes("Uncategorized") },
   { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (photo) => photo.cleanupReasons.includes("Burst") },
 ];
 
@@ -2978,8 +2983,8 @@ function photoAccessLabel(permission: NativePhotoPermission | null): string {
   return "Limited";
 }
 
-function GamesScreen({ stats, settings, queue, tokens, onStartGame, onPickCategory, onChangeSettings, onOpenThisOrThat, onOpenStorageBudget, onOpenMemoryLane }: {
-  stats: NativeStats; settings: NativeSettings; queue: NativePhoto[]; tokens: number; onStartGame: (patch: Partial<NativeSettings>) => void;
+function GamesScreen({ stats, settings, queue, tokens, isPro, onStartGame, onPickCategory, onChangeSettings, onOpenThisOrThat, onOpenStorageBudget, onOpenMemoryLane }: {
+  stats: NativeStats; settings: NativeSettings; queue: NativePhoto[]; tokens: number; isPro: boolean; onStartGame: (patch: Partial<NativeSettings>) => void;
   onPickCategory: (category: NativeCleanupCategory) => void;
   onChangeSettings: (patch: Partial<NativeSettings>) => void;
   onOpenThisOrThat: () => void; onOpenStorageBudget: () => void; onOpenMemoryLane: () => void;
@@ -3044,7 +3049,7 @@ function GamesScreen({ stats, settings, queue, tokens, onStartGame, onPickCatego
             <Text style={styles.heroTitle}>Choose how to clean</Text>
             <Text style={styles.dashboardCopy}>{todayLabel} · {stats.reviewed} photos reviewed</Text>
           </View>
-          <TokenPill tokens={tokens} />
+          <TokenPill tokens={tokens} isPro={isPro} />
         </View>
         <View style={styles.heroPhotoStrip}>
           {([GAME_IMAGES.swipe, GAME_IMAGES.choice, GAME_IMAGES.budget] as const).map((source, index) => (
@@ -3107,7 +3112,7 @@ function GamesScreen({ stats, settings, queue, tokens, onStartGame, onPickCatego
         <Image source={GAME_IMAGES.swipe} style={styles.primaryGameArt} resizeMode="cover" />
         <View style={styles.primaryGameText}>
           <View style={styles.primaryGameBadge}><Text style={styles.primaryGameBadgeText}>Main game</Text></View>
-          <Text style={styles.primaryGameTitle}>TrimSwipe</Text>
+          <Text style={styles.primaryGameTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.66}>TrimSwipe</Text>
           <Text style={styles.primaryGameDetail}>Swipe left, up, or right.</Text>
         </View>
         <View style={styles.primaryGameIcons}>
@@ -3164,7 +3169,14 @@ function VisualGameCard({ icon, title, detail, image, active, onPress }: {
         </View>
       </View>
       <View style={styles.gameCopy}>
-        <Text style={[styles.gameTitle, active && styles.gameTitleActive]} numberOfLines={1}>{title}</Text>
+        <Text
+          style={[styles.gameTitle, active && styles.gameTitleActive]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.78}
+        >
+          {title}
+        </Text>
         <Text style={[styles.gameDetail, active && styles.gameDetailActive]} numberOfLines={1}>{detail}</Text>
       </View>
     </Pressable>
@@ -3195,9 +3207,23 @@ function GameFilterSlider({
   const [width, setWidth] = useState(1);
   const [draftValue, setDraftValue] = useState(value);
   const safeMax = Math.max(min, max);
-  const displayValue = Math.max(min, Math.min(safeMax, draftValue));
-  const percent = safeMax === min ? 1 : Math.max(0, Math.min(1, (displayValue - min) / (safeMax - min)));
   const markerCount = Math.min(13, Math.max(2, Math.floor((safeMax - min) / step) + 1));
+  const markerValues = useMemo(() => {
+    const values = Array.from({ length: markerCount }, (_, index) => {
+      if (markerCount === 1 || safeMax === min) return min;
+      const raw = min + (index / (markerCount - 1)) * (safeMax - min);
+      return +Math.max(min, Math.min(safeMax, Math.round(raw / step) * step)).toFixed(4);
+    });
+    values[0] = min;
+    values[values.length - 1] = safeMax;
+    return [...new Set(values)];
+  }, [markerCount, min, safeMax, step]);
+  const nearestMarkerValue = (input: number) =>
+    markerValues.reduce((best, candidate) =>
+      Math.abs(candidate - input) < Math.abs(best - input) ? candidate : best,
+    markerValues[0] ?? min);
+  const displayValue = nearestMarkerValue(Math.max(min, Math.min(safeMax, draftValue)));
+  const percent = safeMax === min ? 1 : Math.max(0, Math.min(1, (displayValue - min) / (safeMax - min)));
 
   useEffect(() => {
     setDraftValue(value);
@@ -3208,8 +3234,7 @@ function GameFilterSlider({
       return min;
     }
     const raw = min + (Math.max(0, Math.min(width, locationX)) / width) * (safeMax - min);
-    const snapped = +(Math.round(raw / step) * step).toFixed(4);
-    return Math.max(min, Math.min(safeMax, snapped));
+    return nearestMarkerValue(raw);
   }
 
   return (
@@ -3229,9 +3254,9 @@ function GameFilterSlider({
         onResponderTerminate={() => onChange(displayValue)}
       >
         <View style={styles.focusRail} />
-        {Array.from({ length: markerCount }).map((_, index) => {
-          const markerPercent = markerCount === 1 ? 0 : (index / (markerCount - 1)) * 100;
-          return <View key={index} pointerEvents="none" style={[styles.focusMarker, { left: `${markerPercent}%` }]} />;
+        {markerValues.map((markerValue) => {
+          const markerPercent = safeMax === min ? 100 : ((markerValue - min) / (safeMax - min)) * 100;
+          return <View key={markerValue} pointerEvents="none" style={[styles.focusMarker, { left: `${markerPercent}%` }]} />;
         })}
         <View style={[styles.focusFill, { width: `${percent * 100}%` }]} />
         <View style={[styles.focusThumb, { left: `${percent * 100}%` }]} />
@@ -3295,8 +3320,8 @@ function LoserThumb({ photo, tone, settings, onMove }: { photo: NativePhoto; ton
   );
 }
 
-function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
-  settings: NativeSettings; tokens: number; onBack: () => void;
+function ThisOrThatScreen({ settings, tokens, isPro, onBack, onConfirmOutcome }: {
+  settings: NativeSettings; tokens: number; isPro: boolean; onBack: () => void;
   onConfirmOutcome: (kept: NativePhoto[], deleted: NativePhoto[], toTrim: NativePhoto[]) => Promise<number>;
 }) {
   const [pairs, setPairs] = useState<[NativePhoto, NativePhoto][]>([]);
@@ -3305,6 +3330,7 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
   const [deleted, setDeleted] = useState<NativePhoto[]>([]);
   const [skippedPairs, setSkippedPairs] = useState(0);
   const [loserModes, setLoserModes] = useState<Record<string, ThisOrThatLoserMode>>({});
+  const loserModesRef = useRef<Record<string, ThisOrThatLoserMode>>({});
   const [loadingPairs, setLoadingPairs] = useState(true);
   const [busy, setBusy] = useState(false);
   const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
@@ -3333,6 +3359,7 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
         }
       }
       setPairs(nextPairs);
+      loserModesRef.current = {};
       setIndex(0); setKept([]); setDeleted([]); setSkippedPairs(0); setLoserModes({});
     } finally { setLoadingPairs(false); }
   }
@@ -3352,7 +3379,7 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
     const loser = pair[keepIndex === 0 ? 1 : 0];
     setKept((current) => [...current, keeper]);
     setDeleted((current) => [...current, loser]);
-    setLoserModes((current) => ({ ...current, [loser.id]: "delete" }));
+    setLoserMode(loser, "delete");
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setIndex((current) => current + 1);
   }
@@ -3367,17 +3394,15 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
   function deleteBoth() {
     if (!pair) return;
     setDeleted((current) => [...current, pair[0], pair[1]]);
-    setLoserModes((current) => ({
-      ...current,
-      [pair[0].id]: "delete",
-      [pair[1].id]: "delete",
-    }));
+    setLoserMode(pair[0], "delete");
+    setLoserMode(pair[1], "delete");
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     setIndex((current) => current + 1);
   }
 
   function setLoserMode(photo: NativePhoto, mode: ThisOrThatLoserMode) {
-    setLoserModes((current) => ({ ...current, [photo.id]: mode }));
+    loserModesRef.current = { ...loserModesRef.current, [photo.id]: mode };
+    setLoserModes(loserModesRef.current);
   }
 
   function cycleLoserMode(photo: NativePhoto) {
@@ -3391,7 +3416,10 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
   async function confirmOutcome() {
     setBusy(true);
     try {
-      const count = await onConfirmOutcome(kept, deleteLosers, trimLosers);
+      const currentModes = loserModesRef.current;
+      const currentDeleteLosers = deleted.filter((photo) => currentModes[photo.id] === "delete" || !currentModes[photo.id]);
+      const currentTrimLosers = deleted.filter((photo) => currentModes[photo.id] === "trim");
+      const count = await onConfirmOutcome(kept, currentDeleteLosers, currentTrimLosers);
       if (count > 0 || deleted.length === 0) {
         const roundIds = [...kept, ...deleted].map((photo) => photo.id);
         setLocalAvoidIds((current) => [...new Set([...current, ...roundIds])].slice(-120));
@@ -3408,7 +3436,7 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
     if (deleted.length === 0 && kept.length === 0 && skippedPairs === 0) {
       return (
         <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-          <MiniGameHeader title="This or That" detail="No pairs yet" tokens={tokens} onBack={onBack} />
+          <MiniGameHeader title="This or That" detail="No pairs yet" tokens={tokens} isPro={isPro} onBack={onBack} />
           <View style={styles.dashboardHero}>
             <Text style={styles.heroTitle}>No photo pairs found</Text>
             <Text style={styles.dashboardCopy}>
@@ -3421,7 +3449,7 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
     }
     return (
       <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-        <MiniGameHeader title="This or That" detail="Round complete" tokens={tokens} onBack={onBack} />
+        <MiniGameHeader title="This or That" detail="Round complete" tokens={tokens} isPro={isPro} onBack={onBack} />
         <View style={styles.dashboardHero}>
           <Text style={styles.heroTitle}>{deleted.length} losers ready</Text>
           <Text style={styles.dashboardCopy}>Losers default to Delete. Tap a thumbnail to cycle Delete, Trim, Save.</Text>
@@ -3444,7 +3472,7 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
 
   return (
     <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-      <MiniGameHeader title="This or That" detail={`${index + 1}/${pairs.length} pairs`} tokens={tokens} onBack={onBack} />
+      <MiniGameHeader title="This or That" detail={`${index + 1}/${pairs.length} pairs`} tokens={tokens} isPro={isPro} onBack={onBack} />
       <View style={styles.dashboardHero}>
         <Text style={styles.heroTitle}>Tap the photo to keep</Text>
         <Text style={styles.dashboardCopy}>The unpicked photo waits for final delete confirmation.</Text>
@@ -3469,8 +3497,8 @@ function ThisOrThatScreen({ settings, tokens, onBack, onConfirmOutcome }: {
 
 // ─── Storage Budget (FIX 3) ───────────────────────────────────────────────────
 
-function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBack, onToast, onConfirmOutcome }: {
-  settings: NativeSettings; tokens: number; trimsRemaining: number; avoidIds: string[]; onBack: () => void;
+function StorageBudgetScreen({ settings, tokens, isPro, trimsRemaining, avoidIds, onBack, onToast, onConfirmOutcome }: {
+  settings: NativeSettings; tokens: number; isPro: boolean; trimsRemaining: number; avoidIds: string[]; onBack: () => void;
   onToast: (title: string, detail?: string, tone?: ToastMessage["tone"]) => void;
   onConfirmOutcome: (kept: NativePhoto[], deleted: NativePhoto[], toTrim: NativePhoto[]) => Promise<number>;
 }) {
@@ -3593,7 +3621,7 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
   if (photos.length === 0) {
     return (
       <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-        <MiniGameHeader title="Storage Budget" detail="No board yet" tokens={tokens} onBack={onBack} />
+        <MiniGameHeader title="Storage Budget" detail="No board yet" tokens={tokens} isPro={isPro} onBack={onBack} />
         <View style={styles.dashboardHero}>
           <Text style={styles.heroTitle}>No budget photos found</Text>
           <Text style={styles.dashboardCopy}>
@@ -3612,7 +3640,7 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
         onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
         scrollEventThrottle={16}
       >
-        <MiniGameHeader title="Storage Budget" detail="Keep what fits" tokens={tokens} onBack={onBack} />
+        <MiniGameHeader title="Storage Budget" detail="Keep what fits" tokens={tokens} isPro={isPro} onBack={onBack} />
       <View style={styles.dashboardHero}>
         <View style={styles.dashboardHeroTop}>
           <View>
@@ -3691,8 +3719,8 @@ function StorageBudgetScreen({ settings, tokens, trimsRemaining, avoidIds, onBac
 
 // ─── Memory Lane (FIX 4) ──────────────────────────────────────────────────────
 
-function MemoryLaneScreen({ settings, tokens, avoidIds, trimsRemaining, onBack, onToast, onConfirmOutcome }: {
-  settings: NativeSettings; tokens: number; avoidIds: string[]; trimsRemaining: number; onBack: () => void;
+function MemoryLaneScreen({ settings, tokens, isPro, avoidIds, trimsRemaining, onBack, onToast, onConfirmOutcome }: {
+  settings: NativeSettings; tokens: number; isPro: boolean; avoidIds: string[]; trimsRemaining: number; onBack: () => void;
   onToast: (title: string, detail?: string, tone?: ToastMessage["tone"]) => void;
   onConfirmOutcome: (kept: NativePhoto[], deleted: NativePhoto[], toTrim: NativePhoto[]) => Promise<number>;
 }) {
@@ -3793,7 +3821,7 @@ function MemoryLaneScreen({ settings, tokens, avoidIds, trimsRemaining, onBack, 
     if (!hasReviewedAny) {
       return (
         <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-          <MiniGameHeader title="Memory Lane" detail="No memories loaded" tokens={tokens} onBack={onBack} />
+          <MiniGameHeader title="Memory Lane" detail="No memories loaded" tokens={tokens} isPro={isPro} onBack={onBack} />
           <View style={styles.dashboardHero}>
             <Text style={styles.heroTitle}>No memories found</Text>
             <Text style={styles.dashboardCopy}>
@@ -3806,9 +3834,13 @@ function MemoryLaneScreen({ settings, tokens, avoidIds, trimsRemaining, onBack, 
     }
     return (
       <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-        <MiniGameHeader title="Memory Lane" detail="Round complete" tokens={tokens} onBack={onBack} />
+        <MiniGameHeader title="Memory Lane" detail="Round complete" tokens={tokens} isPro={isPro} onBack={onBack} />
         <View style={styles.dashboardHero}>
-          <Text style={styles.heroTitle}>{kept.length} kept, {toTrim.length} trimmed, {deleted.length} cleared</Text>
+          <View style={styles.memorySummaryList}>
+            <MemorySummaryItem label="Kept" value={kept.length} tone="keep" />
+            <MemorySummaryItem label="Trimmed" value={toTrim.length} tone="trim" />
+            <MemorySummaryItem label="Cleared" value={deleted.length} tone="delete" />
+          </View>
           <Text style={styles.dashboardCopy}>
             {hasActions
               ? `${toTrim.length} marked to trim. Applying choices would save about ${formatMB(freed + trimFreed)}.`
@@ -3833,7 +3865,7 @@ function MemoryLaneScreen({ settings, tokens, avoidIds, trimsRemaining, onBack, 
 
   return (
     <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-      <MiniGameHeader title="Memory Lane" detail={`${index + 1}/${photos.length} memories`} tokens={tokens} onBack={onBack} />
+      <MiniGameHeader title="Memory Lane" detail={`${index + 1}/${photos.length} memories`} tokens={tokens} isPro={isPro} onBack={onBack} />
       <Pressable onLongPress={() => setFullPhoto(photo)} delayLongPress={350} style={[styles.memoryCard, { borderColor: cardBorderColor, borderWidth: revealed ? 3 : StyleSheet.hairlineWidth }]}>
         <Image source={{ uri: photo.uri }} style={styles.memoryImage} resizeMode="cover" />
         <View style={styles.photoShade} />
@@ -3882,7 +3914,18 @@ function MemoryLaneScreen({ settings, tokens, avoidIds, trimsRemaining, onBack, 
 
 // ─── Shared mini components ───────────────────────────────────────────────────
 
-function MiniGameHeader({ title, detail, tokens, onBack }: { title: string; detail: string; tokens: number; onBack: () => void }) {
+function MemorySummaryItem({ label, value, tone }: { label: string; value: number; tone: "keep" | "trim" | "delete" }) {
+  const color = tone === "keep" ? "#16a34a" : tone === "trim" ? "#f97316" : "#dc2626";
+  return (
+    <View style={styles.memorySummaryItem}>
+      <View style={[styles.memorySummaryBullet, { backgroundColor: color }]} />
+      <Text style={styles.memorySummaryText}>{label}</Text>
+      <Text style={[styles.memorySummaryValue, { color }]}>{value}</Text>
+    </View>
+  );
+}
+
+function MiniGameHeader({ title, detail, tokens, isPro, onBack }: { title: string; detail: string; tokens: number; isPro: boolean; onBack: () => void }) {
   return (
     <View style={styles.miniGameHeader}>
       <Pressable onPress={onBack} style={styles.backButton}><Text style={styles.backButtonText}>Back</Text></Pressable>
@@ -3890,16 +3933,16 @@ function MiniGameHeader({ title, detail, tokens, onBack }: { title: string; deta
         <Text style={styles.eyebrow}>{detail}</Text>
         <Text style={styles.heroTitle}>{title}</Text>
       </View>
-      <TokenPill tokens={tokens} />
+      <TokenPill tokens={tokens} isPro={isPro} />
     </View>
   );
 }
 
-function TokenPill({ tokens }: { tokens: number }) {
+function TokenPill({ tokens, isPro = false }: { tokens: number; isPro?: boolean }) {
   return (
     <View style={styles.tokenPill}>
       <Ionicons name="flash" size={14} color="#92400e" />
-      <Text style={styles.tokenPillText}>{tokens}</Text>
+      <Text style={styles.tokenPillText}>{isPro ? "∞" : tokens}</Text>
     </View>
   );
 }
@@ -4978,6 +5021,11 @@ const styles = StyleSheet.create({
   // Memory Lane
   memoryCard: { height: 420, overflow: "hidden", borderRadius: 24, backgroundColor: "#ffffff" },
   memoryImage: { width: "100%", height: "100%" },
+  memorySummaryList: { gap: 10 },
+  memorySummaryItem: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 16, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", paddingHorizontal: 14, paddingVertical: 12 },
+  memorySummaryBullet: { width: 8, height: 8, borderRadius: 4 },
+  memorySummaryText: { flex: 1, color: "#1f2937", fontSize: 16, fontWeight: "900" },
+  memorySummaryValue: { fontSize: 18, fontWeight: "900" },
   yearGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   yearButton: { minWidth: "47%", flexGrow: 1, alignItems: "center", borderRadius: 18, backgroundColor: "#ffedd5", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", paddingVertical: 16 },
   yearButtonText: { color: "#9a3412", fontSize: 22, fontWeight: "900" },

@@ -34,11 +34,12 @@ export type ShopScreenProps = {
   onToast?: (title: string, detail?: string, tone?: "info" | "success" | "warning" | "error") => void;
   dailyReward?: DailyRewardState;
   onClaimDailyTokens?: () => void;
+  onProStatusChange?: (isPro: boolean) => void;
 };
 
 const TOKEN_ORDER = ["tokens_50", "tokens_100", "tokens_200", "tokens_500"];
 
-export function ShopScreen({ onBack, onToast, dailyReward, onClaimDailyTokens }: ShopScreenProps) {
+export function ShopScreen({ onBack, onToast, dailyReward, onClaimDailyTokens, onProStatusChange }: ShopScreenProps) {
   const [products, setProducts] = useState<ShopProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -59,6 +60,7 @@ export function ShopScreen({ onBack, onToast, dailyReward, onClaimDailyTokens }:
         if (!alive) return;
         setProducts(list);
         setIsPro(pro);
+        onProStatusChange?.(pro);
       } finally {
         if (alive) setLoading(false);
       }
@@ -98,6 +100,7 @@ export function ShopScreen({ onBack, onToast, dailyReward, onClaimDailyTokens }:
       const res = await purchaseLifetime();
       if (res.success && res.isPro) {
         setIsPro(true);
+        onProStatusChange?.(true);
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         onToast?.("Welcome to Pro", "Unlimited trims and an ad-free experience are unlocked.", "success");
       } else if (res.error && res.error !== "cancelled") {
@@ -113,6 +116,7 @@ export function ShopScreen({ onBack, onToast, dailyReward, onClaimDailyTokens }:
     try {
       const pro = await restorePurchasesPublic();
       setIsPro(pro);
+      onProStatusChange?.(pro);
       onToast?.(
         pro ? "Restored" : "Nothing to restore",
         pro ? "Lifetime Pro restored." : "No previous purchases were found for this Apple ID.",

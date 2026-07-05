@@ -491,7 +491,7 @@ function matchesPhotoSettings(
       return isLarge && isOld;
     case "duplicates":
     case "similar":
-      return includesReason(photo, "Similar");
+      return includesReason(photo, "Similar") || includesReason(photo, "Uncategorized");
     case "blurry":
       return includesReason(photo, "Mistake?") || includesReason(photo, "Blurry") || includesReason(photo, "Dark");
     case "screenshots":
@@ -564,7 +564,50 @@ function fallbackDetail(settings: NativeSettings, matchedCount: number, requeste
 
 function assetLooksLikeScreenshot(asset: MediaLibrary.Asset): boolean {
   const filename = asset.filename?.toLowerCase() ?? "";
-  return filename.includes("screenshot") || filename.includes("screen shot");
+  const normalizedFilename = filename.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const subtypes = (asset as MediaLibrary.Asset & { mediaSubtypes?: string[] }).mediaSubtypes ?? [];
+  return (
+    subtypes.some((subtype) => subtype.toLowerCase().includes("screenshot")) ||
+    normalizedFilename.includes("screenshot") ||
+    normalizedFilename.includes("screen shot") ||
+    normalizedFilename.includes("screen-shot") ||
+    normalizedFilename.includes("screen_shot") ||
+    normalizedFilename.startsWith("skarmavbild") ||
+    normalizedFilename.startsWith("skarmbild")
+  );
+}
+
+function assetExtension(asset: MediaLibrary.Asset): string {
+  const filename = asset.filename?.toLowerCase() ?? "";
+  const match = filename.match(/\.([a-z0-9]+)$/);
+  return match?.[1] ?? "";
+}
+
+function assetHasCameraInfo(info: MediaLibrary.AssetInfo): boolean {
+  const exif = (info.exif ?? {}) as Record<string, unknown>;
+  return ["Make", "Model", "LensModel", "FNumber", "FocalLength", "ISOSpeedRatings", "ExposureTime"].some((key) => {
+    const value = exif[key];
+    if (typeof value === "string") return value.trim().length > 0;
+    return typeof value === "number" && Number.isFinite(value) && value !== 0;
+  });
+}
+
+function assetLooksLikeTrimmedOutput(
+  asset: MediaLibrary.Asset,
+  info: MediaLibrary.AssetInfo,
+  trimState?: NativePhotoTrimState,
+): boolean {
+  if (trimState) return true;
+  if (assetLooksLikeScreenshot(asset)) return false;
+
+  const filename = (asset.filename ?? "").trim();
+  const basename = filename.replace(/\.[^.]+$/, "");
+  const uuidishName =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(basename) ||
+    /^[0-9a-f]{32}$/i.test(basename);
+  const extension = assetExtension(asset);
+  const trimOutputFormat = extension === "" || extension === "jpg" || extension === "jpeg" || extension === "png";
+  return uuidishName && trimOutputFormat && !assetHasCameraInfo(info);
 }
 
 function assetLooksLikeLivePhoto(asset: MediaLibrary.Asset): boolean {
@@ -591,6 +634,20 @@ function assetLooksLikeMistake(asset: MediaLibrary.Asset): boolean {
     filename.includes("blur") ||
     filename.includes("dark")
   );
+}
+
+function assetLooksUncategorized(
+  asset: MediaLibrary.Asset,
+  info: MediaLibrary.AssetInfo,
+  duplicateLookup: Set<string>,
+  trimState?: NativePhotoTrimState,
+): boolean {
+  if (duplicateLookup.has(asset.id)) return false;
+  if (assetLooksLikeTrimmedOutput(asset, info, trimState)) return false;
+  if (assetLooksLikeScreenshot(asset) || assetLooksLikeLivePhoto(asset) || assetLooksLikeBurst(asset)) return false;
+  if (assetLooksLikeMistake(asset)) return false;
+  const filename = asset.filename?.toLowerCase() ?? "";
+  return assetHasCameraInfo(info) || filename.startsWith("img_") || STANDARD_IPHONE_DIMENSIONS.has(`${asset.width}x${asset.height}`);
 }
 
 function matchesAssetSettings(
@@ -669,22 +726,30 @@ function classifyAsset(
   info: MediaLibrary.AssetInfo,
   sizeMB: number,
   duplicateLookup: Set<string>,
+  trimState?: NativePhotoTrimState,
 ): string[] {
   const reasons = new Set<string>();
   const filename = asset.filename?.toLowerCase() ?? "";
   const width = asset.width || 0;
   const height = asset.height || 0;
   const ratio = width > 0 && height > 0 ? Math.max(width, height) / Math.max(1, Math.min(width, height)) : 1;
+  const trimmed = assetLooksLikeTrimmedOutput(asset, info, trimState);
+  const screenshot = assetLooksLikeScreenshot(asset);
+  const live = assetLooksLikeLivePhoto(asset);
+  const burst = assetLooksLikeBurst(asset);
+  const mistake = assetLooksLikeMistake(asset);
 
+  if (trimmed) reasons.add("Trimmed");
+  if (screenshot) reasons.add("Screenshot");
   if (ageYears(asset.creationTime) >= 5) reasons.add("Old");
   if (sizeMB >= 4) reasons.add("Large");
   if (duplicateLookup.has(asset.id)) reasons.add("Similar");
-  if (assetLooksLikeScreenshot(asset)) reasons.add("Screenshot");
-  if (assetLooksLikeLivePhoto(asset)) reasons.add("Live Photo");
-  if (assetLooksLikeBurst(asset)) reasons.add("Burst");
+  if (assetLooksUncategorized(asset, info, duplicateLookup, trimState)) reasons.add("Uncategorized");
+  if (live) reasons.add("Live Photo");
+  if (burst) reasons.add("Burst");
   if (filename.includes("blur")) reasons.add("Blurry");
   if (filename.includes("dark") || filename.includes("night")) reasons.add("Dark");
-  if (ratio > 2.2 || sizeMB < 0.35 || filename.includes("pocket")) reasons.add("Mistake?");
+  if (mistake || ratio > 2.2 || sizeMB < 0.35 || filename.includes("pocket")) reasons.add("Mistake?");
   if (!info.location && !asset.filename) reasons.add("No context");
   if (reasons.size === 0) reasons.add("Review");
 
@@ -846,7 +911,7 @@ async function assetToPhoto(
     hasGPS: Boolean(info.location?.latitude && info.location?.longitude),
     isCloudAsset: !localUri || localUri.startsWith("ph://"),
     creationTime: asset.creationTime,
-    cleanupReasons: classifyAsset(asset, info, sizeMB, duplicateLookup),
+    cleanupReasons: classifyAsset(asset, info, sizeMB, duplicateLookup, trimState),
     trimState,
   };
 }
@@ -1107,11 +1172,17 @@ export async function loadCleanupPlan(
     },
     options,
   );
-  const deleteCategories = new Set<NativeCleanupCategory>(["screenshots", "duplicates", "bursts", "mistakes"]);
-  const deleteCandidates = deleteCategories.has(category) ? candidates : [];
+  const deleteCategories = new Set<NativeCleanupCategory>(["screenshots", "bursts", "mistakes"]);
+  const deleteCandidates =
+    category === "duplicates"
+      ? candidates.filter((photo) => includesReason(photo, "Similar"))
+      : deleteCategories.has(category)
+        ? candidates
+        : [];
   const trimCandidates = deleteCategories.has(category)
     ? []
     : candidates.filter((photo) => {
+        if (category === "duplicates" && includesReason(photo, "Similar")) return false;
         const trimOptions = {
           allowSecondPass: settings.trimReviewMode === "trimmed-only",
           quality: settings.trimQuality,
@@ -1160,10 +1231,11 @@ function chooseAssets(
   duplicateLookup: Set<string>,
 ): MediaLibrary.Asset[] {
   const targeted = assets.filter((asset) => matchesAssetSettings(asset, settings, duplicateLookup));
-  // For strict modes (e.g. big-only, old-only) we must NOT mix in non-matching
-  // fallback assets, or small/recent photos sneak into the round. Only the
-  // "balanced" mode is allowed to draw from the whole pool.
-  const pool = settings.targetMode === "balanced" ? assets : targeted;
+  // Most strict modes can be filtered from lightweight Asset fields. Uncategorized
+  // needs EXIF/trim metadata, so it hydrates a broader pool and filters afterward.
+  const needsHydratedCategory =
+    settings.targetMode === "duplicates" || settings.targetMode === "similar";
+  const pool = settings.targetMode === "balanced" || needsHydratedCategory ? assets : targeted;
   if (settings.targetMode === "balanced") {
     return shuffle(pool)
       .sort((a, b) => b.creationTime - a.creationTime + (Math.random() - 0.5) * DAY_MS)
