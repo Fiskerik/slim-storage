@@ -2181,7 +2181,7 @@ function SwipeScreen({
     );
   }
   if (recap) {
-    return <Recap recap={recap} settings={settings} isPro={isPro} onChangeSettings={onChangeSettings} onNext={onReload} onShare={onShare} />;
+    return <Recap recap={recap} onNext={onReload} onShare={onShare} />;
   }
   if (error && !top) {
     return (
@@ -2554,20 +2554,16 @@ function ConfirmActionsReview({
 
 function Recap({
   recap,
-  settings,
-  isPro,
-  onChangeSettings,
   onNext,
   onShare,
 }: {
   recap: SessionRecap;
-  settings: NativeSettings;
-  isPro: boolean;
-  onChangeSettings: (patch: Partial<NativeSettings>) => void;
   onNext: () => Promise<void> | void;
   onShare: () => void;
 }) {
   const [nextBusy, setNextBusy] = useState(false);
+  const appear = useRef(new Animated.Value(0)).current;
+  const pulse = useRef(new Animated.Value(0)).current;
   const total = recap.kept + recap.trimmed + recap.deleted;
   const trimShare = recap.freed > 0 ? Math.min(1, (recap.trimmed * 3) / Math.max(1, total)) : 0;
   const deleteShare = recap.freed > 0 ? Math.min(1, (recap.deleted * 3) / Math.max(1, total)) : 0;
@@ -2576,6 +2572,28 @@ function Recap({
     : recap.trimmed > 0
       ? "Trims quietly reclaimed space without losing memories."
       : "A light pass still keeps the camera roll intentional.";
+
+  useEffect(() => {
+    appear.setValue(0);
+    pulse.setValue(0);
+    Animated.parallel([
+      Animated.timing(appear, {
+        toValue: 1,
+        duration: 520,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.sequence([
+        Animated.delay(140),
+        Animated.spring(pulse, {
+          toValue: 1,
+          friction: 4,
+          tension: 90,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]).start();
+  }, [appear, pulse]);
 
   async function handleNext() {
     if (nextBusy) return;
@@ -2588,26 +2606,55 @@ function Recap({
     }
   }
 
+  const badgeScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.82, 1] });
+  const contentTranslate = appear.interpolate({ inputRange: [0, 1], outputRange: [18, 0] });
+  const cardScale = appear.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] });
+
   return (
     <ScrollView contentContainerStyle={styles.recapContent} showsVerticalScrollIndicator={false}>
-      <View style={styles.recapBadge}>
-        <Text style={styles.recapBadgeIcon}>✓</Text>
-      </View>
-      <Text style={styles.heroTitle}>Set complete</Text>
-      <Text style={styles.centerText}>You reviewed {total} photos and freed about {formatMB(recap.freed)}.</Text>
-      <Text style={styles.insightText}>{insight}</Text>
-      <View style={styles.recapImpactCard}>
-        <Text style={styles.eyebrow}>Round impact</Text>
-        <Text style={styles.recapImpactValue}>{formatMB(recap.freed)}</Text>
+      <Animated.View
+        style={[
+          styles.recapTop,
+          { opacity: appear, transform: [{ translateY: contentTranslate }] },
+        ]}
+      >
+        <Animated.View style={[styles.recapBadgeWrap, { transform: [{ scale: badgeScale }] }]}>
+          <CelebrationBurst visible />
+          <View style={styles.recapBadge}>
+            <Ionicons name="checkmark" size={40} color="#ffffff" />
+          </View>
+        </Animated.View>
+        <Text style={styles.heroTitle}>Set complete</Text>
+        <Text style={styles.centerText}>You reviewed {total} photos and freed about {formatMB(recap.freed)}.</Text>
+        <Text style={styles.insightText}>{insight}</Text>
+      </Animated.View>
+      <Animated.View
+        style={[
+          styles.recapImpactCard,
+          { opacity: appear, transform: [{ scale: cardScale }, { translateY: contentTranslate }] },
+        ]}
+      >
+        <View style={styles.recapImpactHeader}>
+          <View>
+            <Text style={styles.eyebrow}>Round impact</Text>
+            <Text style={styles.recapImpactValue}>{formatMB(recap.freed)}</Text>
+          </View>
+          <View style={styles.recapCleanBadge}>
+            <Ionicons name="sparkles" size={18} color="#15803d" />
+          </View>
+        </View>
         <ImpactRow label="Trim momentum" value={`${recap.trimmed} photos`} progress={trimShare} tone="trim" />
         <ImpactRow label="Delete momentum" value={`${recap.deleted} photos`} progress={deleteShare} tone="delete" />
-      </View>
-      <View style={styles.statGrid}>
+        <View style={styles.recapSuccessStrip}>
+          <Ionicons name="shield-checkmark-outline" size={17} color="#15803d" />
+          <Text style={styles.recapSuccessText}>Cleanup applied successfully</Text>
+        </View>
+      </Animated.View>
+      <Animated.View style={[styles.statGrid, { opacity: appear }]}>
         <MiniStat label="Kept" value={recap.kept} />
         <MiniStat label="Trimmed" value={recap.trimmed} />
         <MiniStat label="Deleted" value={recap.deleted} />
-      </View>
-      <TrimKindSettings settings={settings} isPro={isPro} compact onChange={onChangeSettings} />
+      </Animated.View>
       <PrimaryButton label={nextBusy ? "Loading..." : "New set"} disabled={nextBusy} onPress={handleNext} />
       <SecondaryButton label="Share progress" disabled={nextBusy} onPress={onShare} />
     </ScrollView>
@@ -3072,6 +3119,25 @@ function GamesScreen({ stats, settings, queue, tokens, isPro, onStartGame, onPic
         </View>
         <Text style={styles.photoAccessButton}>{photoPermission?.accessLevel === "all" ? "Settings" : "Permit"}</Text>
       </Pressable>
+      <Pressable onPress={() => onStartGame({ sessionMode: "classic" })} style={styles.primaryGameVisualCard}>
+        <Image source={GAME_IMAGES.swipe} style={styles.primaryGameArt} resizeMode="cover" />
+        <View style={styles.primaryGameText}>
+          <View style={styles.primaryGameBadge}><Text style={styles.primaryGameBadgeText}>Main game</Text></View>
+          <Text style={styles.primaryGameTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.66}>TrimSwipe</Text>
+          <Text style={styles.primaryGameDetail}>Swipe left, up, or right.</Text>
+        </View>
+        <View style={styles.primaryGameIcons}>
+          <Ionicons name="checkmark-circle" size={30} color="#ffffff" />
+          <Ionicons name="cut" size={30} color="#ffffff" />
+          <Ionicons name="trash" size={30} color="#ffffff" />
+        </View>
+      </Pressable>
+      <View style={styles.gameGrid}>
+        <VisualGameCard icon="swap-horizontal-outline" title="This or That" detail="Pick the keeper" image={GAME_IMAGES.choice} active={settings.targetMode === "similar"} onPress={onOpenThisOrThat} />
+        <VisualGameCard icon="speedometer-outline" title="Storage Budget" detail="Stay under 50 MB" image={GAME_IMAGES.budget} onPress={onOpenStorageBudget} />
+        <VisualGameCard icon="timer-outline" title="Speed Round" detail="60 seconds" image={GAME_IMAGES.speed} active={settings.sessionMode === "time-attack"} onPress={() => onStartGame({ sessionMode: "time-attack" })} />
+        <VisualGameCard icon="calendar-outline" title="Memory Lane" detail="Old photos first" image={GAME_IMAGES.memory} active={settings.targetMode === "old-only"} onPress={onOpenMemoryLane} />
+      </View>
       <View style={styles.focusPanel}>
         <View style={styles.focusHeader}>
           <View>
@@ -3107,25 +3173,6 @@ function GamesScreen({ stats, settings, queue, tokens, isPro, onStartGame, onPic
             <GameSmartFolderCard key={folder.key} folder={folder} onPress={() => onPickCategory(folder.key)} />
           ))}
         </ScrollView>
-      </View>
-      <Pressable onPress={() => onStartGame({ sessionMode: "classic" })} style={styles.primaryGameVisualCard}>
-        <Image source={GAME_IMAGES.swipe} style={styles.primaryGameArt} resizeMode="cover" />
-        <View style={styles.primaryGameText}>
-          <View style={styles.primaryGameBadge}><Text style={styles.primaryGameBadgeText}>Main game</Text></View>
-          <Text style={styles.primaryGameTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.66}>TrimSwipe</Text>
-          <Text style={styles.primaryGameDetail}>Swipe left, up, or right.</Text>
-        </View>
-        <View style={styles.primaryGameIcons}>
-          <Ionicons name="checkmark-circle" size={30} color="#ffffff" />
-          <Ionicons name="cut" size={30} color="#ffffff" />
-          <Ionicons name="trash" size={30} color="#ffffff" />
-        </View>
-      </Pressable>
-      <View style={styles.gameGrid}>
-        <VisualGameCard icon="swap-horizontal-outline" title="This or That" detail="Pick the keeper" image={GAME_IMAGES.choice} active={settings.targetMode === "similar"} onPress={onOpenThisOrThat} />
-        <VisualGameCard icon="speedometer-outline" title="Storage Budget" detail="Stay under 50 MB" image={GAME_IMAGES.budget} onPress={onOpenStorageBudget} />
-        <VisualGameCard icon="timer-outline" title="Speed Round" detail="60 seconds" image={GAME_IMAGES.speed} active={settings.sessionMode === "time-attack"} onPress={() => onStartGame({ sessionMode: "time-attack" })} />
-        <VisualGameCard icon="calendar-outline" title="Memory Lane" detail="Old photos first" image={GAME_IMAGES.memory} active={settings.targetMode === "old-only"} onPress={onOpenMemoryLane} />
       </View>
     </ScrollView>
   );
@@ -4768,7 +4815,7 @@ const styles = StyleSheet.create({
     width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: "#d1d5db",
     alignItems: "center", justifyContent: "center", backgroundColor: "#fff",
   },
-  checkboxOn: { backgroundColor: "#f97316", borderColor: "#f97316" },
+  checkboxOn: { backgroundColor: "#22c55e", borderColor: "#22c55e" },
   checkboxMark: { color: "#fff", fontWeight: "900", fontSize: 14 },
   reviewCopy: { flex: 1 },
   reviewTitle: { color: "#1f2937", fontSize: 14, fontWeight: "800" },
@@ -4781,10 +4828,16 @@ const styles = StyleSheet.create({
   statGrid: { width: "100%", flexDirection: "row", flexWrap: "wrap", gap: 10 },
   miniStat: { minWidth: "30%", flexGrow: 1, borderRadius: 18, backgroundColor: "#ffffff", padding: 16 },
   miniStatValue: { color: "#1f2937", fontSize: 24, fontWeight: "900" },
-  recapBadge: { width: 74, height: 74, alignItems: "center", justifyContent: "center", borderRadius: 24, backgroundColor: "#ffedd5", borderWidth: 2, borderColor: "#fb923c", shadowColor: "#fb923c", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.18, shadowRadius: 18, elevation: 4 },
-  recapBadgeIcon: { color: "#c2410c", fontSize: 38, fontWeight: "900" },
-  recapImpactCard: { width: "100%", borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16, gap: 12 },
+  recapTop: { alignItems: "center", gap: 12 },
+  recapBadgeWrap: { width: 118, height: 96, alignItems: "center", justifyContent: "center" },
+  recapBadge: { width: 74, height: 74, alignItems: "center", justifyContent: "center", borderRadius: 24, backgroundColor: "#22c55e", borderWidth: 2, borderColor: "#86efac", shadowColor: "#22c55e", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.22, shadowRadius: 20, elevation: 5 },
+  recapBadgeIcon: { color: "#ffffff", fontSize: 38, fontWeight: "900" },
+  recapImpactCard: { width: "100%", borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#bbf7d0", padding: 16, gap: 12, shadowColor: "#22c55e", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 18, elevation: 3 },
+  recapImpactHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14 },
+  recapCleanBadge: { width: 42, height: 42, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "#dcfce7", borderWidth: 1, borderColor: "#86efac" },
   recapImpactValue: { color: "#f97316", fontSize: 34, fontWeight: "900" },
+  recapSuccessStrip: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 14, backgroundColor: "#f0fdf4", borderWidth: StyleSheet.hairlineWidth, borderColor: "#bbf7d0", paddingHorizontal: 12, paddingVertical: 10 },
+  recapSuccessText: { color: "#15803d", fontSize: 12, fontWeight: "900" },
 
   // Stats redesign
   statsContent: { gap: 14, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 120 },

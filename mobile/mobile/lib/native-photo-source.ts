@@ -258,6 +258,18 @@ async function removeTrimTagIds(ids: string[]): Promise<void> {
   await writeTrimTags(next);
 }
 
+async function cleanupCreatedTrimAssets(created: Array<Extract<CreatedTrim, { success: true }>>): Promise<void> {
+  const ids = created.map((item) => item.newAssetId).filter(Boolean);
+  if (ids.length === 0) return;
+  try {
+    await MediaLibrary.deleteAssetsAsync(ids);
+    await removeCacheIds(ids);
+    await removeTrimTagIds(ids);
+  } catch (error) {
+    console.log("[NativePhotoSource] Could not remove created trim assets after replace failure", { error });
+  }
+}
+
 function stripKindLabel(kind: NativeTrimKind, quality?: number): string {
   if (kind === "metadata") return "Metadata removed";
   if (kind === "location") return "Location removed";
@@ -434,7 +446,9 @@ function assetsLookSimilar(a: MediaLibrary.Asset, b: MediaLibrary.Asset, windowM
 }
 
 function buildSimilarGroups(assets: MediaLibrary.Asset[]): MediaLibrary.Asset[][] {
-  const sorted = [...assets].sort((a, b) => b.creationTime - a.creationTime);
+  const sorted = assets
+    .filter((asset) => !assetHasGeneratedTrimFilename(asset))
+    .sort((a, b) => b.creationTime - a.creationTime);
   const used = new Set<string>();
   const groups: MediaLibrary.Asset[][] = [];
 
@@ -583,6 +597,17 @@ function assetExtension(asset: MediaLibrary.Asset): string {
   return match?.[1] ?? "";
 }
 
+function assetHasGeneratedTrimFilename(asset: MediaLibrary.Asset): boolean {
+  const filename = (asset.filename ?? "").trim();
+  const basename = filename.replace(/\.[^.]+$/, "");
+  const uuidishName =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(basename) ||
+    /^[0-9a-f]{32}$/i.test(basename);
+  const extension = assetExtension(asset);
+  const trimOutputFormat = extension === "" || extension === "jpg" || extension === "jpeg" || extension === "png";
+  return uuidishName && trimOutputFormat;
+}
+
 function assetHasCameraInfo(info: MediaLibrary.AssetInfo): boolean {
   const exif = (info.exif ?? {}) as Record<string, unknown>;
   return ["Make", "Model", "LensModel", "FNumber", "FocalLength", "ISOSpeedRatings", "ExposureTime"].some((key) => {
@@ -599,15 +624,7 @@ function assetLooksLikeTrimmedOutput(
 ): boolean {
   if (trimState) return true;
   if (assetLooksLikeScreenshot(asset)) return false;
-
-  const filename = (asset.filename ?? "").trim();
-  const basename = filename.replace(/\.[^.]+$/, "");
-  const uuidishName =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(basename) ||
-    /^[0-9a-f]{32}$/i.test(basename);
-  const extension = assetExtension(asset);
-  const trimOutputFormat = extension === "" || extension === "jpg" || extension === "jpeg" || extension === "png";
-  return uuidishName && trimOutputFormat && !assetHasCameraInfo(info);
+  return assetHasGeneratedTrimFilename(asset) && !assetHasCameraInfo(info);
 }
 
 function assetLooksLikeLivePhoto(asset: MediaLibrary.Asset): boolean {
@@ -1515,6 +1532,7 @@ export async function trimPhoto(
     await removeTrimTagIds([photo.id]);
     return { trimmed: true, newAssetId: created.newAssetId, savedMB: created.savedMB };
   } catch (error) {
+    await cleanupCreatedTrimAssets([created]);
     const message = error instanceof Error ? error.message : String(error);
     return { trimmed: false, error: message };
   }
@@ -1652,6 +1670,7 @@ export async function commitTrims(
       await removeCacheIds(created.map((c) => c.originalId));
       await removeTrimTagIds(created.map((c) => c.originalId));
     } catch (error) {
+      await cleanupCreatedTrimAssets(created);
       const message = error instanceof Error ? error.message : String(error);
       return results.map((r) => ({
         id: r.originalId,
@@ -1724,6 +1743,9 @@ export async function commitTrimsAndDeletes(
     await removeCacheIds(idsToDelete);
     await removeTrimTagIds(idsToDelete);
   } catch (error) {
+    if (replaceTrimOriginals) {
+      await cleanupCreatedTrimAssets(createdTrims);
+    }
     const message = error instanceof Error ? error.message : String(error);
     return {
       deletedCount: 0,

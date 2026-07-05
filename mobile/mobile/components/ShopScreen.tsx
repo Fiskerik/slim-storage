@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -46,6 +48,7 @@ export function ShopScreen({ onBack, onToast, dailyReward, onClaimDailyTokens, o
   const [adBusy, setAdBusy] = useState(false);
   const [isPro, setIsPro] = useState(false);
   const [tokens, setTokens] = useState(0);
+  const adShine = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const unsub = subscribeTokens((s) => setTokens(s.tokens));
@@ -69,6 +72,22 @@ export function ShopScreen({ onBack, onToast, dailyReward, onClaimDailyTokens, o
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    const shineLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(adShine, {
+          toValue: 1,
+          duration: 920,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.delay(7080),
+      ]),
+    );
+    shineLoop.start();
+    return () => shineLoop.stop();
+  }, [adShine]);
 
   const tokenPacks = TOKEN_ORDER
     .map((id) => products.find((p) => p.id === id) ?? fallbackPack(id))
@@ -245,6 +264,27 @@ export function ShopScreen({ onBack, onToast, dailyReward, onClaimDailyTokens, o
               </Text>
             </Pressable>
             <Pressable disabled={adBusy} onPress={handleWatchAd} style={styles.adCard}>
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.adShine,
+                  {
+                    opacity: adShine.interpolate({
+                      inputRange: [0, 0.15, 0.75, 1],
+                      outputRange: [0, 0.85, 0.85, 0],
+                    }),
+                    transform: [
+                      {
+                        translateX: adShine.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [-140, 390],
+                        }),
+                      },
+                      { rotate: "18deg" },
+                    ],
+                  },
+                ]}
+              />
               <View style={styles.adIcon}>
                 <Ionicons name="play-circle" size={28} color={colors.sage} />
               </View>
@@ -451,6 +491,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.sageSoft, borderRadius: radius.lg,
     padding: spacing.lg,
     borderWidth: StyleSheet.hairlineWidth, borderColor: colors.sage,
+    overflow: "hidden",
+    position: "relative",
+  },
+  adShine: {
+    position: "absolute",
+    top: -28,
+    bottom: -28,
+    left: 0,
+    width: 72,
+    backgroundColor: "rgba(255,255,255,0.55)",
   },
   dailyClaimCard: {
     flexDirection: "row", alignItems: "center", gap: spacing.md,
