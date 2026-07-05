@@ -136,7 +136,7 @@ export function StatsDashboard({
                 ? scanInProgressText ?? "Checking photos..."
                 : scan
                   ? `Last checked ${new Date(scan.scannedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
-                  : "Estimate library size, trim potential, screenshots, blurs, and duplicates."}
+                  : "Estimate library size, trim potential, screenshots, blurs, and similar sessions."}
             </Text>
           </View>
           <Pressable
@@ -172,7 +172,7 @@ export function StatsDashboard({
               />
               <ScanBreakdownRow
                 icon="copy-outline"
-                label="Duplicates"
+                label="Similar"
                 count={scan.duplicateRemovalCount}
                 value={scan.duplicateDeleteSavingsMB}
                 color={colors.info}

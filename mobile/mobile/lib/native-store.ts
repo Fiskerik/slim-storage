@@ -193,7 +193,6 @@ function normalizeTargetMode(value: unknown): NativeTargetMode {
     "icloud",
     "mistakes",
   ];
-  if (value === "similar") return "duplicates";
   if (value === "bursts") return "multibursts";
   if (value === "mistakes") return "blurry";
   return modes.includes(value as NativeTargetMode) ? (value as NativeTargetMode) : "big-only";

@@ -99,7 +99,7 @@ type PhotoMetadataCache = {
 type MediaAlbum = Awaited<ReturnType<typeof MediaLibrary.getAlbumsAsync>>[number];
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const CACHE_FILE = "trimswipe-native-photo-cache-v1.json";
+const CACHE_FILE = "trimswipe-native-photo-cache-v2.json";
 const TRIM_TAGS_FILE = "trimswipe-native-trim-tags-v1.json";
 const CACHE_LIMIT = 700;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -380,40 +380,6 @@ function isStandardIPhoneSize(photo: Partial<Pick<NativePhoto, "width" | "height
   return STANDARD_IPHONE_DIMENSIONS.has(dimensionKey(width, height));
 }
 
-function hasStripMetadata(info: MediaLibrary.AssetInfo): boolean {
-  const exif = (info.exif ?? {}) as Record<string, unknown>;
-  const stripKeys = [
-    "Make",
-    "Model",
-    "LensModel",
-    "Software",
-    "DateTime",
-    "DateTimeOriginal",
-    "DateTimeDigitized",
-    "OffsetTime",
-    "OffsetTimeOriginal",
-    "GPSLatitude",
-    "GPSLongitude",
-  ];
-  return (
-    Boolean(info.location?.latitude && info.location?.longitude) ||
-    stripKeys.some((key) => {
-      const value = exif[key];
-      if (typeof value === "number") return Number.isFinite(value);
-      if (typeof value === "string") return value.trim().length > 0;
-      return Boolean(value);
-    })
-  );
-}
-
-function inferredTrimStateFromMetadata(info: MediaLibrary.AssetInfo): NativePhotoTrimState | undefined {
-  if (hasStripMetadata(info)) return undefined;
-  return {
-    applied: ["metadata", "location"],
-    updatedAt: new Date().toISOString(),
-  };
-}
-
 function estimateTrimKindSavings(
   photo: Pick<NativePhoto, "sizeMB" | "hasGPS"> & Partial<Pick<NativePhoto, "width" | "height" | "title">>,
   kind: NativeTrimKind,
@@ -433,7 +399,7 @@ function estimateTrimKindSavings(
   return Math.max(photo.sizeMB * 0.18, Math.min(photo.sizeMB * 0.45, photo.sizeMB * 0.28));
 }
 
-const DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
+const SIMILAR_SESSION_WINDOW_MS = 90 * 1000;
 const BURST_WINDOW_MS = 8 * 1000;
 
 function burstKey(asset: MediaLibrary.Asset): string {
@@ -460,12 +426,12 @@ function sizesClose(a: MediaLibrary.Asset, b: MediaLibrary.Asset): boolean {
   return Math.abs(sizeA - sizeB) / Math.max(sizeA, sizeB) <= 0.35;
 }
 
-function assetsLookSimilar(a: MediaLibrary.Asset, b: MediaLibrary.Asset, windowMs = DUPLICATE_WINDOW_MS): boolean {
+function assetsLookSimilar(a: MediaLibrary.Asset, b: MediaLibrary.Asset, windowMs = SIMILAR_SESSION_WINDOW_MS): boolean {
   const gapMs = Math.abs(a.creationTime - b.creationTime);
   return gapMs <= windowMs && dimensionsClose(a, b) && sizesClose(a, b);
 }
 
-function buildDuplicateGroups(assets: MediaLibrary.Asset[]): MediaLibrary.Asset[][] {
+function buildSimilarGroups(assets: MediaLibrary.Asset[]): MediaLibrary.Asset[][] {
   const sorted = [...assets].sort((a, b) => b.creationTime - a.creationTime);
   const used = new Set<string>();
   const groups: MediaLibrary.Asset[][] = [];
@@ -478,7 +444,7 @@ function buildDuplicateGroups(assets: MediaLibrary.Asset[]): MediaLibrary.Asset[
     for (let j = i + 1; j < sorted.length; j += 1) {
       const candidate = sorted[j];
       const gapMs = Math.abs(anchor.creationTime - candidate.creationTime);
-      if (gapMs > DUPLICATE_WINDOW_MS) break;
+      if (gapMs > SIMILAR_SESSION_WINDOW_MS) break;
       if (!used.has(candidate.id) && assetsLookSimilar(anchor, candidate)) {
         group.push(candidate);
       }
@@ -494,7 +460,7 @@ function buildDuplicateGroups(assets: MediaLibrary.Asset[]): MediaLibrary.Asset[
 }
 
 function buildDuplicateLookup(assets: MediaLibrary.Asset[]): Set<string> {
-  return new Set(buildDuplicateGroups(assets).flatMap((group) => group.map((asset) => asset.id)));
+  return new Set(buildSimilarGroups(assets).flatMap((group) => group.map((asset) => asset.id)));
 }
 
 function includesReason(photo: Pick<NativePhoto, "cleanupReasons" | "title">, reason: string): boolean {
@@ -532,7 +498,7 @@ function matchesPhotoSettings(
       return includesReason(photo, "Live Photo");
     case "multibursts":
     case "bursts":
-      return includesReason(photo, "Burst") || includesReason(photo, "Similar");
+      return includesReason(photo, "Burst");
     case "icloud":
       return photo.isCloudAsset;
     case "mistakes":
@@ -605,6 +571,12 @@ function assetLooksLikeLivePhoto(asset: MediaLibrary.Asset): boolean {
   return subtypes.some((subtype) => subtype.toLowerCase().includes("live")) || filename.includes("live");
 }
 
+function assetLooksLikeBurst(asset: MediaLibrary.Asset): boolean {
+  const filename = asset.filename?.toLowerCase() ?? "";
+  const subtypes = (asset as MediaLibrary.Asset & { mediaSubtypes?: string[] }).mediaSubtypes ?? [];
+  return subtypes.some((subtype) => subtype.toLowerCase().includes("burst")) || filename.includes("burst");
+}
+
 function assetLooksLikeMistake(asset: MediaLibrary.Asset): boolean {
   const filename = asset.filename?.toLowerCase() ?? "";
   const width = asset.width || 0;
@@ -647,7 +619,7 @@ function matchesAssetSettings(
       return assetLooksLikeLivePhoto(asset);
     case "multibursts":
     case "bursts":
-      return duplicateLookup.has(asset.id);
+      return assetLooksLikeBurst(asset);
     case "icloud":
       return assetSizeMB(asset) === 0;
     case "mistakes":
@@ -707,7 +679,7 @@ function classifyAsset(
   if (duplicateLookup.has(asset.id)) reasons.add("Similar");
   if (assetLooksLikeScreenshot(asset)) reasons.add("Screenshot");
   if (assetLooksLikeLivePhoto(asset)) reasons.add("Live Photo");
-  if (duplicateLookup.has(asset.id)) reasons.add("Burst");
+  if (assetLooksLikeBurst(asset)) reasons.add("Burst");
   if (filename.includes("blur")) reasons.add("Blurry");
   if (filename.includes("dark") || filename.includes("night")) reasons.add("Dark");
   if (ratio > 2.2 || sizeMB < 0.35 || filename.includes("pocket")) reasons.add("Mistake?");
@@ -744,8 +716,13 @@ function isNativePhoto(value: unknown): value is NativePhoto {
 
 function normalizeCachedPhoto(photo: NativePhoto): NativePhoto {
   const trimState = normalizeTrimState(photo.trimState);
+  const displayUri =
+    photo.localUri && !photo.localUri.startsWith("ph://") && photo.uri.startsWith("ph://")
+      ? photo.localUri
+      : photo.uri;
   const normalized = {
     ...photo,
+    uri: displayUri,
     width: Number.isFinite(photo.width) ? photo.width : 0,
     height: Number.isFinite(photo.height) ? photo.height : 0,
   };
@@ -849,7 +826,7 @@ async function assetToPhoto(
 
   const created = new Date(asset.creationTime);
   const trimTags = await readTrimTags();
-  const trimState = trimTags[asset.id] ?? inferredTrimStateFromMetadata(info);
+  const trimState = trimTags[asset.id];
   return {
     id: asset.id,
     uri: candidateUri,
@@ -1004,8 +981,8 @@ export async function scanPhotoLibrary(
 ): Promise<NativeLibraryScan> {
   const [assets, storage] = await Promise.all([fetchAllPhotoAssets(onProgress), readDeviceStorageMB()]);
   const burstGroups = new Map<string, Array<{ id: string; sizeMB: number }>>();
-  const duplicateGroups = buildDuplicateGroups(assets);
-  const duplicateIds = new Set(duplicateGroups.flatMap((group) => group.map((asset) => asset.id)));
+  const similarGroups = buildSimilarGroups(assets);
+  const similarIds = new Set(similarGroups.flatMap((group) => group.map((asset) => asset.id)));
   const summaries = assets.map((asset) => {
     const measuredSizeMB = assetSizeMB(asset);
     const sizeMB = estimatedAssetSizeMB(asset);
@@ -1015,7 +992,7 @@ export async function scanPhotoLibrary(
       burst,
       sizeMB,
       measured: measuredSizeMB > 0,
-      duplicate: duplicateIds.has(asset.id),
+      duplicate: similarIds.has(asset.id),
       mistake: assetLooksLikeMistake(asset),
       screenshot: assetLooksLikeScreenshot(asset),
       large: sizeMB >= 5,
@@ -1030,7 +1007,7 @@ export async function scanPhotoLibrary(
   let duplicateDeleteSavingsMB = 0;
   let duplicateRemovalCount = 0;
 
-  duplicateGroups.forEach((group) => {
+  similarGroups.forEach((group) => {
     const removable = group
       .map((asset) => ({ id: asset.id, sizeMB: estimatedAssetSizeMB(asset) }))
       .sort((a, b) => b.sizeMB - a.sizeMB)
@@ -1113,7 +1090,7 @@ export async function loadCleanupPlan(
     old: "old-only",
     screenshots: "screenshots",
     live: "live-photos",
-    duplicates: "duplicates",
+    duplicates: "similar",
     bursts: "multibursts",
     mistakes: "blurry",
   };
@@ -1158,7 +1135,7 @@ export async function loadCleanupPlan(
     old: "Photos >1 year old",
     screenshots: "Screenshots",
     live: "Live Photos",
-    duplicates: "Duplicates",
+    duplicates: "Similar photos",
     bursts: "Bursts",
     mistakes: "Likely mistakes",
   };
@@ -1234,7 +1211,7 @@ export async function loadRelatedPhotoPairs(
   for (let i = 0; i < assets.length; i += 1) {
     for (let j = i + 1; j < Math.min(assets.length, i + 12); j += 1) {
       const gapMs = Math.abs(assets[i].creationTime - assets[j].creationTime);
-      if (gapMs > DUPLICATE_WINDOW_MS && !assetsLookSimilar(assets[i], assets[j])) continue;
+      if (gapMs > SIMILAR_SESSION_WINDOW_MS && !assetsLookSimilar(assets[i], assets[j])) continue;
       const score = relatedPairScore(assets[i], assets[j]);
       if (score > 0) candidates.push({ a: assets[i], b: assets[j], score });
     }

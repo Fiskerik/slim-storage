@@ -98,8 +98,8 @@ const CAT_DEFS: Array<{
   { key: "old", label: (s) => `>${formatAgeThreshold(s.minAgeYears)}`, icon: "time-outline", match: (p, s) => ageYears(p.creationTime) >= s.minAgeYears },
   { key: "screenshots", label: () => "Screens", icon: "phone-portrait-outline", match: (p) => p.cleanupReasons.includes("Screenshot") || p.title.toLowerCase().includes("screen") },
   { key: "live", label: () => "Live", icon: "radio-button-on-outline", match: (p) => p.cleanupReasons.includes("Live Photo") },
-  { key: "duplicates", label: () => "Duplicates", icon: "copy-outline", match: (p) => p.cleanupReasons.includes("Similar") },
-  { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (p) => p.cleanupReasons.includes("Burst") || p.cleanupReasons.includes("Similar") },
+  { key: "duplicates", label: () => "Similar", icon: "copy-outline", match: (p) => p.cleanupReasons.includes("Similar") },
+  { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (p) => p.cleanupReasons.includes("Burst") },
 ];
 
 export function HomeDashboard(props: HomeDashboardProps) {
@@ -485,7 +485,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                     {healthScore >= 82 ? "Looking tidy" : "Easy wins are waiting"}
                   </Text>
                   <Text style={styles.goalHint}>
-                    Projected savings: {formatMB(projectedFreed)}. Top hogs: large photos, screenshots, and duplicates.
+                    Projected savings: {formatMB(projectedFreed)}. Top hogs: large photos, screenshots, and similar sessions.
                   </Text>
                 </View>
               </Card>

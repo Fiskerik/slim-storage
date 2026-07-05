@@ -143,7 +143,7 @@ const BUDGET_KEEP_LIMIT_MB = 50;
 const FALLBACK_TARGET_MODES: NativeTargetMode[] = [
   "big-only",
   "old-only",
-  "duplicates",
+  "similar",
   "screenshots",
   "multibursts",
   "blurry",
@@ -179,7 +179,7 @@ function targetLabel(settings: NativeSettings): string {
   if (settings.targetMode === "old-and-large") {
     return `${prefix}${formatAgeThreshold(settings.minAgeYears)} and ${formatSizeThreshold(settings.minSizeMB)}+`;
   }
-  if (settings.targetMode === "duplicates" || settings.targetMode === "similar") return `${prefix}Duplicates`;
+  if (settings.targetMode === "duplicates" || settings.targetMode === "similar") return `${prefix}Similar`;
   if (settings.targetMode === "blurry" || settings.targetMode === "mistakes") return `${prefix}Blurry`;
   if (settings.targetMode === "screenshots") return `${prefix}Screenshots`;
   if (settings.targetMode === "live-photos") return `${prefix}Live Photos`;
@@ -822,7 +822,6 @@ export function NativeTrimSwipeApp() {
         fallbackNotice =
           `${targetLabel(activeSettings)} did not return matching local photos. ` +
           `Switched to ${targetLabel(fallbackSettings)}.`;
-        commitStats((current) => ({ ...current, settings: fallbackSettings }));
         photos = await loadPhotoRound(safeCount, fallbackSettings, {
           avoidIds: recentSelectionIds(stats),
         });
@@ -832,7 +831,6 @@ export function NativeTrimSwipeApp() {
         fallbackNotice =
           `${targetLabel(activeSettings)} did not return matching local photos. ` +
           "Loaded a balanced set instead.";
-        commitStats((current) => ({ ...current, settings: broadSettings }));
         photos = await loadPhotoRound(safeCount, broadSettings, {
           avoidIds: recentSelectionIds(stats),
         });
@@ -1130,7 +1128,7 @@ export function NativeTrimSwipeApp() {
     if (category === "old") return `Photos >${formatAgeThreshold(planSettings.minAgeYears)} old`;
     if (category === "screenshots") return "One-tap cleanup";
     if (category === "live") return "Live Photos";
-    if (category === "duplicates") return "Duplicates";
+    if (category === "duplicates") return "Similar photos";
     if (category === "bursts") return "Bursts";
     return "Likely mistakes";
   }
@@ -1296,17 +1294,20 @@ export function NativeTrimSwipeApp() {
     try {
       await runLibraryScan();
       const avoidIds = recentSelectionIds(stats);
-      const [large, old, screenshots, duplicates, bursts] = await Promise.all([
-        loadCleanupPlan("large", 18, settings, { avoidIds }),
-        loadCleanupPlan("old", 18, settings, { avoidIds }),
+      const [largeResult, oldResult, screenshots, similarResult, bursts] = await Promise.all([
+        loadCleanupPlanWithFallback("large", 18, settings, avoidIds),
+        loadCleanupPlanWithFallback("old", 18, settings, avoidIds),
         loadCleanupPlan("screenshots", 18, settings, { avoidIds }),
-        loadCleanupPlan("duplicates", 18, settings, { avoidIds }),
+        loadCleanupPlanWithFallback("duplicates", 18, settings, avoidIds),
         loadCleanupPlan("bursts", 18, settings, { avoidIds }),
       ]);
+      const large = largeResult.plan;
+      const old = oldResult.plan;
+      const similar = similarResult.plan;
       const trimById = new Map<string, NativePhoto>();
-      [...large.trimCandidates, ...old.trimCandidates].forEach((photo) => trimById.set(photo.id, photo));
+      [...large.trimCandidates, ...old.trimCandidates, ...similar.trimCandidates].forEach((photo) => trimById.set(photo.id, photo));
       const deleteById = new Map<string, NativePhoto>();
-      [...screenshots.deleteCandidates, ...duplicates.deleteCandidates.slice(1), ...bursts.deleteCandidates.slice(1)]
+      [...screenshots.deleteCandidates, ...similar.deleteCandidates.slice(1), ...bursts.deleteCandidates.slice(1)]
         .forEach((photo) => {
           if (!trimById.has(photo.id)) deleteById.set(photo.id, photo);
         });
@@ -1696,7 +1697,7 @@ export function NativeTrimSwipeApp() {
       large: "big-only",
       old: "old-only",
       screenshots: "screenshots",
-      similar: "duplicates",
+      similar: "similar",
     };
     startGame({ targetMode: map[key], sessionMode: "classic" });
   }
@@ -2851,7 +2852,7 @@ function OnboardingScreen({ scan, scanBusy, scanError, scanProgress, permissionD
       <View style={styles.dashboardHero}>
         <Text style={styles.eyebrow}>Welcome</Text>
         <Text style={styles.heroTitle}>See what your camera roll is costing.</Text>
-        <Text style={styles.dashboardCopy}>Start with a scan. TrimSwipe estimates your photo storage, how much trimming can save, and how much space likely duplicates or bad shots could free if deleted.</Text>
+        <Text style={styles.dashboardCopy}>Start with a scan. TrimSwipe estimates photo storage, trim potential, similar sessions, and bad shots worth reviewing.</Text>
         {permissionLimited ? <Text style={styles.warning}>Limited photo access is enabled.</Text> : null}
         {scanError ? <Text style={styles.warning}>{scanError}</Text> : null}
         <PrimaryButton label={scanBusy ? progressText : scan ? "Scan again" : "Scan photo library"} disabled={scanBusy} onPress={onScan} />
@@ -2867,7 +2868,7 @@ function OnboardingScreen({ scan, scanBusy, scanError, scanProgress, permissionD
         <View style={styles.onboardingSteps}>
           <OnboardingStep title="Device-aware bars" detail="The full bar is your iPhone or iPad storage capacity." />
           <OnboardingStep title="Trim estimate" detail="See how much space compression can save without deleting." />
-          <OnboardingStep title="Delete estimate" detail="See likely duplicate and mistake savings before making choices." />
+          <OnboardingStep title="Review estimate" detail="See likely similar-session and mistake savings before making choices." />
         </View>
       )}
     </ScrollView>
@@ -2897,9 +2898,9 @@ function ScanResults({ scan }: { scan: NativeLibraryScan }) {
       <View style={styles.storageBars}>
         <StorageBar label="Photo library now" detail={`${formatMB(scan.totalSizeMB)} allocated`} valueMB={scan.totalSizeMB} capacityMB={capacityMB} tone="now" />
         <StorageBar label="After Trim" detail={`${formatMB(scan.trimSavingsMB)} estimated savings`} valueMB={afterTrimMB} capacityMB={capacityMB} tone="trim" />
-        <StorageBar label="After Delete" detail={`${formatMB(scan.deleteSavingsMB)} from duplicates and likely mistakes`} valueMB={afterDeleteMB} capacityMB={capacityMB} tone="delete" />
+        <StorageBar label="After Delete" detail={`${formatMB(scan.deleteSavingsMB)} from similar photos and likely mistakes`} valueMB={afterDeleteMB} capacityMB={capacityMB} tone="delete" />
       </View>
-      <Text style={styles.scanFootnote}>Delete estimate includes {scan.duplicateRemovalCount} duplicate candidates and {scan.mistakeCount} likely blurry, dark, or accidental photos.</Text>
+      <Text style={styles.scanFootnote}>Delete estimate includes {scan.duplicateRemovalCount} similar-session candidates and {scan.mistakeCount} likely blurry, dark, or accidental photos.</Text>
     </View>
   );
 }
@@ -2959,8 +2960,8 @@ const GAME_SMART_FOLDER_DEFS: Array<{
   { key: "old", label: (settings) => `>${formatGameAgeThreshold(settings.minAgeYears)}`, icon: "time-outline", match: (photo, settings) => gameAgeYears(photo.creationTime) >= settings.minAgeYears },
   { key: "screenshots", label: () => "Screens", icon: "phone-portrait-outline", match: (photo) => photo.cleanupReasons.includes("Screenshot") || photo.title.toLowerCase().includes("screen") },
   { key: "live", label: () => "Live", icon: "radio-button-on-outline", match: (photo) => photo.cleanupReasons.includes("Live Photo") },
-  { key: "duplicates", label: () => "Duplicates", icon: "copy-outline", match: (photo) => photo.cleanupReasons.includes("Similar") },
-  { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (photo) => photo.cleanupReasons.includes("Burst") || photo.cleanupReasons.includes("Similar") },
+  { key: "duplicates", label: () => "Similar", icon: "copy-outline", match: (photo) => photo.cleanupReasons.includes("Similar") },
+  { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (photo) => photo.cleanupReasons.includes("Burst") },
 ];
 
 function photoAccessLabel(permission: NativePhotoPermission | null): string {
@@ -4040,9 +4041,9 @@ const FOCUS_OPTIONS: [NativeTargetMode, string, string][] = [
   ["big-or-old", "Large or old", "Photos over either threshold"],
   ["big-only", "Large", "Photos over the size threshold"],
   ["old-only", "Old", "Older memories first"],
-  ["duplicates", "Duplicates", "Duplicates and near-duplicates"],
+  ["similar", "Similar", "Photos from the same short session"],
   ["blurry", "Blurry", "Likely blurry, dark, or accidental shots"],
-  ["multibursts", "Multibursts", "Rapid-fire photo groups"],
+  ["multibursts", "Bursts", "Rapid-fire photo groups"],
   ["screenshots", "Screens", "Screenshots and screen grabs"],
 ];
 
