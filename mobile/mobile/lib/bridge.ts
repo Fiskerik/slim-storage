@@ -218,7 +218,7 @@ function classifyAsset(
 
   if (ageYears >= 5) reasons.add("Old");
   if (sizeMB >= 4) reasons.add("Large");
-  if (duplicateLookup.has(duplicateKey(asset))) reasons.add("Duplicate/Similar");
+  if (duplicateLookup.has(duplicateKey(asset))) reasons.add("Uncategorized");
   if (
     hasExifFlag(info, ["Blur", "Blurred", "MotionBlur", "SubjectArea"]) ||
     filename.includes("blur")
@@ -289,7 +289,7 @@ function diversifyAssets(
   const buckets: Record<string, MediaLibrary.Asset[]> = {
     Old: [],
     Large: [],
-    "Duplicate/Similar": [],
+    Uncategorized: [],
     Blurry: [],
     Dark: [],
     "No context": [],
@@ -307,7 +307,7 @@ function diversifyAssets(
         : 1;
     if (ageYears >= oldThreshold) buckets.Old.push(asset);
     if (sizeMB >= largeThreshold) buckets.Large.push(asset);
-    if (duplicateLookup.has(duplicateKey(asset))) buckets["Duplicate/Similar"].push(asset);
+    if (duplicateLookup.has(duplicateKey(asset))) buckets.Uncategorized.push(asset);
     if (filename.includes("blur")) buckets.Blurry.push(asset);
     if (filename.includes("dark") || filename.includes("night")) buckets.Dark.push(asset);
     if (!asset.filename) buckets["No context"].push(asset);

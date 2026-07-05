@@ -1137,7 +1137,7 @@ export async function loadCleanupPlan(
     old: "Photos >1 year old",
     screenshots: "Screenshots",
     live: "Live Photos",
-    duplicates: "No category",
+    duplicates: "Uncategorized",
     bursts: "Bursts",
     mistakes: "Likely mistakes",
   };

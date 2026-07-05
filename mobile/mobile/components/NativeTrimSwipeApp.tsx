@@ -20,6 +20,7 @@ import {
   Text,
   View,
   type GestureResponderEvent,
+  type ImageSourcePropType,
   type LayoutChangeEvent,
   type ViewStyle,
 } from "react-native";
@@ -67,7 +68,7 @@ import { OnboardingCarousel } from "./OnboardingCarousel";
 import { TrimScreen } from "./TrimScreen";
 import { ShopScreen } from "./ShopScreen";
 import { addTokens, subscribeTokens, spendTokens, DAILY_CLAIM_TOKENS } from "../lib/tokens";
-import { checkProStatus } from "../lib/purchases";
+import { checkProStatus, restorePurchasesPublic } from "../lib/purchases";
 import { showRewardedAd, showInterstitialAd, initAds } from "../lib/ads";
 import { colors } from "../constants/design";
 import {
@@ -137,6 +138,13 @@ const SELECTION_GRACE_DAYS = 7;
 const SEEN_PHOTO_LIMIT = 500;
 const APP_STORE_URL =
   process.env.EXPO_PUBLIC_APP_STORE_URL ?? "https://apps.apple.com/app/id6764543618";
+const GAME_IMAGES = {
+  swipe: require("../assets/images/games/trimswipe.png") as ImageSourcePropType,
+  choice: require("../assets/images/games/this-or-that.png") as ImageSourcePropType,
+  budget: require("../assets/images/games/storage-budget.png") as ImageSourcePropType,
+  speed: require("../assets/images/games/speed-round.png") as ImageSourcePropType,
+  memory: require("../assets/images/games/memory-lane.png") as ImageSourcePropType,
+} as const;
 // Storage budget game: target a 60-75 MB pool so users make real choices against the 50 MB keep limit.
 const BUDGET_MIN_POOL_MB = 60;
 const BUDGET_MAX_POOL_MB = 75;
@@ -180,7 +188,7 @@ function targetLabel(settings: NativeSettings): string {
   if (settings.targetMode === "old-and-large") {
     return `${prefix}${formatAgeThreshold(settings.minAgeYears)} and ${formatSizeThreshold(settings.minSizeMB)}+`;
   }
-  if (settings.targetMode === "duplicates" || settings.targetMode === "similar") return `${prefix}No category`;
+  if (settings.targetMode === "duplicates" || settings.targetMode === "similar") return `${prefix}Uncategorized`;
   if (settings.targetMode === "blurry" || settings.targetMode === "mistakes") return `${prefix}Blurry`;
   if (settings.targetMode === "screenshots") return `${prefix}Screenshots`;
   if (settings.targetMode === "live-photos") return `${prefix}Live Photos`;
@@ -1108,7 +1116,7 @@ export function NativeTrimSwipeApp() {
     if (category === "old") return `Photos >${formatAgeThreshold(planSettings.minAgeYears)} old`;
     if (category === "screenshots") return "One-tap cleanup";
     if (category === "live") return "Live Photos";
-    if (category === "duplicates") return "No category";
+    if (category === "duplicates") return "Uncategorized";
     if (category === "bursts") return "Bursts";
     return "Likely mistakes";
   }
@@ -1855,7 +1863,22 @@ export function NativeTrimSwipeApp() {
             onShare={shareProgress}
           />
         ) : (
-          <SettingsScreen settings={settings} isPro={isPro} samplePhoto={top ?? queue[0]} onChange={updateSettings} onReload={reloadSettingsRound} />
+          <SettingsScreen
+            settings={settings}
+            isPro={isPro}
+            samplePhoto={top ?? queue[0]}
+            onChange={updateSettings}
+            onReload={reloadSettingsRound}
+            onRestorePurchases={async () => {
+              const restored = await restorePurchasesPublic();
+              setIsPro(restored);
+              showToast(
+                restored ? "Restored" : "Nothing to restore",
+                restored ? "Lifetime Pro restored." : "No previous purchases were found for this Apple ID.",
+                restored ? "success" : "warning",
+              );
+            }}
+          />
         )}
 
         {statsLoaded && !onboardingDue ? <BottomNav screen={screen} onChange={changeScreen} /> : null}
@@ -2943,7 +2966,7 @@ const GAME_SMART_FOLDER_DEFS: Array<{
   { key: "old", label: (settings) => `>${formatGameAgeThreshold(settings.minAgeYears)}`, icon: "time-outline", match: (photo, settings) => gameAgeYears(photo.creationTime) >= settings.minAgeYears },
   { key: "screenshots", label: () => "Screens", icon: "phone-portrait-outline", match: (photo) => photo.cleanupReasons.includes("Screenshot") || photo.title.toLowerCase().includes("screen") },
   { key: "live", label: () => "Live", icon: "radio-button-on-outline", match: (photo) => photo.cleanupReasons.includes("Live Photo") },
-  { key: "duplicates", label: () => "No category", icon: "copy-outline", match: (photo) => photo.cleanupReasons.includes("Similar") },
+  { key: "duplicates", label: () => "Uncategorized", icon: "copy-outline", match: (photo) => photo.cleanupReasons.includes("Similar") },
   { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (photo) => photo.cleanupReasons.includes("Burst") },
 ];
 
@@ -2963,9 +2986,6 @@ function GamesScreen({ stats, settings, queue, tokens, onStartGame, onPickCatego
 }) {
   const [photoPermission, setPhotoPermission] = useState<NativePhotoPermission | null>(null);
   const today = dailyFor(stats, dateKey());
-  const heroPhotos = queue.slice(0, 3);
-  const gameThumbs = queue.slice(3, 7);
-  const mainGameThumbs = queue.slice(0, 3);
   const todayLabel = today.mbFreed > 0 ? `${formatMB(today.mbFreed)} today` : "Ready to clean";
   const largestPhotoMB = Math.max(0.5, ...queue.map((photo) => photo.sizeMB));
   const oldestPhotoAgeYears = Math.max(0, ...queue.map((photo) => gameAgeYears(photo.creationTime)));
@@ -3027,18 +3047,14 @@ function GamesScreen({ stats, settings, queue, tokens, onStartGame, onPickCatego
           <TokenPill tokens={tokens} />
         </View>
         <View style={styles.heroPhotoStrip}>
-          {heroPhotos.length > 0 ? (
-            heroPhotos.map((photo, index) => (
-              <Image
-                key={photo.id}
-                source={{ uri: photo.uri }}
-                style={[styles.heroPhoto, index === 1 && styles.heroPhotoRaised]}
-                resizeMode="cover"
-              />
-            ))
-          ) : (
-            <PlaceholderPhoto variant="swipe" style={styles.heroPhotoFallback} />
-          )}
+          {([GAME_IMAGES.swipe, GAME_IMAGES.choice, GAME_IMAGES.budget] as const).map((source, index) => (
+            <Image
+              key={index}
+              source={source}
+              style={[styles.heroPhoto, index === 1 && styles.heroPhotoRaised]}
+              resizeMode="cover"
+            />
+          ))}
         </View>
       </View>
       <Pressable onPress={updatePhotoAccess} style={styles.photoAccessCard}>
@@ -3088,20 +3104,7 @@ function GamesScreen({ stats, settings, queue, tokens, onStartGame, onPickCatego
         </ScrollView>
       </View>
       <Pressable onPress={() => onStartGame({ sessionMode: "classic" })} style={styles.primaryGameVisualCard}>
-        <View style={styles.primaryGamePhotoStrip}>
-          {mainGameThumbs.length > 0 ? (
-            mainGameThumbs.map((photo, index) => (
-              <Image
-                key={photo.id}
-                source={{ uri: photo.uri }}
-                style={[styles.primaryGamePhoto, index === 1 && styles.primaryGamePhotoRaised]}
-                resizeMode="cover"
-              />
-            ))
-          ) : (
-            <PlaceholderPhoto variant="swipe" style={styles.primaryGamePhotoPlaceholder} />
-          )}
-        </View>
+        <Image source={GAME_IMAGES.swipe} style={styles.primaryGameArt} resizeMode="cover" />
         <View style={styles.primaryGameText}>
           <View style={styles.primaryGameBadge}><Text style={styles.primaryGameBadgeText}>Main game</Text></View>
           <Text style={styles.primaryGameTitle}>TrimSwipe</Text>
@@ -3114,10 +3117,10 @@ function GamesScreen({ stats, settings, queue, tokens, onStartGame, onPickCatego
         </View>
       </Pressable>
       <View style={styles.gameGrid}>
-        <VisualGameCard icon="swap-horizontal-outline" title="This or That" detail="Pick the keeper" thumb={gameThumbs[0]?.uri} variant="choice" onPress={onOpenThisOrThat} />
-        <VisualGameCard icon="speedometer-outline" title="Storage Budget" detail="Stay under 50 MB" thumb={gameThumbs[1]?.uri} variant="budget" onPress={onOpenStorageBudget} />
-        <VisualGameCard icon="timer-outline" title="Speed Round" detail="60 seconds" thumb={gameThumbs[2]?.uri} variant="speed" active={settings.sessionMode === "time-attack"} onPress={() => onStartGame({ sessionMode: "time-attack" })} />
-        <VisualGameCard icon="calendar-outline" title="Memory Lane" detail="Old photos first" thumb={gameThumbs[3]?.uri} variant="memory" active={settings.targetMode === "old-only"} onPress={onOpenMemoryLane} />
+        <VisualGameCard icon="swap-horizontal-outline" title="This or That" detail="Pick the keeper" image={GAME_IMAGES.choice} active={settings.targetMode === "similar"} onPress={onOpenThisOrThat} />
+        <VisualGameCard icon="speedometer-outline" title="Storage Budget" detail="Stay under 50 MB" image={GAME_IMAGES.budget} onPress={onOpenStorageBudget} />
+        <VisualGameCard icon="timer-outline" title="Speed Round" detail="60 seconds" image={GAME_IMAGES.speed} active={settings.sessionMode === "time-attack"} onPress={() => onStartGame({ sessionMode: "time-attack" })} />
+        <VisualGameCard icon="calendar-outline" title="Memory Lane" detail="Old photos first" image={GAME_IMAGES.memory} active={settings.targetMode === "old-only"} onPress={onOpenMemoryLane} />
       </View>
     </ScrollView>
   );
@@ -3144,23 +3147,18 @@ function PlaceholderPhoto({ variant, style }: { variant: PlaceholderVariant; sty
   );
 }
 
-function VisualGameCard({ icon, title, detail, thumb, variant, active, onPress }: {
+function VisualGameCard({ icon, title, detail, image, active, onPress }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   detail: string;
-  thumb?: string;
-  variant: PlaceholderVariant;
+  image: ImageSourcePropType;
   active?: boolean;
   onPress: () => void;
 }) {
   return (
     <Pressable onPress={onPress} style={[styles.visualGameCard, active && styles.visualGameCardActive]}>
       <View style={styles.visualGameImageWrap}>
-        {thumb ? (
-          <Image source={{ uri: thumb }} style={styles.visualGameImage} resizeMode="cover" />
-        ) : (
-          <PlaceholderPhoto variant={variant} />
-        )}
+        <Image source={image} style={styles.visualGameImage} resizeMode="cover" />
         <View style={styles.visualGameIcon}>
           <Ionicons name={icon} size={16} color="#ffffff" />
         </View>
@@ -3195,17 +3193,23 @@ function GameFilterSlider({
   onChange: (value: number) => void;
 }) {
   const [width, setWidth] = useState(1);
+  const [draftValue, setDraftValue] = useState(value);
   const safeMax = Math.max(min, max);
-  const percent = safeMax === min ? 1 : Math.max(0, Math.min(1, (value - min) / (safeMax - min)));
+  const displayValue = Math.max(min, Math.min(safeMax, draftValue));
+  const percent = safeMax === min ? 1 : Math.max(0, Math.min(1, (displayValue - min) / (safeMax - min)));
+  const markerCount = Math.min(13, Math.max(2, Math.floor((safeMax - min) / step) + 1));
 
-  function commit(locationX: number) {
+  useEffect(() => {
+    setDraftValue(value);
+  }, [value]);
+
+  function valueFromLocation(locationX: number) {
     if (safeMax <= min) {
-      onChange(min);
-      return;
+      return min;
     }
     const raw = min + (Math.max(0, Math.min(width, locationX)) / width) * (safeMax - min);
     const snapped = +(Math.round(raw / step) * step).toFixed(4);
-    onChange(Math.max(min, Math.min(safeMax, snapped)));
+    return Math.max(min, Math.min(safeMax, snapped));
   }
 
   return (
@@ -3219,10 +3223,16 @@ function GameFilterSlider({
         onLayout={(event: LayoutChangeEvent) => setWidth(Math.max(1, event.nativeEvent.layout.width))}
         onStartShouldSetResponder={() => true}
         onMoveShouldSetResponder={() => true}
-        onResponderGrant={(event: GestureResponderEvent) => commit(event.nativeEvent.locationX)}
-        onResponderMove={(event: GestureResponderEvent) => commit(event.nativeEvent.locationX)}
+        onResponderGrant={(event: GestureResponderEvent) => setDraftValue(valueFromLocation(event.nativeEvent.locationX))}
+        onResponderMove={(event: GestureResponderEvent) => setDraftValue(valueFromLocation(event.nativeEvent.locationX))}
+        onResponderRelease={(event: GestureResponderEvent) => onChange(valueFromLocation(event.nativeEvent.locationX))}
+        onResponderTerminate={() => onChange(displayValue)}
       >
         <View style={styles.focusRail} />
+        {Array.from({ length: markerCount }).map((_, index) => {
+          const markerPercent = markerCount === 1 ? 0 : (index / (markerCount - 1)) * 100;
+          return <View key={index} pointerEvents="none" style={[styles.focusMarker, { left: `${markerPercent}%` }]} />;
+        })}
         <View style={[styles.focusFill, { width: `${percent * 100}%` }]} />
         <View style={[styles.focusThumb, { left: `${percent * 100}%` }]} />
       </View>
@@ -4082,7 +4092,7 @@ const FOCUS_OPTIONS: [NativeTargetMode, string, string][] = [
   ["big-or-old", "Large or old", "Photos over either threshold"],
   ["big-only", "Large", "Photos over the size threshold"],
   ["old-only", "Old", "Older memories first"],
-  ["similar", "No category", "Photos without a stronger cleanup category"],
+  ["similar", "Uncategorized", "Photos without a stronger cleanup category"],
   ["blurry", "Blurry", "Likely blurry, dark, or accidental shots"],
   ["multibursts", "Bursts", "Rapid-fire photo groups"],
   ["screenshots", "Screens", "Screenshots and screen grabs"],
@@ -4386,8 +4396,23 @@ function TrimKindSettings({
   );
 }
 
-function SettingsScreen({ settings, isPro, samplePhoto, onChange, onReload }: { settings: NativeSettings; isPro: boolean; samplePhoto?: NativePhoto; onChange: (patch: Partial<NativeSettings>) => void; onReload: () => Promise<void> | void }) {
+function SettingsScreen({
+  settings,
+  isPro,
+  samplePhoto,
+  onChange,
+  onReload,
+  onRestorePurchases,
+}: {
+  settings: NativeSettings;
+  isPro: boolean;
+  samplePhoto?: NativePhoto;
+  onChange: (patch: Partial<NativeSettings>) => void;
+  onReload: () => Promise<void> | void;
+  onRestorePurchases: () => Promise<void> | void;
+}) {
   const [reloading, setReloading] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const showsThresholds =
     settings.targetMode === "big-or-old" ||
     settings.targetMode === "big-only" ||
@@ -4400,6 +4425,15 @@ function SettingsScreen({ settings, isPro, samplePhoto, onChange, onReload }: { 
       await onReload();
     } finally {
       setReloading(false);
+    }
+  }
+
+  async function handleRestorePurchases() {
+    setRestoring(true);
+    try {
+      await onRestorePurchases();
+    } finally {
+      setRestoring(false);
     }
   }
 
@@ -4443,6 +4477,20 @@ function SettingsScreen({ settings, isPro, samplePhoto, onChange, onReload }: { 
       />
       <TrimKindSettings settings={settings} isPro={isPro} onChange={onChange} />
       <EnhancedQualityPreview photo={samplePhoto} currentQuality={settings.trimQuality} />
+      <Pressable disabled={restoring} onPress={() => void handleRestorePurchases()} style={styles.restorePurchaseCard}>
+        <View style={styles.restorePurchaseIcon}>
+          <Ionicons name="refresh-outline" size={19} color="#c2410c" />
+        </View>
+        <View style={styles.restorePurchaseCopy}>
+          <Text style={styles.settingLabel}>Restore purchases</Text>
+          <Text style={styles.mutedSmall}>Restore Lifetime Pro from your Apple ID.</Text>
+        </View>
+        {restoring ? (
+          <ActivityIndicator color="#f97316" />
+        ) : (
+          <Text style={styles.restorePurchaseAction}>Restore</Text>
+        )}
+      </Pressable>
       <View style={styles.settingsReloadWrap}>
         <PrimaryButton label={reloading ? "Reloading photos..." : "Reload with these settings"} disabled={reloading} onPress={() => void handleReload()} />
       </View>
@@ -4787,6 +4835,7 @@ const styles = StyleSheet.create({
   focusSliderValue: { color: "#f97316", fontSize: 12, fontWeight: "900" },
   focusTrack: { height: 24, justifyContent: "center" },
   focusRail: { position: "absolute", left: 0, right: 0, height: 7, borderRadius: 999, backgroundColor: "#ffedd5" },
+  focusMarker: { position: "absolute", top: 6, width: 2, height: 12, marginLeft: -1, borderRadius: 999, backgroundColor: "#fdba74" },
   focusFill: { position: "absolute", left: 0, height: 7, borderRadius: 999, backgroundColor: "#f97316" },
   focusThumb: { position: "absolute", width: 22, height: 22, marginLeft: -11, borderRadius: 11, backgroundColor: "#ffffff", borderWidth: 3, borderColor: "#f97316" },
   focusRangeRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
@@ -4809,6 +4858,7 @@ const styles = StyleSheet.create({
   gameGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   primaryGameCard: { width: "100%", borderRadius: 24, backgroundColor: "#f97316", padding: 20, gap: 8, shadowColor: "#fb923c", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 18, elevation: 6 },
   primaryGameVisualCard: { width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 24, backgroundColor: "#f97316", padding: 20, gap: 14, shadowColor: "#fb923c", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 18, elevation: 6 },
+  primaryGameArt: { width: 92, height: 82, borderRadius: 20, borderWidth: 2, borderColor: "rgba(255,255,255,0.75)" },
   primaryGamePhotoStrip: { flexDirection: "row", alignItems: "center", width: 92 },
   primaryGamePhoto: { width: 38, height: 54, marginRight: -18, borderRadius: 12, borderWidth: 2, borderColor: "rgba(255,255,255,0.75)", backgroundColor: "#fed7aa" },
   primaryGamePhotoRaised: { transform: [{ translateY: -5 }] },
@@ -4964,6 +5014,10 @@ const styles = StyleSheet.create({
   settingCard: { marginTop: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14 },
   settingsHero: { borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 18, gap: 8 },
   settingsReloadWrap: { marginTop: 24 },
+  restorePurchaseCard: { marginTop: 12, flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16 },
+  restorePurchaseIcon: { width: 38, height: 38, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#fff7ed" },
+  restorePurchaseCopy: { flex: 1, gap: 3 },
+  restorePurchaseAction: { color: "#f97316", fontSize: 13, fontWeight: "900" },
   booleanCopy: { flex: 1, gap: 4 },
   toggleTrack: { width: 54, height: 32, justifyContent: "center", borderRadius: 999, backgroundColor: "#fed7aa", padding: 4 },
   toggleTrackActive: { backgroundColor: "#fb923c" },

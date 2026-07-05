@@ -172,7 +172,7 @@ export function StatsDashboard({
               />
               <ScanBreakdownRow
                 icon="copy-outline"
-                label="No category"
+                label="Uncategorized"
                 count={scan.duplicateRemovalCount}
                 value={scan.duplicateDeleteSavingsMB}
                 color={colors.info}
@@ -599,6 +599,8 @@ function formatCount(value: number) {
 function buildBadges(stats: NativeStats) {
   const week = sumDays(stats, 7);
   const today = dailyFor(stats, dateKey());
+  const streak = currentStreak(stats);
+  const cleanups = stats.trimmed + stats.deleted;
   return [
     {
       title: "First trim",
@@ -615,6 +617,27 @@ function buildBadges(stats: NativeStats) {
       unlocked: stats.trimmed >= 100,
     },
     {
+      title: "30 reviewed",
+      hint: `${Math.min(stats.reviewed, 30)}/30 photos`,
+      icon: "images-outline" as const,
+      progress: Math.min(1, stats.reviewed / 30),
+      unlocked: stats.reviewed >= 30,
+    },
+    {
+      title: "100 reviewed",
+      hint: `${Math.min(stats.reviewed, 100)}/100 photos`,
+      icon: "albums-outline" as const,
+      progress: Math.min(1, stats.reviewed / 100),
+      unlocked: stats.reviewed >= 100,
+    },
+    {
+      title: "Consistency 3",
+      hint: `${Math.min(streak, 3)}/3 active days`,
+      icon: "calendar-outline" as const,
+      progress: Math.min(1, streak / 3),
+      unlocked: streak >= 3,
+    },
+    {
       title: "1 GB freed",
       hint: `${formatMB(stats.mbFreed)} of 1 GB`,
       icon: "rocket-outline" as const,
@@ -622,11 +645,18 @@ function buildBadges(stats: NativeStats) {
       unlocked: stats.mbFreed >= 1024,
     },
     {
+      title: "250 MB freed",
+      hint: `${formatMB(stats.mbFreed)} of 250 MB`,
+      icon: "sparkles-outline" as const,
+      progress: Math.min(1, stats.mbFreed / 250),
+      unlocked: stats.mbFreed >= 250,
+    },
+    {
       title: "7-day streak",
-      hint: `${currentStreak(stats)}/7 days`,
+      hint: `${streak}/7 days`,
       icon: "flame-outline" as const,
-      progress: Math.min(1, currentStreak(stats) / 7),
-      unlocked: currentStreak(stats) >= 7,
+      progress: Math.min(1, streak / 7),
+      unlocked: streak >= 7,
     },
     {
       title: "Daily 10",
@@ -636,11 +666,32 @@ function buildBadges(stats: NativeStats) {
       unlocked: today.reviewed >= 10,
     },
     {
+      title: "Daily 25",
+      hint: `${Math.min(today.reviewed, 25)}/25 today`,
+      icon: "sunny" as const,
+      progress: Math.min(1, today.reviewed / 25),
+      unlocked: today.reviewed >= 25,
+    },
+    {
+      title: "Cleanup 50",
+      hint: `${Math.min(cleanups, 50)}/50 trims or deletes`,
+      icon: "checkmark-done-outline" as const,
+      progress: Math.min(1, cleanups / 50),
+      unlocked: cleanups >= 50,
+    },
+    {
       title: "Weekly saver",
       hint: `${formatMB(week.mbFreed)} of ${formatMB(WEEKLY_TARGET_MB)}`,
       icon: "trophy-outline" as const,
       progress: Math.min(1, week.mbFreed / WEEKLY_TARGET_MB),
       unlocked: week.mbFreed >= WEEKLY_TARGET_MB,
+    },
+    {
+      title: "Weekly rhythm",
+      hint: `${Math.min(week.reviewed, 50)}/50 this week`,
+      icon: "pulse-outline" as const,
+      progress: Math.min(1, week.reviewed / 50),
+      unlocked: week.reviewed >= 50,
     },
   ];
 }
