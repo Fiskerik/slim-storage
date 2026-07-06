@@ -2,9 +2,11 @@ import * as Haptics from "expo-haptics";
 import Constants from "expo-constants";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImageManipulator from "expo-image-manipulator";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -164,6 +166,8 @@ const FALLBACK_TARGET_MODES: NativeTargetMode[] = [
   "balanced",
 ];
 
+type ReportPeriod = (typeof REPORT_PERIODS)[number];
+
 function formatMB(value: number): string {
   return value >= 1024 ? `${(value / 1024).toFixed(2)} GB` : `${value.toFixed(1)} MB`;
 }
@@ -218,25 +222,101 @@ function uniqueSortedTimes(times: string[]): string[] {
   return [...new Set(times)].sort((a, b) => a.localeCompare(b)).slice(0, 5);
 }
 
-function reportStatsForPeriod(stats: NativeStats, period: (typeof REPORT_PERIODS)[number]): NativeDailyStats {
+type ReportDashboardData = {
+  title: string;
+  rangeLabel: string;
+  beforeTotal: number;
+  afterTotal: number;
+  periodStats: NativeDailyStats;
+  trimPercent: number;
+  deletePercent: number;
+};
+
+function reportStatsForPeriod(stats: NativeStats, period: ReportPeriod): NativeDailyStats {
   return period === "weekly" ? sumDays(stats, 7) : monthStats(stats);
 }
 
-function cleanupReportText(stats: NativeStats, period: (typeof REPORT_PERIODS)[number]): string {
+function reportDashboardData(stats: NativeStats, period: ReportPeriod): ReportDashboardData {
   const periodStats = reportStatsForPeriod(stats, period);
   const beforeTotal = Math.max(0, stats.mbFreed - periodStats.mbFreed);
   const afterTotal = stats.mbFreed;
+  const title = period === "weekly" ? "Weekly report" : "Monthly report";
+  const rangeLabel = period === "weekly" ? "Last 7 days" : "This month";
+  const total = Math.max(1, periodStats.trimMbFreed + periodStats.deleteMbFreed);
+  return {
+    title,
+    rangeLabel,
+    beforeTotal,
+    afterTotal,
+    periodStats,
+    trimPercent: Math.round((periodStats.trimMbFreed / total) * 100),
+    deletePercent: Math.round((periodStats.deleteMbFreed / total) * 100),
+  };
+}
+
+function cleanupReportText(stats: NativeStats, period: ReportPeriod): string {
+  const data = reportDashboardData(stats, period);
+  const { periodStats } = data;
   const title = period === "weekly" ? "Weekly TrimSwipe report" : "Monthly TrimSwipe report";
   return [
     title,
     "",
-    `Before: ${formatMB(beforeTotal)} reclaimed before this ${period === "weekly" ? "week" : "month"}.`,
-    `After: ${formatMB(afterTotal)} reclaimed total.`,
+    `Before: ${formatMB(data.beforeTotal)} reclaimed before this ${period === "weekly" ? "week" : "month"}.`,
+    `After: ${formatMB(data.afterTotal)} reclaimed total.`,
     `Progress this ${period === "weekly" ? "week" : "month"}: ${formatMB(periodStats.mbFreed)} freed from ${periodStats.reviewed} reviewed photos.`,
     `Trimmed: ${periodStats.trimmed} photos (${formatMB(periodStats.trimMbFreed)}).`,
     `Deleted: ${periodStats.deleted} photos (${formatMB(periodStats.deleteMbFreed)}).`,
     `Kept: ${periodStats.kept} photos.`,
   ].join("\n");
+}
+
+function cleanupReportHtml(stats: NativeStats, period: ReportPeriod): string {
+  const data = reportDashboardData(stats, period);
+  const { periodStats } = data;
+  const trimWidth = Math.max(2, data.trimPercent);
+  const deleteWidth = Math.max(2, data.deletePercent);
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { margin: 0; padding: 32px; background: #fff7ed; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2937; }
+      .card { border-radius: 28px; background: #ffffff; border: 1px solid #fed7aa; padding: 28px; }
+      .eyebrow { color: #f97316; font-size: 12px; font-weight: 900; letter-spacing: 2px; text-transform: uppercase; }
+      h1 { margin: 8px 0 4px; font-size: 36px; }
+      .muted { color: #64748b; font-size: 15px; }
+      .hero { margin-top: 22px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      .metric { border-radius: 20px; background: #fff7ed; padding: 18px; border: 1px solid #fed7aa; }
+      .label { color: #9a3412; font-size: 12px; font-weight: 900; text-transform: uppercase; }
+      .value { margin-top: 6px; font-size: 30px; font-weight: 900; }
+      .big { margin-top: 18px; border-radius: 24px; background: #f0fdf4; border: 1px solid #bbf7d0; padding: 20px; }
+      .big .value { color: #16a34a; font-size: 44px; }
+      .bar { height: 14px; border-radius: 999px; background: #ffedd5; overflow: hidden; display: flex; margin-top: 14px; }
+      .trim { width: ${trimWidth}%; background: #fb923c; }
+      .delete { width: ${deleteWidth}%; background: #ef4444; }
+      .grid { margin-top: 18px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+      .small { border-radius: 18px; background: #ffffff; border: 1px solid #fed7aa; padding: 16px; }
+      .small .value { font-size: 28px; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="eyebrow">TrimSwipe</div>
+      <h1>${data.title}</h1>
+      <div class="muted">${data.rangeLabel} before/after progress</div>
+      <div class="hero">
+        <div class="metric"><div class="label">Before</div><div class="value">${formatMB(data.beforeTotal)}</div><div class="muted">Previously reclaimed</div></div>
+        <div class="metric"><div class="label">After</div><div class="value">${formatMB(data.afterTotal)}</div><div class="muted">Reclaimed total</div></div>
+      </div>
+      <div class="big"><div class="label">Progress</div><div class="value">${formatMB(periodStats.mbFreed)}</div><div class="muted">${periodStats.reviewed} photos reviewed</div><div class="bar"><div class="trim"></div><div class="delete"></div></div></div>
+      <div class="grid">
+        <div class="small"><div class="label">Kept</div><div class="value">${periodStats.kept}</div></div>
+        <div class="small"><div class="label">Trimmed</div><div class="value">${periodStats.trimmed}</div></div>
+        <div class="small"><div class="label">Deleted</div><div class="value">${periodStats.deleted}</div></div>
+      </div>
+    </div>
+  </body>
+</html>`;
 }
 
 function roundSettings(settings: NativeSettings): NativeSettings {
@@ -662,11 +742,14 @@ export function NativeTrimSwipeApp() {
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  const [reportPeriod, setReportPeriod] = useState<ReportPeriod | null>(null);
+  const [reportExportBusy, setReportExportBusy] = useState<"image" | "pdf" | null>(null);
   const applyingActionsRef = useRef(false);
   const settingsDirtyRef = useRef(false);
   const pendingSettingsRef = useRef<NativeSettings | null>(null);
   const scheduledScanBusyRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
+  const reportCardRef = useRef<View>(null);
 
   const settings = roundSettings(stats.settings);
   const top = queue[0];
@@ -819,18 +902,53 @@ export function NativeTrimSwipeApp() {
     }
   }
 
-  async function shareCleanupReport(period: (typeof REPORT_PERIODS)[number]) {
+  function openCleanupReport(period: ReportPeriod) {
     if (!isPro) return;
+    setReportPeriod(period);
+  }
+
+  async function shareExportedFile(uri: string, mimeType: string, fallbackMessage: string) {
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(uri, { mimeType });
+      return;
+    }
+    await Share.share({ url: uri, message: fallbackMessage });
+  }
+
+  async function exportReportImage(period: ReportPeriod) {
+    if (!reportCardRef.current || reportExportBusy) return;
+    setReportExportBusy("image");
     try {
-      const message = cleanupReportText(stats, period);
-      await Share.share({
-        title: period === "weekly" ? "Weekly TrimSwipe report" : "Monthly TrimSwipe report",
-        message,
+      const uri = await captureRef(reportCardRef.current, {
+        format: "png",
+        quality: 0.96,
+        result: "tmpfile",
       });
+      await shareExportedFile(uri, "image/png", cleanupReportText(stats, period));
       commitStats((current) => ({ ...current, shareCount: current.shareCount + 1 }));
     } catch (error) {
-      console.log("[NativeTrimSwipe] Report share failed", { error });
-      showToast("Report failed", "Could not open the share sheet.", "error");
+      console.log("[NativeTrimSwipe] Report image export failed", { error });
+      showToast("Export failed", "Could not export the report image.", "error");
+    } finally {
+      setReportExportBusy(null);
+    }
+  }
+
+  async function exportReportPdf(period: ReportPeriod) {
+    if (reportExportBusy) return;
+    setReportExportBusy("pdf");
+    try {
+      const result = await Print.printToFileAsync({
+        html: cleanupReportHtml(stats, period),
+        base64: false,
+      });
+      await shareExportedFile(result.uri, "application/pdf", cleanupReportText(stats, period));
+      commitStats((current) => ({ ...current, shareCount: current.shareCount + 1 }));
+    } catch (error) {
+      console.log("[NativeTrimSwipe] Report PDF export failed", { error });
+      showToast("Export failed", "Could not export the report PDF.", "error");
+    } finally {
+      setReportExportBusy(null);
     }
   }
 
@@ -867,7 +985,10 @@ export function NativeTrimSwipeApp() {
     }
   }
 
-  async function loadRound(settingsOverride = settings) {
+  async function loadRound(
+    settingsOverride = settings,
+    options: { showFallbackToast?: boolean } = {},
+  ) {
     const activeSettings = roundSettings(settingsOverride);
     // FIX 1: Guard against NaN cardsPerRound before calling MediaLibrary
     const safeCount = Math.max(1, Math.round(activeSettings.cardsPerRound) || 10);
@@ -920,7 +1041,7 @@ export function NativeTrimSwipeApp() {
         });
       }
       setQueue(photos);
-      if (fallbackNotice) {
+      if (fallbackNotice && options.showFallbackToast) {
         showToast("Filter widened", fallbackNotice, "info");
       }
       if (photos.length === 0) {
@@ -1233,7 +1354,7 @@ export function NativeTrimSwipeApp() {
     const nextSettings = roundSettings({ ...settings, ...patch });
     commitStats((current) => ({ ...current, settings: nextSettings }));
     setScreen("swipe");
-    void loadRound(nextSettings);
+    void loadRound(nextSettings, { showFallbackToast: true });
   }
 
   function cleanupActionCount(plan: NativeCleanupPlan): number {
@@ -2015,7 +2136,7 @@ export function NativeTrimSwipeApp() {
             trimsRemaining={trimCurrencyAvailable}
             trimLimit={trimCurrencyAvailable}
             onAction={handleAction}
-            onReload={loadRound}
+            onReload={() => loadRound(settings, { showFallbackToast: true })}
             onOpenSettings={() => Linking.openSettings()}
             isPro={isPro}
             onChangeSettings={updateSettings}
@@ -2138,7 +2259,7 @@ export function NativeTrimSwipeApp() {
             tokens={tokenBalance}
             isPro={isPro}
             adBusy={adBusy}
-            onStartSwipe={() => { setScreen("swipe"); void loadRound(); }}
+            onStartSwipe={() => { setScreen("swipe"); void loadRound(settings, { showFallbackToast: true }); }}
             onOpenTrim={() => setScreen("trim")}
             onOpenGames={() => setScreen("games")}
             onOpenShop={() => setScreen("shop")}
@@ -2160,7 +2281,7 @@ export function NativeTrimSwipeApp() {
             samplePhoto={top ?? queue[0]}
             onChange={updateSettings}
             onReload={reloadSettingsRound}
-            onCreateReport={(period) => void shareCleanupReport(period)}
+            onCreateReport={openCleanupReport}
             onSetProTestMode={setIsPro}
             onRestorePurchases={async () => {
               const restored = await restorePurchasesPublic();
@@ -2175,6 +2296,16 @@ export function NativeTrimSwipeApp() {
         )}
 
         {statsLoaded && !onboardingDue ? <BottomNav screen={screen} isPro={isPro} onChange={changeScreen} /> : null}
+        <ReportDashboardModal
+          visible={reportPeriod !== null}
+          period={reportPeriod ?? "weekly"}
+          stats={stats}
+          reportRef={reportCardRef}
+          busy={reportExportBusy}
+          onClose={() => setReportPeriod(null)}
+          onExportImage={() => reportPeriod ? void exportReportImage(reportPeriod) : undefined}
+          onExportPdf={() => reportPeriod ? void exportReportPdf(reportPeriod) : undefined}
+        />
         <ConfirmSheet request={confirmRequest} busy={confirmBusy} />
         <Toast toast={toast} />
       </View>
@@ -4391,6 +4522,99 @@ function ConfirmSheet({ request, busy }: { request: ConfirmRequest | null; busy:
   );
 }
 
+function ReportDashboardModal({
+  visible,
+  period,
+  stats,
+  reportRef,
+  busy,
+  onClose,
+  onExportImage,
+  onExportPdf,
+}: {
+  visible: boolean;
+  period: ReportPeriod;
+  stats: NativeStats;
+  reportRef: RefObject<View | null>;
+  busy: "image" | "pdf" | null;
+  onClose: () => void;
+  onExportImage: () => void;
+  onExportPdf: () => void;
+}) {
+  const data = reportDashboardData(stats, period);
+  const { periodStats } = data;
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.reportModalBackdrop}>
+        <View style={styles.reportModalSheet}>
+          <View ref={reportRef} collapsable={false} style={styles.reportDashboardCard}>
+            <View style={styles.dashboardHeroTop}>
+              <View style={styles.gameCopy}>
+                <Text style={styles.eyebrow}>TrimSwipe</Text>
+                <Text style={styles.reportModalTitle}>{data.title}</Text>
+                <Text style={styles.dashboardCopy}>{data.rangeLabel} before/after progress</Text>
+              </View>
+              <View style={styles.reportIcon}>
+                <Ionicons name="document-text-outline" size={22} color="#c2410c" />
+              </View>
+            </View>
+
+            <View style={styles.reportBeforeAfterRow}>
+              <View style={styles.reportBeforeAfterCard}>
+                <Text style={styles.beforeAfterLabel}>Before</Text>
+                <Text style={styles.reportBeforeAfterValue}>{formatMB(data.beforeTotal)}</Text>
+                <Text style={styles.mutedSmall}>Previously reclaimed</Text>
+              </View>
+              <View style={styles.reportBeforeAfterCard}>
+                <Text style={styles.beforeAfterLabel}>After</Text>
+                <Text style={styles.reportBeforeAfterValue}>{formatMB(data.afterTotal)}</Text>
+                <Text style={styles.mutedSmall}>Reclaimed total</Text>
+              </View>
+            </View>
+
+            <View style={styles.reportProgressPanel}>
+              <View style={styles.impactLabelRow}>
+                <Text style={styles.impactLabel}>Progress</Text>
+                <Text style={styles.impactAmount}>{formatMB(periodStats.mbFreed)}</Text>
+              </View>
+              <Text style={styles.reportProgressValue}>{formatMB(periodStats.mbFreed)}</Text>
+              <Text style={styles.mutedSmall}>{periodStats.reviewed} photos reviewed</Text>
+              <View style={styles.reportStackedTrack}>
+                <View style={[styles.reportStackedTrim, { width: percentValue(data.trimPercent) }]} />
+                <View style={[styles.reportStackedDelete, { width: percentValue(data.deletePercent) }]} />
+              </View>
+              <View style={styles.reportLegendRow}>
+                <Text style={styles.reportLegendTrim}>Trim {formatMB(periodStats.trimMbFreed)}</Text>
+                <Text style={styles.reportLegendDelete}>Delete {formatMB(periodStats.deleteMbFreed)}</Text>
+              </View>
+            </View>
+
+            <View style={styles.statGrid}>
+              <MiniStat label="Kept" value={periodStats.kept} />
+              <MiniStat label="Trimmed" value={periodStats.trimmed} />
+              <MiniStat label="Deleted" value={periodStats.deleted} />
+            </View>
+          </View>
+
+          <View style={styles.reportModalActions}>
+            <SecondaryButton label="Close" disabled={busy !== null} onPress={onClose} />
+            <View style={styles.reportButtonRow}>
+              <Pressable disabled={busy !== null} style={[styles.reportButton, busy !== null && styles.secondaryButtonDisabled]} onPress={onExportImage}>
+                <Ionicons name="image-outline" size={18} color="#c2410c" />
+                <Text style={styles.reportButtonText}>{busy === "image" ? "Exporting..." : "Image"}</Text>
+              </Pressable>
+              <Pressable disabled={busy !== null} style={[styles.reportButton, busy !== null && styles.secondaryButtonDisabled]} onPress={onExportPdf}>
+                <Ionicons name="document-outline" size={18} color="#c2410c" />
+                <Text style={styles.reportButtonText}>{busy === "pdf" ? "Exporting..." : "PDF"}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function Toast({ toast }: { toast: ToastMessage | null }) {
   if (!toast) return null;
   const icon =
@@ -5673,6 +5897,22 @@ const styles = StyleSheet.create({
   reportButtonActive: { backgroundColor: "#fb923c", borderColor: "#fb923c" },
   reportButtonText: { color: "#c2410c", fontSize: 13, fontWeight: "900" },
   reportButtonTextActive: { color: "#ffffff" },
+  reportModalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(15, 23, 42, 0.38)" },
+  reportModalSheet: { maxHeight: "92%", borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: "#fff7ed", padding: 16, paddingBottom: 28, gap: 12 },
+  reportDashboardCard: { borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 18, gap: 16 },
+  reportModalTitle: { color: "#1f2937", fontSize: 25, fontWeight: "900" },
+  reportBeforeAfterRow: { flexDirection: "row", gap: 10 },
+  reportBeforeAfterCard: { flex: 1, borderRadius: 18, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 14, gap: 4 },
+  reportBeforeAfterValue: { color: "#1f2937", fontSize: 20, fontWeight: "900" },
+  reportProgressPanel: { borderRadius: 20, backgroundColor: "#f0fdf4", borderWidth: StyleSheet.hairlineWidth, borderColor: "#bbf7d0", padding: 16, gap: 8 },
+  reportProgressValue: { color: "#16a34a", fontSize: 36, fontWeight: "900" },
+  reportStackedTrack: { height: 12, flexDirection: "row", overflow: "hidden", borderRadius: 999, backgroundColor: "#dcfce7" },
+  reportStackedTrim: { height: "100%", backgroundColor: "#fb923c" },
+  reportStackedDelete: { height: "100%", backgroundColor: "#ef4444" },
+  reportLegendRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
+  reportLegendTrim: { color: "#c2410c", fontSize: 11, fontWeight: "900" },
+  reportLegendDelete: { color: "#b91c1c", fontSize: 11, fontWeight: "900" },
+  reportModalActions: { gap: 10 },
   automationCard: { borderRadius: 20, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16, gap: 14 },
   automationTitleBlock: { flex: 1, gap: 2 },
   dayToggleRow: { flexDirection: "row", gap: 7 },
