@@ -2282,7 +2282,6 @@ export function NativeTrimSwipeApp() {
             onChange={updateSettings}
             onReload={reloadSettingsRound}
             onCreateReport={openCleanupReport}
-            onSetProTestMode={setIsPro}
             onRestorePurchases={async () => {
               const restored = await restorePurchasesPublic();
               setIsPro(restored);
@@ -5221,7 +5220,6 @@ function SettingsScreen({
   onChange,
   onReload,
   onCreateReport,
-  onSetProTestMode,
   onRestorePurchases,
 }: {
   settings: NativeSettings;
@@ -5230,7 +5228,6 @@ function SettingsScreen({
   onChange: (patch: Partial<NativeSettings>) => void;
   onReload: () => Promise<void> | void;
   onCreateReport: (period: (typeof REPORT_PERIODS)[number]) => void;
-  onSetProTestMode: (isPro: boolean) => void;
   onRestorePurchases: () => Promise<void> | void;
 }) {
   const [reloading, setReloading] = useState(false);
@@ -5265,31 +5262,6 @@ function SettingsScreen({
         <Text style={styles.eyebrow}>Settings</Text>
         <Text style={styles.heroTitle}>Tune the cleanup feel</Text>
         <Text style={styles.dashboardCopy}>Keep the defaults simple, then adjust focus and trim quality when you want a sharper pass.</Text>
-      </View>
-      <View style={styles.settingCardVertical}>
-        <View style={styles.dashboardHeroTop}>
-          <View style={styles.scanQuickCopy}>
-            <Text style={styles.settingLabel}>Temporary QA entitlement</Text>
-            <Text style={styles.mutedSmall}>Switch this test session between Free and Pro before launch.</Text>
-          </View>
-          <Text style={styles.proPill}>{isPro ? "Pro" : "Free"}</Text>
-        </View>
-        <View style={styles.reportButtonRow}>
-          <Pressable
-            style={[styles.reportButton, !isPro && styles.reportButtonActive]}
-            onPress={() => onSetProTestMode(false)}
-          >
-            <Ionicons name="lock-closed-outline" size={18} color={isPro ? "#c2410c" : "#ffffff"} />
-            <Text style={[styles.reportButtonText, !isPro && styles.reportButtonTextActive]}>Free</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.reportButton, isPro && styles.reportButtonActive]}
-            onPress={() => onSetProTestMode(true)}
-          >
-            <Ionicons name="sparkles-outline" size={18} color={isPro ? "#ffffff" : "#c2410c"} />
-            <Text style={[styles.reportButtonText, isPro && styles.reportButtonTextActive]}>Pro</Text>
-          </Pressable>
-        </View>
       </View>
       {isPro ? (
         <View style={styles.settingCardVertical}>
