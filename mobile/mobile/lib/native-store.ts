@@ -26,6 +26,17 @@ export type NativeTrimKind = "metadata" | "location" | "compression" | "resize" 
 
 export type NativeTrimReviewMode = "normal" | "trimmed-only" | "all";
 
+export type NativeBackgroundScanSchedule = {
+  id: string;
+  label: string;
+  active: boolean;
+  days: number[];
+  times: string[];
+  targetMB: number;
+  lastRunAt: string | null;
+  lastSuggestionAt: string | null;
+};
+
 export type NativeSettings = {
   cardsPerRound: number;
   targetMode: NativeTargetMode;
@@ -39,6 +50,7 @@ export type NativeSettings = {
   dailyGoalMB: number;
   largeText: boolean;
   highContrast: boolean;
+  backgroundScanSchedules: NativeBackgroundScanSchedule[];
 };
 
 export type NativeDailyStats = {
@@ -88,6 +100,19 @@ export type NativeActionLogEntry = {
 
 const STATS_FILE = "trimswipe-native-stats-v1.json";
 
+const DEFAULT_BACKGROUND_SCAN_SCHEDULES: NativeBackgroundScanSchedule[] = [
+  {
+    id: "daily-cleanup-check",
+    label: "Daily cleanup check",
+    active: false,
+    days: [1, 2, 3, 4, 5],
+    times: ["09:00"],
+    targetMB: 50,
+    lastRunAt: null,
+    lastSuggestionAt: null,
+  },
+];
+
 export const DEFAULT_NATIVE_SETTINGS: NativeSettings = {
   cardsPerRound: 10,
   targetMode: "old-and-large",
@@ -101,6 +126,7 @@ export const DEFAULT_NATIVE_SETTINGS: NativeSettings = {
   dailyGoalMB: 50,
   largeText: false,
   highContrast: false,
+  backgroundScanSchedules: DEFAULT_BACKGROUND_SCAN_SCHEDULES,
 };
 
 export const EMPTY_DAILY_STATS: NativeDailyStats = {
@@ -217,6 +243,44 @@ function normalizeTrimReviewMode(value: unknown): NativeTrimReviewMode {
   return "normal";
 }
 
+function normalizeScheduleTime(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : null;
+}
+
+function normalizeBackgroundScanSchedules(value: unknown): NativeBackgroundScanSchedule[] {
+  const source = Array.isArray(value) && value.length > 0 ? value : DEFAULT_BACKGROUND_SCAN_SCHEDULES;
+  const schedules = source
+    .filter((item): item is Partial<NativeBackgroundScanSchedule> => item !== null && typeof item === "object")
+    .map((item, index) => {
+      const days = Array.isArray(item.days)
+        ? [...new Set(item.days.map((day) => Math.round(safeNumber(day, -1))).filter((day) => day >= 0 && day <= 6))]
+        : DEFAULT_BACKGROUND_SCAN_SCHEDULES[0].days;
+      const times = Array.isArray(item.times)
+        ? [...new Set(item.times.map(normalizeScheduleTime).filter((time): time is string => time !== null))].slice(0, 5)
+        : DEFAULT_BACKGROUND_SCAN_SCHEDULES[0].times;
+      const lastRunAt = typeof item.lastRunAt === "string" && !Number.isNaN(Date.parse(item.lastRunAt)) ? item.lastRunAt : null;
+      const lastSuggestionAt =
+        typeof item.lastSuggestionAt === "string" && !Number.isNaN(Date.parse(item.lastSuggestionAt))
+          ? item.lastSuggestionAt
+          : null;
+
+      return {
+        id: String(item.id ?? `cleanup-check-${index + 1}`),
+        label: String(item.label ?? (index === 0 ? "Daily cleanup check" : `Cleanup check ${index + 1}`)).slice(0, 36),
+        active: Boolean(item.active),
+        days: days.length > 0 ? days : DEFAULT_BACKGROUND_SCAN_SCHEDULES[0].days,
+        times: times.length > 0 ? times : DEFAULT_BACKGROUND_SCAN_SCHEDULES[0].times,
+        targetMB: Math.min(1000, Math.max(10, Math.round(safeNumber(item.targetMB, 50) / 5) * 5)),
+        lastRunAt,
+        lastSuggestionAt,
+      };
+    })
+    .slice(0, 8);
+
+  return schedules.length > 0 ? schedules : DEFAULT_BACKGROUND_SCAN_SCHEDULES;
+}
+
 function normalizeSessionMode(value: unknown): NativeSessionMode {
   const modes: NativeSessionMode[] = ["classic", "endless", "time-attack"];
   return modes.includes(value as NativeSessionMode) ? (value as NativeSessionMode) : "classic";
@@ -294,6 +358,7 @@ function normalizeStats(value: unknown): NativeStats {
       dailyGoalMB: Math.min(1000, Math.max(5, safeNumber(rawSettings.dailyGoalMB, DEFAULT_NATIVE_SETTINGS.dailyGoalMB))),
       largeText: Boolean(rawSettings.largeText),
       highContrast: Boolean(rawSettings.highContrast),
+      backgroundScanSchedules: normalizeBackgroundScanSchedules(rawSettings.backgroundScanSchedules),
     },
   };
 }

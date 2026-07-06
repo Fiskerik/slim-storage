@@ -114,7 +114,7 @@ const DEFAULT: Stats = {
   storageBudgetTotalKept: 0,
   storageBudgetTotalCleared: 0,
   storageBudgetTotalMbFreed: 0,
-  isPro: true,
+  isPro: false,
   trimsToday: 0,
   trimsTodayDate: null,
   daily: [],
@@ -153,7 +153,7 @@ function readFromStorage(): Stats {
             storageBudgetPlayed: day.storageBudgetPlayed ?? 0,
           }))
         : [],
-      isPro: true,
+      isPro: parsed.isPro === true,
       pendingDelete: parsed.pendingDelete ?? [],
       startedAt: parsed.startedAt ?? new Date().toISOString().slice(0, 10),
     };
@@ -324,7 +324,11 @@ export function calculateGoalCheckpoints(goalMB: number): number[] {
  * Free users get FREE_TRIM_LIMIT trims per day.
  */
 export function canTrim(): boolean {
-  return true;
+  const s = getStats();
+  if (s.isPro) return true;
+  const today = todayStr();
+  if (s.trimsTodayDate !== today) return true;
+  return s.trimsToday < FREE_TRIM_LIMIT;
 }
 
 export function recordTrim() {
@@ -338,7 +342,11 @@ export function recordTrim() {
 }
 
 export function trimsRemainingToday(): number {
-  return Infinity;
+  const s = getStats();
+  if (s.isPro) return Infinity;
+  const today = todayStr();
+  if (s.trimsTodayDate !== today) return FREE_TRIM_LIMIT;
+  return Math.max(0, FREE_TRIM_LIMIT - s.trimsToday);
 }
 
 export function setPro(isPro: boolean) {

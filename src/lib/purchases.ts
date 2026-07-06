@@ -33,7 +33,7 @@ export type PurchaseState = {
   loading: boolean;
 };
 
-const FORCE_PRO_FOR_TESTING = true;
+const FORCE_PRO_FOR_TESTING = false;
 
 type PurchaseBridgeResult = Partial<PurchaseState> & {
   success?: boolean;

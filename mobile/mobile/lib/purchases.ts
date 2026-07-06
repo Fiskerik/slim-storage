@@ -17,7 +17,7 @@ const LIFETIME_PRODUCT_ID =
   process.env.EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID ?? "lifetime_premium_1";
 const ENTITLEMENT_ID = process.env.EXPO_PUBLIC_RC_ENTITLEMENT_ID ?? "TrimswipePro";
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
-const FORCE_PRO_FOR_TESTING = true;
+const FORCE_PRO_FOR_TESTING = false;
 
 type PurchaseRequest = {
   productId?: string;

@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import {
   ActivityIndicator,
   Animated,
+  AppState,
   Easing,
   Image,
   Linking,
@@ -53,6 +54,7 @@ import {
   saveNativeStats,
   type NativeActionLogEntry,
   type NativeActionType,
+  type NativeBackgroundScanSchedule,
   type NativeDailyStats,
   type NativeSeenPhoto,
   type NativeSessionMode,
@@ -87,6 +89,7 @@ type Screen =
   | "stats"
   | "trim"
   | "shop"
+  | "automation"
   | "cleanup-plan"
   | "settings";
 
@@ -149,6 +152,8 @@ const GAME_IMAGES = {
 const BUDGET_MIN_POOL_MB = 60;
 const BUDGET_MAX_POOL_MB = 75;
 const BUDGET_KEEP_LIMIT_MB = 50;
+const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const REPORT_PERIODS = ["weekly", "monthly"] as const;
 const FALLBACK_TARGET_MODES: NativeTargetMode[] = [
   "big-only",
   "old-only",
@@ -161,6 +166,77 @@ const FALLBACK_TARGET_MODES: NativeTargetMode[] = [
 
 function formatMB(value: number): string {
   return value >= 1024 ? `${(value / 1024).toFixed(2)} GB` : `${value.toFixed(1)} MB`;
+}
+
+function cleanupPlanSavings(plan: NativeCleanupPlan): number {
+  return plan.estimatedDeleteSavingsMB + plan.estimatedTrimSavingsMB;
+}
+
+function cleanupPlanActionCount(plan: NativeCleanupPlan): number {
+  return plan.deleteCandidates.length + plan.trimCandidates.length;
+}
+
+function scheduleTimeLabel(times: string[]): string {
+  return times.length === 1 ? times[0] : `${times.length} times/day`;
+}
+
+function scheduleDaysLabel(days: number[]): string {
+  if (days.length === 7) return "Every day";
+  const ordered = [...days].sort((a, b) => a - b);
+  if (ordered.join(",") === "1,2,3,4,5") return "Weekdays";
+  if (ordered.join(",") === "0,6") return "Weekends";
+  return ordered.map((day) => WEEKDAY_LABELS[day] ?? "").filter(Boolean).join(", ");
+}
+
+function localTimeKey(date = new Date()): string {
+  return `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`;
+}
+
+function lastRunMatches(schedule: NativeBackgroundScanSchedule, day: string, time: string): boolean {
+  if (!schedule.lastRunAt) return false;
+  const last = new Date(schedule.lastRunAt);
+  if (Number.isNaN(last.getTime())) return false;
+  return dateKey(last) === day && localTimeKey(last) === time;
+}
+
+function dueScheduleTime(schedule: NativeBackgroundScanSchedule, now = new Date()): string | null {
+  if (!schedule.active || schedule.days.length === 0 || schedule.times.length === 0) return null;
+  const day = dateKey(now);
+  const time = localTimeKey(now);
+  if (!schedule.days.includes(now.getDay())) return null;
+  if (!schedule.times.includes(time)) return null;
+  return lastRunMatches(schedule, day, time) ? null : time;
+}
+
+function shiftScheduleTime(time: string, minutes: number): string {
+  const [hour = "0", minute = "0"] = time.split(":");
+  const total = (Number(hour) * 60 + Number(minute) + minutes + 24 * 60) % (24 * 60);
+  return `${Math.floor(total / 60).toString().padStart(2, "0")}:${(total % 60).toString().padStart(2, "0")}`;
+}
+
+function uniqueSortedTimes(times: string[]): string[] {
+  return [...new Set(times)].sort((a, b) => a.localeCompare(b)).slice(0, 5);
+}
+
+function reportStatsForPeriod(stats: NativeStats, period: (typeof REPORT_PERIODS)[number]): NativeDailyStats {
+  return period === "weekly" ? sumDays(stats, 7) : monthStats(stats);
+}
+
+function cleanupReportText(stats: NativeStats, period: (typeof REPORT_PERIODS)[number]): string {
+  const periodStats = reportStatsForPeriod(stats, period);
+  const beforeTotal = Math.max(0, stats.mbFreed - periodStats.mbFreed);
+  const afterTotal = stats.mbFreed;
+  const title = period === "weekly" ? "Weekly TrimSwipe report" : "Monthly TrimSwipe report";
+  return [
+    title,
+    "",
+    `Before: ${formatMB(beforeTotal)} reclaimed before this ${period === "weekly" ? "week" : "month"}.`,
+    `After: ${formatMB(afterTotal)} reclaimed total.`,
+    `Progress this ${period === "weekly" ? "week" : "month"}: ${formatMB(periodStats.mbFreed)} freed from ${periodStats.reviewed} reviewed photos.`,
+    `Trimmed: ${periodStats.trimmed} photos (${formatMB(periodStats.trimMbFreed)}).`,
+    `Deleted: ${periodStats.deleted} photos (${formatMB(periodStats.deleteMbFreed)}).`,
+    `Kept: ${periodStats.kept} photos.`,
+  ].join("\n");
 }
 
 function roundSettings(settings: NativeSettings): NativeSettings {
@@ -578,7 +654,7 @@ export function NativeTrimSwipeApp() {
   const pendingTrimsRef = useRef<NativePhoto[]>([]);
   const [pendingTrims, setPendingTrims] = useState<NativePhoto[]>([]);
   const [tokenBalance, setTokenBalance] = useState<number>(10);
-  const [isPro, setIsPro] = useState(true);
+  const [isPro, setIsPro] = useState(false);
   const [adBusy, setAdBusy] = useState(false);
   const cleanupCompletionsRef = useRef(0);
   const shareShotRef = useRef<View>(null);
@@ -589,12 +665,17 @@ export function NativeTrimSwipeApp() {
   const applyingActionsRef = useRef(false);
   const settingsDirtyRef = useRef(false);
   const pendingSettingsRef = useRef<NativeSettings | null>(null);
+  const scheduledScanBusyRef = useRef(false);
+  const appStateRef = useRef(AppState.currentState);
 
   const settings = roundSettings(stats.settings);
   const top = queue[0];
   const next = queue[1];
   const trimCurrencyAvailable = isPro ? Number.MAX_SAFE_INTEGER : Math.max(0, tokenBalance);
   const onboardingDue = statsLoaded && (!stats.onboardingComplete || stats.onboardingVersion !== APP_VERSION);
+  const backgroundScheduleSignature = settings.backgroundScanSchedules
+    .map((schedule) => `${schedule.id}:${schedule.active}:${schedule.days.join(",")}:${schedule.times.join(",")}:${schedule.targetMB}:${schedule.lastRunAt ?? ""}`)
+    .join("|");
 
   function showToast(title: string, detail?: string, tone: ToastMessage["tone"] = "info") {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -735,6 +816,21 @@ export function NativeTrimSwipeApp() {
     } catch (error) {
       console.log("[NativeTrimSwipe] Share failed", { error });
       await Share.share({ message: progressShareText(stats) }).catch(() => undefined);
+    }
+  }
+
+  async function shareCleanupReport(period: (typeof REPORT_PERIODS)[number]) {
+    if (!isPro) return;
+    try {
+      const message = cleanupReportText(stats, period);
+      await Share.share({
+        title: period === "weekly" ? "Weekly TrimSwipe report" : "Monthly TrimSwipe report",
+        message,
+      });
+      commitStats((current) => ({ ...current, shareCount: current.shareCount + 1 }));
+    } catch (error) {
+      console.log("[NativeTrimSwipe] Report share failed", { error });
+      showToast("Report failed", "Could not open the share sheet.", "error");
     }
   }
 
@@ -1083,6 +1179,7 @@ export function NativeTrimSwipeApp() {
   }
 
   function changeScreen(nextScreen: Screen) {
+    if (nextScreen === "automation" && !isPro) return;
     const leavingSettings = screen === "settings" && nextScreen !== "settings";
     setScreen(nextScreen);
     if (leavingSettings && settingsDirtyRef.current) {
@@ -1091,6 +1188,38 @@ export function NativeTrimSwipeApp() {
       pendingSettingsRef.current = null;
       void loadRound(reloadSettings);
     }
+  }
+
+  function setBackgroundSchedules(nextSchedules: NativeBackgroundScanSchedule[]) {
+    updateSettings({ backgroundScanSchedules: nextSchedules });
+  }
+
+  function updateBackgroundSchedule(
+    scheduleId: string,
+    updater: (schedule: NativeBackgroundScanSchedule) => NativeBackgroundScanSchedule,
+  ) {
+    setBackgroundSchedules(
+      settings.backgroundScanSchedules.map((schedule) =>
+        schedule.id === scheduleId ? updater(schedule) : schedule,
+      ),
+    );
+  }
+
+  function addBackgroundSchedule() {
+    const nextIndex = settings.backgroundScanSchedules.length + 1;
+    setBackgroundSchedules([
+      ...settings.backgroundScanSchedules,
+      {
+        id: `cleanup-check-${Date.now()}`,
+        label: `Cleanup check ${nextIndex}`,
+        active: false,
+        days: [1, 2, 3, 4, 5],
+        times: ["09:00"],
+        targetMB: 50,
+        lastRunAt: null,
+        lastSuggestionAt: null,
+      },
+    ]);
   }
 
   async function reloadSettingsRound() {
@@ -1316,6 +1445,155 @@ export function NativeTrimSwipeApp() {
       setCleanupPlanBusy(false);
     }
   }
+
+  function markBackgroundScheduleRun(scheduleId: string, hadSuggestion: boolean) {
+    const now = new Date().toISOString();
+    commitStats((current) => ({
+      ...current,
+      settings: {
+        ...current.settings,
+        backgroundScanSchedules: current.settings.backgroundScanSchedules.map((schedule) =>
+          schedule.id === scheduleId
+            ? {
+                ...schedule,
+                lastRunAt: now,
+                lastSuggestionAt: hadSuggestion ? now : schedule.lastSuggestionAt,
+              }
+            : schedule,
+        ),
+      },
+    }));
+  }
+
+  async function buildBackgroundCleanupPlan(schedule: NativeBackgroundScanSchedule): Promise<NativeCleanupPlan> {
+    const avoidIds = recentSelectionIds(stats);
+    const [largeResult, oldResult, screenshots, similarResult, bursts] = await Promise.all([
+      loadCleanupPlanWithFallback("large", 24, settings, avoidIds),
+      loadCleanupPlanWithFallback("old", 24, settings, avoidIds),
+      loadCleanupPlan("screenshots", 24, settings, { avoidIds }),
+      loadCleanupPlanWithFallback("duplicates", 24, settings, avoidIds),
+      loadCleanupPlan("bursts", 24, settings, { avoidIds }),
+    ]);
+    const trimById = new Map<string, NativePhoto>();
+    [...largeResult.plan.trimCandidates, ...oldResult.plan.trimCandidates, ...similarResult.plan.trimCandidates].forEach((photo) => {
+      trimById.set(photo.id, photo);
+    });
+    const deleteById = new Map<string, NativePhoto>();
+    [...screenshots.deleteCandidates, ...similarResult.plan.deleteCandidates.slice(1), ...bursts.deleteCandidates.slice(1)].forEach((photo) => {
+      if (!trimById.has(photo.id)) deleteById.set(photo.id, photo);
+    });
+
+    const selectedDeletes: NativePhoto[] = [];
+    const selectedTrims: NativePhoto[] = [];
+    let estimatedDeleteSavingsMB = 0;
+    let estimatedTrimSavingsMB = 0;
+    const targetMB = Math.max(10, schedule.targetMB);
+
+    [...deleteById.values()].sort((a, b) => b.sizeMB - a.sizeMB).forEach((photo) => {
+      if (estimatedDeleteSavingsMB + estimatedTrimSavingsMB >= targetMB && selectedDeletes.length + selectedTrims.length >= 3) return;
+      selectedDeletes.push(photo);
+      estimatedDeleteSavingsMB += photo.sizeMB;
+    });
+
+    [...trimById.values()]
+      .sort((a, b) => estimateTrimSavingsForSettings(b, settings) - estimateTrimSavingsForSettings(a, settings))
+      .forEach((photo) => {
+        if (estimatedDeleteSavingsMB + estimatedTrimSavingsMB >= targetMB && selectedDeletes.length + selectedTrims.length >= 3) return;
+        if (selectedDeletes.some((candidate) => candidate.id === photo.id)) return;
+        selectedTrims.push(photo);
+        estimatedTrimSavingsMB += estimateTrimSavingsForSettings(photo, settings);
+      });
+
+    return {
+      category: "mistakes",
+      title: `${schedule.label} suggestions`,
+      candidates: [...selectedDeletes, ...selectedTrims],
+      deleteCandidates: selectedDeletes,
+      trimCandidates: selectedTrims,
+      estimatedDeleteSavingsMB: +estimatedDeleteSavingsMB.toFixed(2),
+      estimatedTrimSavingsMB: +estimatedTrimSavingsMB.toFixed(2),
+    };
+  }
+
+  async function runBackgroundCleanupScan(schedule: NativeBackgroundScanSchedule, source: "manual" | "scheduled") {
+    if (!isPro || scheduledScanBusyRef.current) return;
+    scheduledScanBusyRef.current = true;
+    setCleanupPlanBusy(true);
+    setCleanupPlan(null);
+    if (source === "manual") setScreen("cleanup-plan");
+    try {
+      const permission = await requestPhotoPermission();
+      if (!permission.granted) {
+        setPermissionDenied(true);
+        showToast("Photo access needed", "Allow photo access to run scheduled cleanup checks.", "warning");
+        markBackgroundScheduleRun(schedule.id, false);
+        return;
+      }
+      setPermissionDenied(false);
+      await notifyCleanupProgress("TrimSwipe check started", `${schedule.label} is looking for about ${formatMB(schedule.targetMB)} to clear.`);
+      const plan = await buildBackgroundCleanupPlan(schedule);
+      const hasSuggestion = cleanupPlanActionCount(plan) > 0;
+      markBackgroundScheduleRun(schedule.id, hasSuggestion);
+
+      if (!hasSuggestion) {
+        if (source === "manual") setScreen("automation");
+        showToast("No cleanup suggestion", "This check did not find enough local photos to recommend.", "info");
+        return;
+      }
+
+      setCleanupPlan(plan);
+      setScreen("cleanup-plan");
+      await notifyCleanupProgress(
+        "Cleanup suggestions ready",
+        `${formatMB(cleanupPlanSavings(plan))} found. Confirm before anything is changed.`,
+      );
+      showToast(
+        source === "scheduled" ? "Scheduled scan complete" : "Scan complete",
+        `${formatMB(cleanupPlanSavings(plan))} ready for confirmation.`,
+        "success",
+      );
+    } catch (error) {
+      markBackgroundScheduleRun(schedule.id, false);
+      showToast("Scheduled scan failed", error instanceof Error ? error.message : "Could not build cleanup suggestions.", "error");
+    } finally {
+      scheduledScanBusyRef.current = false;
+      setCleanupPlanBusy(false);
+    }
+  }
+
+  async function runDueBackgroundScans() {
+    if (!statsLoaded || !isPro || scheduledScanBusyRef.current) return;
+    const dueSchedule = settings.backgroundScanSchedules.find((schedule) => dueScheduleTime(schedule) !== null);
+    if (!dueSchedule) return;
+    await runBackgroundCleanupScan(dueSchedule, "scheduled");
+  }
+
+  useEffect(() => {
+    if (!statsLoaded || !isPro) return undefined;
+    void runDueBackgroundScans();
+    const timer = setInterval(() => {
+      void runDueBackgroundScans();
+    }, 60 * 1000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statsLoaded, isPro, backgroundScheduleSignature]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (nextState) => {
+      const previousState = appStateRef.current;
+      appStateRef.current = nextState;
+      if (!isPro) return;
+      if ((previousState === "background" || previousState === "inactive") && nextState === "active") {
+        void runDueBackgroundScans();
+      }
+    });
+    return () => sub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPro, backgroundScheduleSignature]);
+
+  useEffect(() => {
+    if (!isPro && screen === "automation") setScreen("home");
+  }, [isPro, screen]);
 
   async function bulkTrimPhotos(photos: NativePhoto[]) {
     const available = isPro ? photos.length : tokenBalance;
@@ -1815,6 +2093,14 @@ export function NativeTrimSwipeApp() {
             trimsRemaining={trimCurrencyAvailable}
             onOpenShop={() => setScreen("shop")}
           />
+        ) : screen === "automation" && isPro ? (
+          <ProAutomationScreen
+            schedules={settings.backgroundScanSchedules}
+            busy={cleanupPlanBusy}
+            onAddSchedule={addBackgroundSchedule}
+            onRunNow={(schedule) => void runBackgroundCleanupScan(schedule, "manual")}
+            onUpdateSchedule={updateBackgroundSchedule}
+          />
         ) : screen === "shop" ? (
           <ShopScreen
             onBack={() => setScreen("games")}
@@ -1874,6 +2160,8 @@ export function NativeTrimSwipeApp() {
             samplePhoto={top ?? queue[0]}
             onChange={updateSettings}
             onReload={reloadSettingsRound}
+            onCreateReport={(period) => void shareCleanupReport(period)}
+            onSetProTestMode={setIsPro}
             onRestorePurchases={async () => {
               const restored = await restorePurchasesPublic();
               setIsPro(restored);
@@ -1886,7 +2174,7 @@ export function NativeTrimSwipeApp() {
           />
         )}
 
-        {statsLoaded && !onboardingDue ? <BottomNav screen={screen} onChange={changeScreen} /> : null}
+        {statsLoaded && !onboardingDue ? <BottomNav screen={screen} isPro={isPro} onChange={changeScreen} /> : null}
         <ConfirmSheet request={confirmRequest} busy={confirmBusy} />
         <Toast toast={toast} />
       </View>
@@ -2564,6 +2852,7 @@ function Recap({
   const [nextBusy, setNextBusy] = useState(false);
   const appear = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
+  const shine = useRef(new Animated.Value(0)).current;
   const total = recap.kept + recap.trimmed + recap.deleted;
   const trimShare = recap.freed > 0 ? Math.min(1, (recap.trimmed * 3) / Math.max(1, total)) : 0;
   const deleteShare = recap.freed > 0 ? Math.min(1, (recap.deleted * 3) / Math.max(1, total)) : 0;
@@ -2594,6 +2883,22 @@ function Recap({
       ]),
     ]).start();
   }, [appear, pulse]);
+
+  useEffect(() => {
+    const shineLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shine, {
+          toValue: 1,
+          duration: 920,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.delay(7080),
+      ]),
+    );
+    shineLoop.start();
+    return () => shineLoop.stop();
+  }, [shine]);
 
   async function handleNext() {
     if (nextBusy) return;
@@ -2634,6 +2939,27 @@ function Recap({
           { opacity: appear, transform: [{ scale: cardScale }, { translateY: contentTranslate }] },
         ]}
       >
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.recapImpactShine,
+            {
+              opacity: shine.interpolate({
+                inputRange: [0, 0.15, 0.75, 1],
+                outputRange: [0, 0.85, 0.85, 0],
+              }),
+              transform: [
+                {
+                  translateX: shine.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-140, 390],
+                  }),
+                },
+                { rotate: "18deg" },
+              ],
+            },
+          ]}
+        />
         <View style={styles.recapImpactHeader}>
           <View>
             <Text style={styles.eyebrow}>Round impact</Text>
@@ -4486,12 +4812,192 @@ function TrimKindSettings({
   );
 }
 
+function ProAutomationScreen({
+  schedules,
+  busy,
+  onAddSchedule,
+  onRunNow,
+  onUpdateSchedule,
+}: {
+  schedules: NativeBackgroundScanSchedule[];
+  busy: boolean;
+  onAddSchedule: () => void;
+  onRunNow: (schedule: NativeBackgroundScanSchedule) => void;
+  onUpdateSchedule: (
+    scheduleId: string,
+    updater: (schedule: NativeBackgroundScanSchedule) => NativeBackgroundScanSchedule,
+  ) => void;
+}) {
+  return (
+    <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
+      <View style={styles.dashboardHero}>
+        <View style={styles.dashboardHeroTop}>
+          <View style={styles.gameCopy}>
+            <Text style={styles.eyebrow}>Pro automation</Text>
+            <Text style={styles.heroTitle}>Scheduled cleanup checks</Text>
+          </View>
+          <View style={styles.reportIcon}>
+            <Ionicons name="alarm-outline" size={23} color="#c2410c" />
+          </View>
+        </View>
+        <Text style={styles.dashboardCopy}>
+          Run background-style scans on chosen days and times. TrimSwipe prepares suggestions, then waits for you to confirm every trim or delete.
+        </Text>
+      </View>
+
+      {schedules.map((schedule) => (
+        <AutomationScheduleCard
+          key={schedule.id}
+          schedule={schedule}
+          busy={busy}
+          onRunNow={onRunNow}
+          onUpdate={(updater) => onUpdateSchedule(schedule.id, updater)}
+        />
+      ))}
+
+      <SecondaryButton label="Add schedule" onPress={onAddSchedule} />
+    </ScrollView>
+  );
+}
+
+function AutomationScheduleCard({
+  schedule,
+  busy,
+  onRunNow,
+  onUpdate,
+}: {
+  schedule: NativeBackgroundScanSchedule;
+  busy: boolean;
+  onRunNow: (schedule: NativeBackgroundScanSchedule) => void;
+  onUpdate: (updater: (schedule: NativeBackgroundScanSchedule) => NativeBackgroundScanSchedule) => void;
+}) {
+  const lastSuggestion = schedule.lastSuggestionAt ? new Date(schedule.lastSuggestionAt) : null;
+  const summary = `${scheduleDaysLabel(schedule.days)} at ${scheduleTimeLabel(schedule.times)} - ${formatMB(schedule.targetMB)} target`;
+
+  function toggleDay(day: number) {
+    onUpdate((current) => {
+      const nextDays = current.days.includes(day)
+        ? current.days.filter((item) => item !== day)
+        : [...current.days, day].sort((a, b) => a - b);
+      return { ...current, days: nextDays.length > 0 ? nextDays : current.days };
+    });
+  }
+
+  function updateTime(index: number, nextTime: string) {
+    onUpdate((current) => {
+      const nextTimes = current.times.map((time, timeIndex) => (timeIndex === index ? nextTime : time));
+      return { ...current, times: uniqueSortedTimes(nextTimes) };
+    });
+  }
+
+  function removeTime(index: number) {
+    onUpdate((current) => ({
+      ...current,
+      times: current.times.length > 1 ? current.times.filter((_, timeIndex) => timeIndex !== index) : current.times,
+    }));
+  }
+
+  function addTime() {
+    onUpdate((current) => {
+      const lastTime = current.times[current.times.length - 1] ?? "09:00";
+      return { ...current, times: uniqueSortedTimes([...current.times, shiftScheduleTime(lastTime, 60)]) };
+    });
+  }
+
+  return (
+    <View style={styles.automationCard}>
+      <View style={styles.dashboardHeroTop}>
+        <View style={styles.automationTitleBlock}>
+          <Text style={styles.settingLabel}>{schedule.label}</Text>
+          <Text style={styles.settingValue}>{schedule.active ? "Active" : "Inactive"}</Text>
+          <Text style={styles.mutedSmall}>{summary}</Text>
+        </View>
+        <Pressable
+          accessibilityRole="switch"
+          accessibilityState={{ checked: schedule.active }}
+          onPress={() => onUpdate((current) => ({ ...current, active: !current.active }))}
+          style={[styles.toggleTrack, schedule.active && styles.toggleTrackActive]}
+        >
+          <View style={[styles.toggleKnob, schedule.active && styles.toggleKnobActive]} />
+        </Pressable>
+      </View>
+
+      <View style={styles.dayToggleRow}>
+        {WEEKDAY_LABELS.map((label, index) => {
+          const active = schedule.days.includes(index);
+          return (
+            <Pressable key={label} onPress={() => toggleDay(index)} style={[styles.dayToggle, active && styles.dayToggleActive]}>
+              <Text style={[styles.dayToggleText, active && styles.dayToggleTextActive]}>{label.slice(0, 1)}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <View style={styles.automationTimes}>
+        {schedule.times.map((time, index) => (
+          <View key={`${time}-${index}`} style={styles.automationTimeRow}>
+            <Pressable style={styles.timeAdjustButton} onPress={() => updateTime(index, shiftScheduleTime(time, -30))}>
+              <Ionicons name="remove" size={17} color="#c2410c" />
+            </Pressable>
+            <Text style={styles.timeValue}>{time}</Text>
+            <Pressable style={styles.timeAdjustButton} onPress={() => updateTime(index, shiftScheduleTime(time, 30))}>
+              <Ionicons name="add" size={17} color="#c2410c" />
+            </Pressable>
+            <Pressable disabled={schedule.times.length <= 1} style={styles.timeRemoveButton} onPress={() => removeTime(index)}>
+              <Ionicons name="trash-outline" size={16} color={schedule.times.length <= 1 ? "#cbd5e1" : "#dc2626"} />
+            </Pressable>
+          </View>
+        ))}
+        {schedule.times.length < 5 ? (
+          <Pressable style={styles.addTimeButton} onPress={addTime}>
+            <Ionicons name="add-circle-outline" size={17} color="#c2410c" />
+            <Text style={styles.addTimeText}>Add time</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      <View style={styles.automationTargetRow}>
+        <View>
+          <Text style={styles.settingLabel}>Suggestion target</Text>
+          <Text style={styles.settingValue}>{formatMB(schedule.targetMB)}</Text>
+        </View>
+        <View style={styles.stepper}>
+          <Pressable
+            style={styles.stepperButton}
+            onPress={() => onUpdate((current) => ({ ...current, targetMB: Math.max(10, current.targetMB - 10) }))}
+          >
+            <Text style={styles.stepperText}>-</Text>
+          </Pressable>
+          <Pressable
+            style={styles.stepperButton}
+            onPress={() => onUpdate((current) => ({ ...current, targetMB: Math.min(1000, current.targetMB + 10) }))}
+          >
+            <Text style={styles.stepperText}>+</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      {lastSuggestion ? (
+        <Text style={styles.mutedSmall}>
+          Last suggestion: {lastSuggestion.toLocaleDateString()} {lastSuggestion.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+        </Text>
+      ) : (
+        <Text style={styles.mutedSmall}>No completed suggestion yet.</Text>
+      )}
+
+      <PrimaryButton label={busy ? "Scanning..." : "Run now"} disabled={busy} onPress={() => onRunNow(schedule)} />
+    </View>
+  );
+}
+
 function SettingsScreen({
   settings,
   isPro,
   samplePhoto,
   onChange,
   onReload,
+  onCreateReport,
+  onSetProTestMode,
   onRestorePurchases,
 }: {
   settings: NativeSettings;
@@ -4499,6 +5005,8 @@ function SettingsScreen({
   samplePhoto?: NativePhoto;
   onChange: (patch: Partial<NativeSettings>) => void;
   onReload: () => Promise<void> | void;
+  onCreateReport: (period: (typeof REPORT_PERIODS)[number]) => void;
+  onSetProTestMode: (isPro: boolean) => void;
   onRestorePurchases: () => Promise<void> | void;
 }) {
   const [reloading, setReloading] = useState(false);
@@ -4534,6 +5042,54 @@ function SettingsScreen({
         <Text style={styles.heroTitle}>Tune the cleanup feel</Text>
         <Text style={styles.dashboardCopy}>Keep the defaults simple, then adjust focus and trim quality when you want a sharper pass.</Text>
       </View>
+      <View style={styles.settingCardVertical}>
+        <View style={styles.dashboardHeroTop}>
+          <View style={styles.scanQuickCopy}>
+            <Text style={styles.settingLabel}>Temporary QA entitlement</Text>
+            <Text style={styles.mutedSmall}>Switch this test session between Free and Pro before launch.</Text>
+          </View>
+          <Text style={styles.proPill}>{isPro ? "Pro" : "Free"}</Text>
+        </View>
+        <View style={styles.reportButtonRow}>
+          <Pressable
+            style={[styles.reportButton, !isPro && styles.reportButtonActive]}
+            onPress={() => onSetProTestMode(false)}
+          >
+            <Ionicons name="lock-closed-outline" size={18} color={isPro ? "#c2410c" : "#ffffff"} />
+            <Text style={[styles.reportButtonText, !isPro && styles.reportButtonTextActive]}>Free</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.reportButton, isPro && styles.reportButtonActive]}
+            onPress={() => onSetProTestMode(true)}
+          >
+            <Ionicons name="sparkles-outline" size={18} color={isPro ? "#ffffff" : "#c2410c"} />
+            <Text style={[styles.reportButtonText, isPro && styles.reportButtonTextActive]}>Pro</Text>
+          </Pressable>
+        </View>
+      </View>
+      {isPro ? (
+        <View style={styles.settingCardVertical}>
+          <View style={styles.dashboardHeroTop}>
+            <View style={styles.scanQuickCopy}>
+              <Text style={styles.settingLabel}>Progress reports</Text>
+              <Text style={styles.mutedSmall}>Create before/after weekly or monthly summaries.</Text>
+            </View>
+            <View style={styles.reportIcon}>
+              <Ionicons name="document-text-outline" size={22} color="#c2410c" />
+            </View>
+          </View>
+          <View style={styles.reportButtonRow}>
+            <Pressable style={styles.reportButton} onPress={() => onCreateReport("weekly")}>
+              <Ionicons name="document-text-outline" size={18} color="#c2410c" />
+              <Text style={styles.reportButtonText}>Weekly</Text>
+            </Pressable>
+            <Pressable style={styles.reportButton} onPress={() => onCreateReport("monthly")}>
+              <Ionicons name="document-text-outline" size={18} color="#c2410c" />
+              <Text style={styles.reportButtonText}>Monthly</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
       <SettingStepper label="Cards per round" value={settings.cardsPerRound} suffix="cards" min={5} max={30} step={1} onChange={(cardsPerRound) => onChange({ cardsPerRound })} />
       <Segmented label="Session mode" value={settings.sessionMode} options={[["classic", "Classic"], ["endless", "Endless"], ["time-attack", "60 sec"]]} onChange={(sessionMode) => onChange({ sessionMode })} />
       <Segmented
@@ -4590,13 +5146,17 @@ function SettingsScreen({
 
 // ─── Navigation ───────────────────────────────────────────────────────────────
 
-function BottomNav({ screen, onChange }: { screen: Screen; onChange: (screen: Screen) => void }) {
+function BottomNav({ screen, isPro, onChange }: { screen: Screen; isPro: boolean; onChange: (screen: Screen) => void }) {
   const gamesActive = screen === "games" || screen === "swipe" || screen === "this-or-that" || screen === "storage-budget" || screen === "memory-lane";
   return (
     <View style={styles.bottomNav}>
       <NavButton label="Home" active={screen === "home"} onPress={() => onChange("home")} />
       <NavButton label="Games" active={gamesActive} onPress={() => onChange("games")} />
-      <NavButton label="Shop" active={screen === "shop"} onPress={() => onChange("shop")} />
+      {isPro ? (
+        <NavButton label="Auto" active={screen === "automation"} onPress={() => onChange("automation")} />
+      ) : (
+        <NavButton label="Shop" active={screen === "shop"} onPress={() => onChange("shop")} />
+      )}
       <NavButton label="Stats" active={screen === "stats"} onPress={() => onChange("stats")} />
       <NavButton label="Settings" active={screen === "settings"} onPress={() => onChange("settings")} />
     </View>
@@ -4832,7 +5392,8 @@ const styles = StyleSheet.create({
   recapBadgeWrap: { width: 118, height: 96, alignItems: "center", justifyContent: "center" },
   recapBadge: { width: 74, height: 74, alignItems: "center", justifyContent: "center", borderRadius: 24, backgroundColor: "#22c55e", borderWidth: 2, borderColor: "#86efac", shadowColor: "#22c55e", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.22, shadowRadius: 20, elevation: 5 },
   recapBadgeIcon: { color: "#ffffff", fontSize: 38, fontWeight: "900" },
-  recapImpactCard: { width: "100%", borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#bbf7d0", padding: 16, gap: 12, shadowColor: "#22c55e", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 18, elevation: 3 },
+  recapImpactCard: { width: "100%", overflow: "hidden", position: "relative", borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#bbf7d0", padding: 16, gap: 12, shadowColor: "#22c55e", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 18, elevation: 3 },
+  recapImpactShine: { position: "absolute", top: -28, bottom: -28, left: 0, width: 72, backgroundColor: "rgba(255,255,255,0.62)" },
   recapImpactHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14 },
   recapCleanBadge: { width: 42, height: 42, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "#dcfce7", borderWidth: 1, borderColor: "#86efac" },
   recapImpactValue: { color: "#f97316", fontSize: 34, fontWeight: "900" },
@@ -5104,6 +5665,29 @@ const styles = StyleSheet.create({
   storageFillTrim: { backgroundColor: "#22c55e" },
   storageFillDelete: { backgroundColor: "#ef4444" },
   scanFootnote: { color: "#64748b", fontSize: 12, lineHeight: 18 },
+
+  // Pro reports and automation
+  reportIcon: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa" },
+  reportButtonRow: { flexDirection: "row", gap: 10 },
+  reportButton: { flex: 1, minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 16, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", paddingHorizontal: 12 },
+  reportButtonActive: { backgroundColor: "#fb923c", borderColor: "#fb923c" },
+  reportButtonText: { color: "#c2410c", fontSize: 13, fontWeight: "900" },
+  reportButtonTextActive: { color: "#ffffff" },
+  automationCard: { borderRadius: 20, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16, gap: 14 },
+  automationTitleBlock: { flex: 1, gap: 2 },
+  dayToggleRow: { flexDirection: "row", gap: 7 },
+  dayToggle: { flex: 1, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa" },
+  dayToggleActive: { backgroundColor: "#fb923c", borderColor: "#fb923c" },
+  dayToggleText: { color: "#9a3412", fontSize: 12, fontWeight: "900" },
+  dayToggleTextActive: { color: "#ffffff" },
+  automationTimes: { gap: 8 },
+  automationTimeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  timeAdjustButton: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: "#ffedd5" },
+  timeValue: { flex: 1, textAlign: "center", color: "#1f2937", fontSize: 18, fontWeight: "900" },
+  timeRemoveButton: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa" },
+  addTimeButton: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 14, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa" },
+  addTimeText: { color: "#c2410c", fontSize: 13, fontWeight: "900" },
+  automationTargetRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14, borderRadius: 16, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 13 },
 
   // Level progress
   levelRow: { flexDirection: "row", alignItems: "center", gap: 14 },

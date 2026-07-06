@@ -25,7 +25,7 @@ const empty: Stats = {
   storageBudgetTotalKept: 0,
   storageBudgetTotalCleared: 0,
   storageBudgetTotalMbFreed: 0,
-  isPro: true,
+  isPro: false,
   trimsToday: 0,
   trimsTodayDate: null,
   daily: [],
