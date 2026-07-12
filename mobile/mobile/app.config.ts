@@ -63,7 +63,6 @@ const config: ExpoConfig = {
     "expo-web-browser",
     "expo-notifications",
     "expo-background-task",
-    "expo-sharing",
     [
       "react-native-google-mobile-ads",
       {
