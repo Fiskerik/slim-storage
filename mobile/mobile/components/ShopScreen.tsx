@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Text,
   View,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -19,6 +20,7 @@ import {
   loadShopProducts,
   purchaseLifetime,
   purchaseTokenPack,
+  redeemOfferCodePublic,
   restorePurchasesPublic,
   type ShopProduct,
 } from "../lib/purchases";
@@ -33,7 +35,11 @@ import type { DailyRewardState } from "./HomeDashboard";
 
 export type ShopScreenProps = {
   onBack: () => void;
-  onToast?: (title: string, detail?: string, tone?: "info" | "success" | "warning" | "error") => void;
+  onToast?: (
+    title: string,
+    detail?: string,
+    tone?: "info" | "success" | "warning" | "error",
+  ) => void;
   dailyReward?: DailyRewardState;
   onClaimDailyTokens?: () => void;
   onProStatusChange?: (isPro: boolean) => void;
@@ -41,7 +47,13 @@ export type ShopScreenProps = {
 
 const TOKEN_ORDER = ["tokens_50", "tokens_100", "tokens_200", "tokens_500"];
 
-export function ShopScreen({ onBack, onToast, dailyReward, onClaimDailyTokens, onProStatusChange }: ShopScreenProps) {
+export function ShopScreen({
+  onBack,
+  onToast,
+  dailyReward,
+  onClaimDailyTokens,
+  onProStatusChange,
+}: ShopScreenProps) {
   const [products, setProducts] = useState<ShopProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -89,9 +101,9 @@ export function ShopScreen({ onBack, onToast, dailyReward, onClaimDailyTokens, o
     return () => shineLoop.stop();
   }, [adShine]);
 
-  const tokenPacks = TOKEN_ORDER
-    .map((id) => products.find((p) => p.id === id) ?? fallbackPack(id))
-    .filter(Boolean) as ShopProduct[];
+  const tokenPacks = TOKEN_ORDER.map(
+    (id) => products.find((p) => p.id === id) ?? fallbackPack(id),
+  ).filter(Boolean) as ShopProduct[];
   const lifetime = products.find((p) => p.isLifetime) ?? fallbackLifetime();
 
   async function handleBuyTokens(id: string) {
@@ -121,7 +133,11 @@ export function ShopScreen({ onBack, onToast, dailyReward, onClaimDailyTokens, o
         setIsPro(true);
         onProStatusChange?.(true);
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        onToast?.("Welcome to Pro", "Unlimited trims and an ad-free experience are unlocked.", "success");
+        onToast?.(
+          "Welcome to Pro",
+          "Unlimited trims and an ad-free experience are unlocked.",
+          "success",
+        );
       } else if (res.error && res.error !== "cancelled") {
         onToast?.("Purchase failed", res.error, "error");
       }
@@ -141,6 +157,34 @@ export function ShopScreen({ onBack, onToast, dailyReward, onClaimDailyTokens, o
         pro ? "Lifetime Pro restored." : "No previous purchases were found for this Apple ID.",
         pro ? "success" : "warning",
       );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleRedeemOfferCode() {
+    if (busy) return;
+    setBusy("redeem");
+    try {
+      const result = await redeemOfferCodePublic();
+      if (result.success) {
+        setIsPro(result.isPro);
+        onProStatusChange?.(result.isPro);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        if (result.tokensGranted > 0) {
+          onToast?.(
+            "Code redeemed",
+            `+${result.tokensGranted} tokens added to your balance.`,
+            "success",
+          );
+        } else if (result.isPro) {
+          onToast?.("Code redeemed", "Lifetime Pro is now unlocked.", "success");
+        } else {
+          onToast?.("Code redeemed", "Your purchase is being synced with Apple.", "success");
+        }
+      } else if (result.error) {
+        onToast?.("Code not redeemed", result.error, "error");
+      }
     } finally {
       setBusy(null);
     }
@@ -197,9 +241,7 @@ export function ShopScreen({ onBack, onToast, dailyReward, onClaimDailyTokens, o
             <View style={styles.lifetimeHeaderRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.lifetimeBigTitle}>Go Lifetime Pro</Text>
-                <Text style={styles.lifetimeBigSub}>
-                  One payment. Every benefit. Forever.
-                </Text>
+                <Text style={styles.lifetimeBigSub}>One payment. Every benefit. Forever.</Text>
               </View>
               <View style={styles.lifetimePriceBlock}>
                 <Text style={styles.lifetimeBigPrice}>{lifetime?.price ?? "$24.99"}</Text>
@@ -237,6 +279,27 @@ export function ShopScreen({ onBack, onToast, dailyReward, onClaimDailyTokens, o
           </View>
         )}
 
+        {Platform.OS === "ios" ? (
+          <Pressable
+            disabled={busy === "redeem"}
+            onPress={() => void handleRedeemOfferCode()}
+            style={styles.redeemCard}
+          >
+            <View style={styles.redeemIcon}>
+              <Ionicons name="pricetag-outline" size={22} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.redeemTitle}>Have an offer code?</Text>
+              <Text style={styles.redeemSub}>Redeem a free or discounted Apple purchase.</Text>
+            </View>
+            {busy === "redeem" ? (
+              <ActivityIndicator color={colors.primary} />
+            ) : (
+              <Text style={styles.redeemAction}>Redeem</Text>
+            )}
+          </Pressable>
+        ) : null}
+
         {!isPro ? (
           <>
             <SectionHeader title="Free tokens" />
@@ -245,7 +308,8 @@ export function ShopScreen({ onBack, onToast, dailyReward, onClaimDailyTokens, o
               onPress={onClaimDailyTokens}
               style={[
                 styles.dailyClaimCard,
-                (!dailyReward?.canClaimToday || dailyReward.claimedToday) && styles.dailyClaimCardDisabled,
+                (!dailyReward?.canClaimToday || dailyReward.claimedToday) &&
+                  styles.dailyClaimCardDisabled,
               ]}
             >
               <View style={styles.dailyClaimIcon}>
@@ -256,7 +320,8 @@ export function ShopScreen({ onBack, onToast, dailyReward, onClaimDailyTokens, o
                   {dailyReward?.claimedToday ? "Daily tokens claimed" : "Claim daily tokens"}
                 </Text>
                 <Text style={styles.dailyClaimSub}>
-                  +{dailyReward?.rewardAmount ?? DAILY_CLAIM_TOKENS} free tokens - resets at {dailyReward?.nextResetLabel ?? "00:00"}
+                  +{dailyReward?.rewardAmount ?? DAILY_CLAIM_TOKENS} free tokens - resets at{" "}
+                  {dailyReward?.nextResetLabel ?? "00:00"}
                 </Text>
               </View>
               <Text style={styles.dailyClaimButtonText}>
@@ -393,16 +458,29 @@ function fallbackLifetime(): ShopProduct {
 }
 
 const styles = StyleSheet.create({
-  scroll: { paddingHorizontal: spacing.xl, paddingTop: spacing.lg, paddingBottom: 40, gap: spacing.lg },
+  scroll: {
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.lg,
+    paddingBottom: 40,
+    gap: spacing.lg,
+  },
   header: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   backBtn: {
-    width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primarySoft,
-    alignItems: "center", justifyContent: "center",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primarySoft,
+    alignItems: "center",
+    justifyContent: "center",
   },
   title: { ...type.title, color: colors.text, marginTop: 2 },
   balance: {
-    flexDirection: "row", alignItems: "center", gap: 4,
-    paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
     backgroundColor: colors.honeySoft,
   },
   balanceValue: { fontWeight: "900", fontSize: 16, color: colors.honey },
@@ -447,15 +525,20 @@ const styles = StyleSheet.create({
   lifetimeBenefits: { gap: 8, marginTop: 2 },
   lifetimeBenefitRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   lifetimeCheck: {
-    width: 22, height: 22, borderRadius: 11,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     backgroundColor: colors.primary,
-    alignItems: "center", justifyContent: "center",
+    alignItems: "center",
+    justifyContent: "center",
   },
   lifetimeBenefitText: { color: colors.white, fontSize: 14, fontWeight: "700", flex: 1 },
 
-
   cta: {
-    height: 50, borderRadius: radius.lg, alignItems: "center", justifyContent: "center",
+    height: 50,
+    borderRadius: radius.lg,
+    alignItems: "center",
+    justifyContent: "center",
   },
   ctaPrimary: { backgroundColor: colors.primary, ...shadow.press },
   ctaDisabled: { opacity: 0.5 },
@@ -465,20 +548,30 @@ const styles = StyleSheet.create({
   loadingText: { color: colors.textMuted, fontSize: 13, fontWeight: "600" },
 
   pack: {
-    flexDirection: "row", alignItems: "center", gap: spacing.md,
-    backgroundColor: colors.card, borderRadius: radius.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
     padding: spacing.lg,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
     ...shadow.soft,
   },
   packIcon: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: colors.honeySoft, alignItems: "center", justifyContent: "center",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.honeySoft,
+    alignItems: "center",
+    justifyContent: "center",
   },
   packTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   packTokens: { fontSize: 17, fontWeight: "900", color: colors.text },
   badge: {
-    paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
     backgroundColor: colors.primary,
   },
   badgeText: { color: colors.white, fontSize: 10, fontWeight: "900", letterSpacing: 0.8 },
@@ -487,10 +580,14 @@ const styles = StyleSheet.create({
   packPrice: { fontSize: 16, fontWeight: "800", color: colors.primary },
 
   adCard: {
-    flexDirection: "row", alignItems: "center", gap: spacing.md,
-    backgroundColor: colors.sageSoft, borderRadius: radius.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    backgroundColor: colors.sageSoft,
+    borderRadius: radius.lg,
     padding: spacing.lg,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.sage,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.sage,
     overflow: "hidden",
     position: "relative",
   },
@@ -503,28 +600,67 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.55)",
   },
   dailyClaimCard: {
-    flexDirection: "row", alignItems: "center", gap: spacing.md,
-    backgroundColor: colors.card, borderRadius: radius.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
     padding: spacing.lg,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.primary,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.primary,
     ...shadow.soft,
   },
   dailyClaimCardDisabled: { opacity: 0.68, borderColor: colors.border },
   dailyClaimIcon: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.primarySoft,
+    alignItems: "center",
+    justifyContent: "center",
   },
   dailyClaimTitle: { fontSize: 16, fontWeight: "900", color: colors.text },
   dailyClaimSub: { fontSize: 12, color: colors.textMuted, marginTop: 2, fontWeight: "700" },
   dailyClaimButtonText: { color: colors.primary, fontSize: 13, fontWeight: "900" },
   adIcon: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: colors.white, alignItems: "center", justifyContent: "center",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.white,
+    alignItems: "center",
+    justifyContent: "center",
   },
   adTitle: { fontSize: 16, fontWeight: "800", color: colors.sageDeep },
   adSub: { fontSize: 13, color: colors.sageDeep, marginTop: 2, fontWeight: "600" },
 
   restore: { alignItems: "center", paddingVertical: spacing.md, marginTop: spacing.sm },
   restoreText: { color: colors.primary, fontWeight: "800", fontSize: 14 },
-  legal: { fontSize: 11, color: colors.textSubtle, textAlign: "center", lineHeight: 16, marginTop: spacing.sm },
+  redeemCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.primary,
+  },
+  redeemIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: colors.white,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  redeemTitle: { fontSize: 15, fontWeight: "900", color: colors.primary },
+  redeemSub: { fontSize: 12, color: colors.textMuted, marginTop: 2, fontWeight: "600" },
+  redeemAction: { color: colors.primary, fontWeight: "900", fontSize: 13 },
+  legal: {
+    fontSize: 11,
+    color: colors.textSubtle,
+    textAlign: "center",
+    lineHeight: 16,
+    marginTop: spacing.sm,
+  },
 });
