@@ -15,7 +15,7 @@ workflows:
       node: 22.12.0
       vars:
         BUNDLE_ID: "com.fiskerik.trimswipe" # Fixed to match your real app bundle ID
-        APP_MARKETING_VERSION: "1.0.8"
+        APP_MARKETING_VERSION: "1.0.9"
         EXPO_PUBLIC_RC_KEY: "@rc_api_key"
         EXPO_PUBLIC_RC_ENTITLEMENT_ID: "@rc_entitlement_id"
         EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID: "@rc_product_id"
@@ -46,11 +46,15 @@ workflows:
       - name: Set iOS build number
         script: |
           cd mobile/mobile/ios
-          LATEST_BUILD_NUMBER=$(app-store-connect get-latest-testflight-build-number "com.fiskerik.trimswipe" --all-versions || echo 0)
-          if [ -z "$LATEST_BUILD_NUMBER" ]; then
-          LATEST_BUILD_NUMBER=1
+          MINIMUM_BUILD_NUMBER=67
+          LATEST_BUILD_NUMBER=$(app-store-connect get-latest-testflight-build-number "com.fiskerik.trimswipe" --all-versions 2>/dev/null || true)
+          if ! [[ "$LATEST_BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
+          LATEST_BUILD_NUMBER=$((MINIMUM_BUILD_NUMBER - 1))
           fi
-          NEW_BUILD_NUMBER=$(($LATEST_BUILD_NUMBER + 2))
+          NEW_BUILD_NUMBER=$(($LATEST_BUILD_NUMBER + 1))
+          if [ "$NEW_BUILD_NUMBER" -lt "$MINIMUM_BUILD_NUMBER" ]; then
+          NEW_BUILD_NUMBER=$MINIMUM_BUILD_NUMBER
+          fi
           agvtool new-version -all $NEW_BUILD_NUMBER
           echo "Set CFBundleVersion to $NEW_BUILD_NUMBER"
       - name: Initialize signing certificates

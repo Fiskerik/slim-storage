@@ -2,11 +2,11 @@
   "expo": {
     "name": "Trimswipe",
     "slug": "slim-storage",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "icon": "mobile/mobile/assets/images/icon.png",
     "ios": {
       "bundleIdentifier": "com.fiskerik.trimswipe",
-      "buildNumber": "3",
+      "buildNumber": "67",
       "supportsTablet": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
@@ -41,7 +41,7 @@
     },
     "android": {
       "package": "com.fiskerik.trimswipe",
-      "versionCode": 3,
+      "versionCode": 4,
       "permissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",

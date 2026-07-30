@@ -133,7 +133,7 @@ const SWIPE_THRESHOLD = 110;
 const APP_VERSION =
   Constants.expoConfig?.version ??
   (Constants.manifest as { version?: string } | null)?.version ??
-  "1.0.8";
+  "1.0.9";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DAILY_REVIEW_TARGET = 10;
 const WEEKLY_SAVINGS_TARGET_MB = 500;
