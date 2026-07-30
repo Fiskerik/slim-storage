@@ -89,12 +89,25 @@ workflows:
       - name: Set iOS build number
         script: |
           cd mobile/mobile/ios
-          MINIMUM_BUILD_NUMBER=67
-          LATEST_BUILD_NUMBER=$(app-store-connect get-latest-testflight-build-number "com.fiskerik.trimswipe" --all-versions 2>/dev/null || true)
-          if ! [[ "$LATEST_BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
-          LATEST_BUILD_NUMBER=$((MINIMUM_BUILD_NUMBER - 1))
+          # App Store Connect already contains 1.0.9 (67). The Codemagic
+          # project counter keeps concurrent or delayed uploads unique.
+          MINIMUM_BUILD_NUMBER=68
+          BUILD_NUMBER_OFFSET=48
+          if [[ "${PROJECT_BUILD_NUMBER:-}" =~ ^[0-9]+$ ]]; then
+          CI_BUILD_NUMBER=$((PROJECT_BUILD_NUMBER + BUILD_NUMBER_OFFSET))
+          else
+          CI_BUILD_NUMBER=0
           fi
-          NEW_BUILD_NUMBER=$(($LATEST_BUILD_NUMBER + 1))
+          LATEST_BUILD_NUMBER=$(app-store-connect get-latest-testflight-build-number "com.fiskerik.trimswipe" --all-versions 2>/dev/null || true)
+          if [[ "$LATEST_BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
+          STORE_BUILD_NUMBER=$((LATEST_BUILD_NUMBER + 1))
+          else
+          STORE_BUILD_NUMBER=0
+          fi
+          NEW_BUILD_NUMBER=$CI_BUILD_NUMBER
+          if [ "$NEW_BUILD_NUMBER" -lt "$STORE_BUILD_NUMBER" ]; then
+          NEW_BUILD_NUMBER=$STORE_BUILD_NUMBER
+          fi
           if [ "$NEW_BUILD_NUMBER" -lt "$MINIMUM_BUILD_NUMBER" ]; then
           NEW_BUILD_NUMBER=$MINIMUM_BUILD_NUMBER
           fi
