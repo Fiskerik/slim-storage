@@ -16,9 +16,6 @@ workflows:
       vars:
         BUNDLE_ID: "com.fiskerik.trimswipe" # Fixed to match your real app bundle ID
         APP_MARKETING_VERSION: "1.0.9"
-        EXPO_PUBLIC_RC_KEY: $rc_api_key
-        EXPO_PUBLIC_RC_ENTITLEMENT_ID: $rc_entitlement_id
-        EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID: $rc_product_id
         EXPO_NO_TYPESCRIPT_SETUP: "1"
     triggering:
       events:
@@ -28,23 +25,51 @@ workflows:
     integrations:
       app_store_connect: Codemagic Key 
     scripts:
-      - name: Validate RevenueCat environment
+      - name: Configure and validate RevenueCat environment
         script: |
-          case "${EXPO_PUBLIC_RC_KEY:-}" in
+          first_value() {
+            for candidate in "$@"; do
+              case "$candidate" in
+                ""|@*|\$*) ;;
+                *) printf '%s' "$candidate"; return 0 ;;
+              esac
+            done
+            printf ''
+          }
+
+          REVENUECAT_KEY=$(first_value \
+            "${EXPO_PUBLIC_RC_KEY:-}" \
+            "${RC_API_KEY:-}" \
+            "${rc_api_key:-}" \
+            "${REVENUECAT_IOS_API_KEY:-}")
+          REVENUECAT_ENTITLEMENT=$(first_value \
+            "${EXPO_PUBLIC_RC_ENTITLEMENT_ID:-}" \
+            "${RC_ENTITLEMENT_ID:-}" \
+            "${rc_entitlement_id:-}")
+          REVENUECAT_PRODUCT=$(first_value \
+            "${EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID:-}" \
+            "${RC_PRODUCT_ID:-}" \
+            "${rc_product_id:-}")
+
+          case "$REVENUECAT_KEY" in
             appl_*) ;;
             *)
-              echo "RevenueCat iOS API key is missing or invalid. Check rc_api_key in the Env variable group."
+              echo "RevenueCat iOS API key is missing or invalid. Add EXPO_PUBLIC_RC_KEY, RC_API_KEY, or rc_api_key to the Env group."
               exit 1
               ;;
           esac
-          if [ -z "${EXPO_PUBLIC_RC_ENTITLEMENT_ID:-}" ]; then
-            echo "RevenueCat entitlement ID is missing. Check rc_entitlement_id in the Env variable group."
+          if [ -z "$REVENUECAT_ENTITLEMENT" ]; then
+            echo "RevenueCat entitlement ID is missing. Add EXPO_PUBLIC_RC_ENTITLEMENT_ID, RC_ENTITLEMENT_ID, or rc_entitlement_id to the Env group."
             exit 1
           fi
-          if [ -z "${EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID:-}" ]; then
-            echo "RevenueCat lifetime product ID is missing. Check rc_product_id in the Env variable group."
+          if [ -z "$REVENUECAT_PRODUCT" ]; then
+            echo "RevenueCat lifetime product ID is missing. Add EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID, RC_PRODUCT_ID, or rc_product_id to the Env group."
             exit 1
           fi
+
+          printf 'EXPO_PUBLIC_RC_KEY=%s\n' "$REVENUECAT_KEY" >> "$CM_ENV"
+          printf 'EXPO_PUBLIC_RC_ENTITLEMENT_ID=%s\n' "$REVENUECAT_ENTITLEMENT" >> "$CM_ENV"
+          printf 'EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID=%s\n' "$REVENUECAT_PRODUCT" >> "$CM_ENV"
 
       - name: Build Root Mobile SPA Bundle
         script: |
