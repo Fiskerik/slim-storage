@@ -16,7 +16,7 @@ import * as Haptics from "expo-haptics";
 import { colors, radius, shadow, spacing, type } from "../constants/design";
 import { Card, Pill, SectionHeader } from "./ui/primitives";
 import {
-  checkProStatus,
+  getPurchaseAccessStatus,
   loadShopProducts,
   purchaseLifetime,
   purchaseSubscription,
@@ -46,14 +46,14 @@ export type ShopScreenProps = {
   ) => void;
   dailyReward?: DailyRewardState;
   onClaimDailyTokens?: () => void;
-  onProStatusChange?: (isPro: boolean) => void;
+  onProStatusChange?: (isPro: boolean, hasUnlimitedTrims?: boolean) => void;
 };
 
 const TOKEN_ORDER = ["tokens_50", "tokens_100", "tokens_200", "tokens_500"];
 const PREMIUM_PLANS = [
-  { key: "monthly", label: "Monthly", productId: MONTHLY_PRODUCT_ID, cadence: "per month" },
-  { key: "yearly", label: "Yearly", productId: YEARLY_PRODUCT_ID, cadence: "per year" },
-  { key: "lifetime", label: "Lifetime", productId: LIFETIME_PRODUCT_ID, cadence: "one-time" },
+  { key: "monthly", label: "Monthly", productId: MONTHLY_PRODUCT_ID, cadence: "per month", tokens: 250 },
+  { key: "yearly", label: "Yearly", productId: YEARLY_PRODUCT_ID, cadence: "per year", tokens: 500 },
+  { key: "lifetime", label: "Lifetime", productId: LIFETIME_PRODUCT_ID, cadence: "one-time", tokens: 0 },
 ] as const;
 type PremiumPlanKey = (typeof PREMIUM_PLANS)[number]["key"];
 
@@ -69,6 +69,7 @@ export function ShopScreen({
   const [busy, setBusy] = useState<string | null>(null);
   const [adBusy, setAdBusy] = useState(false);
   const [isPro, setIsPro] = useState(false);
+  const [hasUnlimitedTrims, setHasUnlimitedTrims] = useState(false);
   const [tokens, setTokens] = useState(0);
   const [selectedPlan, setSelectedPlan] = useState<PremiumPlanKey>("lifetime");
   const adShine = useRef(new Animated.Value(0)).current;
@@ -82,11 +83,12 @@ export function ShopScreen({
     let alive = true;
     (async () => {
       try {
-        const [list, pro] = await Promise.all([loadShopProducts(), checkProStatus()]);
+        const [list, access] = await Promise.all([loadShopProducts(), getPurchaseAccessStatus()]);
         if (!alive) return;
         setProducts(list);
-        setIsPro(pro);
-        onProStatusChange?.(pro);
+        setIsPro(access.isPro);
+        setHasUnlimitedTrims(access.hasUnlimitedTrims);
+        onProStatusChange?.(access.isPro, access.hasUnlimitedTrims);
       } finally {
         if (alive) setLoading(false);
       }
@@ -153,7 +155,8 @@ export function ShopScreen({
           : await purchaseSubscription(selectedProduct.id);
       if (res.success && res.isPro) {
         setIsPro(true);
-        onProStatusChange?.(true);
+        setHasUnlimitedTrims(selectedPlan === "lifetime");
+        onProStatusChange?.(true, selectedPlan === "lifetime");
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         onToast?.(
           "Welcome to Pro",
@@ -176,8 +179,10 @@ export function ShopScreen({
     setBusy("restore");
     try {
       const pro = await restorePurchasesPublic();
-      setIsPro(pro);
-      onProStatusChange?.(pro);
+      const access = await getPurchaseAccessStatus();
+      setIsPro(pro && access.isPro);
+      setHasUnlimitedTrims(pro && access.hasUnlimitedTrims);
+      onProStatusChange?.(pro && access.isPro, pro && access.hasUnlimitedTrims);
       onToast?.(
         pro ? "Restored" : "Nothing to restore",
         pro ? "Premium access restored." : "No previous purchases were found for this Apple ID.",
@@ -195,7 +200,9 @@ export function ShopScreen({
       const result = await redeemOfferCodePublic();
       if (result.success) {
         setIsPro(result.isPro);
-        onProStatusChange?.(result.isPro);
+        const access = await getPurchaseAccessStatus();
+        setHasUnlimitedTrims(access.hasUnlimitedTrims);
+        onProStatusChange?.(result.isPro, access.hasUnlimitedTrims);
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         if (result.tokensGranted > 0) {
           onToast?.(
@@ -245,7 +252,7 @@ export function ShopScreen({
           </View>
           <View style={styles.balance}>
             <Ionicons name="flash" size={16} color={colors.honey} />
-            <Text style={styles.balanceValue}>{isPro ? "∞" : tokens}</Text>
+            <Text style={styles.balanceValue}>{hasUnlimitedTrims ? "∞" : tokens}</Text>
           </View>
         </View>
 
@@ -254,7 +261,9 @@ export function ShopScreen({
             <View style={{ flex: 1 }}>
               <Text style={type.eyebrow}>TrimSwipe Pro</Text>
               <Text style={styles.proTitle}>{"You're all set"}</Text>
-              <Text style={styles.proSub}>Unlimited trims · no ads</Text>
+              <Text style={styles.proSub}>
+                {hasUnlimitedTrims ? "Unlimited trims · no ads · forever" : "Subscription tokens · no ads"}
+              </Text>
             </View>
             <Ionicons name="diamond" size={28} color={colors.primary} />
           </Card>
@@ -299,7 +308,9 @@ export function ShopScreen({
             </View>
             <View style={styles.lifetimeBenefits}>
               {[
-                "Unlimited Trim Tokens",
+                selectedPremium.tokens > 0
+                  ? `${selectedPremium.tokens} Trim Tokens every month`
+                  : "Unlimited Trim Tokens",
                 "No ads — ever",
                 "Multi-preset trim (stack actions)",
                 "Priority new features",
@@ -498,13 +509,13 @@ function fallbackPremiumProduct(key: PremiumPlanKey, id: string): ShopProduct {
   const details = {
     monthly: {
       title: "Monthly Pro",
-      description: "Unlimited trims and no ads, billed monthly",
+      description: "250 Trim Tokens every month and no ads",
       price: "$2.99",
       priceAmount: 2.99,
     },
     yearly: {
       title: "Yearly Pro",
-      description: "Unlimited trims and no ads, billed yearly",
+      description: "500 Trim Tokens every month and no ads",
       price: "$24.99",
       priceAmount: 24.99,
     },

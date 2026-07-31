@@ -38,6 +38,7 @@ type PurchaseRequest = {
 
 type PurchaseResult = {
   isPro?: boolean;
+  hasUnlimitedTrims?: boolean;
   success?: boolean;
   tokensGranted?: number;
   transactionId?: string;
@@ -370,6 +371,10 @@ function isProFromInfo(info: CustomerInfo): boolean {
   return info.entitlements.active[ENTITLEMENT_ID] !== undefined;
 }
 
+function hasUnlimitedTrimsFromInfo(info: CustomerInfo): boolean {
+  return info.entitlements.active[ENTITLEMENT_ID]?.productIdentifier === LIFETIME_PRODUCT_ID;
+}
+
 function serializeCustomerInfo(info: CustomerInfo) {
   const entitlements: Record<string, any> = {};
   for (const [key, ent] of Object.entries(info.entitlements.active)) {
@@ -426,13 +431,16 @@ export async function handlePurchaseMessage(
 // ─── Check Pro Entitlement ────────────────────────
 
 async function checkPro(): Promise<PurchaseResult> {
-  if (FORCE_PRO_FOR_TESTING) return { isPro: true };
+  if (FORCE_PRO_FOR_TESTING) return { isPro: true, hasUnlimitedTrims: true };
   try {
     const { info } = await refreshPurchaseState();
-    return { isPro: isProFromInfo(info) };
+    return {
+      isPro: isProFromInfo(info),
+      hasUnlimitedTrims: hasUnlimitedTrimsFromInfo(info),
+    };
   } catch (err: any) {
     console.error("[RevenueCat] checkPro error:", err?.message);
-    return { isPro: false, error: err?.message };
+    return { isPro: false, hasUnlimitedTrims: false, error: err?.message };
   }
 }
 
@@ -507,6 +515,7 @@ async function purchase(productId: string): Promise<PurchaseResult> {
     return {
       success: true,
       isPro,
+      hasUnlimitedTrims: hasUnlimitedTrimsFromInfo(customerInfo),
       tokensGranted: subscriptionTokens,
       transactionId: transaction?.transactionIdentifier,
       customerInfo: serializeCustomerInfo(customerInfo),
@@ -543,6 +552,7 @@ async function restore(): Promise<PurchaseResult> {
     const subscriptionTokens = await reconcileSubscriptionTokenGrant(info);
     return {
       isPro: isProFromInfo(info),
+      hasUnlimitedTrims: hasUnlimitedTrimsFromInfo(info),
       success: purchasedTokens > 0 || subscriptionTokens > 0,
       tokensGranted: purchasedTokens + subscriptionTokens,
       customerInfo: serializeCustomerInfo(info),
@@ -681,6 +691,7 @@ async function presentCustomerCenter(): Promise<PurchaseResult> {
     return {
       success: true,
       isPro: isProFromInfo(info),
+      hasUnlimitedTrims: hasUnlimitedTrimsFromInfo(info),
       customerInfo: serializeCustomerInfo(info),
     };
   } catch (err: any) {
@@ -729,6 +740,25 @@ export async function checkProStatus(): Promise<boolean> {
   } catch (err: any) {
     console.log("[RevenueCat] checkProStatus error:", err?.message);
     return false;
+  }
+}
+
+export async function getPurchaseAccessStatus(): Promise<{
+  isPro: boolean;
+  hasUnlimitedTrims: boolean;
+}> {
+  if (FORCE_PRO_FOR_TESTING) return { isPro: true, hasUnlimitedTrims: true };
+  const ok = await initializePurchases();
+  if (!ok) return { isPro: false, hasUnlimitedTrims: false };
+  try {
+    const { info } = await refreshPurchaseState();
+    return {
+      isPro: isProFromInfo(info),
+      hasUnlimitedTrims: hasUnlimitedTrimsFromInfo(info),
+    };
+  } catch (err: any) {
+    console.log("[RevenueCat] getPurchaseAccessStatus error:", err?.message);
+    return { isPro: false, hasUnlimitedTrims: false };
   }
 }
 

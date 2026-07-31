@@ -62,6 +62,7 @@ export type HomeDashboardProps = {
   scanInProgressText?: string;
   tokens: number;
   isPro: boolean;
+  hasUnlimitedTrims?: boolean;
   adBusy?: boolean;
   onStartSwipe: () => void;
   onOpenTrim: () => void;
@@ -104,6 +105,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
     scanComplete,
     tokens,
     isPro,
+    hasUnlimitedTrims = isPro,
     adBusy,
     onStartSwipe,
     onOpenTrim,
@@ -194,7 +196,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
           <View style={styles.headerActions}>
             <Pressable onPress={onOpenShop} hitSlop={10} style={styles.tokenChip}>
               <Ionicons name="flash" size={14} color={colors.honey} />
-              <Text style={styles.tokenChipValue}>{isPro ? "∞" : tokens}</Text>
+              <Text style={styles.tokenChipValue}>{hasUnlimitedTrims ? "∞" : tokens}</Text>
             </Pressable>
             <Pressable onPress={() => setDetailsOpen(true)} hitSlop={10} style={styles.shareBtn}>
               <Ionicons name="search-outline" size={18} color={colors.primary} />

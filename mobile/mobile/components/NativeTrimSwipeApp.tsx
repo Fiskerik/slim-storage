@@ -72,7 +72,7 @@ import { OnboardingCarousel } from "./OnboardingCarousel";
 import { TrimScreen } from "./TrimScreen";
 import { ShopScreen } from "./ShopScreen";
 import { addTokens, subscribeTokens, spendTokens, DAILY_CLAIM_TOKENS } from "../lib/tokens";
-import { checkProStatus, restorePurchasesPublic } from "../lib/purchases";
+import { getPurchaseAccessStatus, restorePurchasesPublic } from "../lib/purchases";
 import { showRewardedAd, showInterstitialAd, initAds } from "../lib/ads";
 import { colors } from "../constants/design";
 import {
@@ -735,6 +735,7 @@ export function NativeTrimSwipeApp() {
   const [pendingTrims, setPendingTrims] = useState<NativePhoto[]>([]);
   const [tokenBalance, setTokenBalance] = useState<number>(10);
   const [isPro, setIsPro] = useState(false);
+  const [hasUnlimitedTrims, setHasUnlimitedTrims] = useState(false);
   const [adBusy, setAdBusy] = useState(false);
   const cleanupCompletionsRef = useRef(0);
   const shareShotRef = useRef<View>(null);
@@ -754,7 +755,7 @@ export function NativeTrimSwipeApp() {
   const settings = roundSettings(stats.settings);
   const top = queue[0];
   const next = queue[1];
-  const trimCurrencyAvailable = isPro ? Number.MAX_SAFE_INTEGER : Math.max(0, tokenBalance);
+  const trimCurrencyAvailable = hasUnlimitedTrims ? Number.MAX_SAFE_INTEGER : Math.max(0, tokenBalance);
   const onboardingDue = statsLoaded && (!stats.onboardingComplete || stats.onboardingVersion !== APP_VERSION);
   const backgroundScheduleSignature = settings.backgroundScanSchedules
     .map((schedule) => `${schedule.id}:${schedule.active}:${schedule.days.join(",")}:${schedule.times.join(",")}:${schedule.targetMB}:${schedule.lastRunAt ?? ""}`)
@@ -821,7 +822,15 @@ export function NativeTrimSwipeApp() {
 
   useEffect(() => {
     const unsub = subscribeTokens((s) => setTokenBalance(s.tokens));
-    void checkProStatus().then(setIsPro).catch(() => setIsPro(false));
+    void getPurchaseAccessStatus()
+      .then((access) => {
+        setIsPro(access.isPro);
+        setHasUnlimitedTrims(access.hasUnlimitedTrims);
+      })
+      .catch(() => {
+        setIsPro(false);
+        setHasUnlimitedTrims(false);
+      });
     void initAds().catch(() => {});
     void registerCleanupBackgroundTask();
     void ensureCleanupNotifications();
@@ -1130,7 +1139,7 @@ export function NativeTrimSwipeApp() {
       advance();
       return;
     }
-    if (!isPro && tokenBalance - pendingTrimsRef.current.length <= 0) {
+    if (!hasUnlimitedTrims && tokenBalance - pendingTrimsRef.current.length <= 0) {
       showToast("Not enough tokens", "Claim daily tokens, watch an ad, or visit the shop.", "warning");
       return;
     }
@@ -1163,7 +1172,7 @@ export function NativeTrimSwipeApp() {
     try {
     const requestedTrimIds = new Set(trims.map((p) => p.id));
     const requestedDeleteIds = new Set(deletes.map((p) => p.id));
-    const chargeableTrims = isPro ? trims : trims.slice(0, tokenBalance);
+    const chargeableTrims = hasUnlimitedTrims ? trims : trims.slice(0, tokenBalance);
     if (chargeableTrims.length < trims.length) {
       showToast("Not enough tokens", `${chargeableTrims.length}/${trims.length} selected trims can be applied.`, "warning");
     }
@@ -1189,7 +1198,7 @@ export function NativeTrimSwipeApp() {
     const deletedCount = batch.deletedCount;
     const deletedPhotos = batch.deletedPhotos;
 
-    if (!isPro && trimmedOkIds.size > 0) {
+    if (!hasUnlimitedTrims && trimmedOkIds.size > 0) {
       await spendTokens(trimmedOkIds.size);
     }
     const actualTrimSaved = trimmedResults.reduce(
@@ -1717,7 +1726,7 @@ export function NativeTrimSwipeApp() {
   }, [isPro, screen]);
 
   async function bulkTrimPhotos(photos: NativePhoto[]) {
-    const available = isPro ? photos.length : tokenBalance;
+    const available = hasUnlimitedTrims ? photos.length : tokenBalance;
     const candidates = photos.filter((photo) => canAttemptTrim(photo, settings)).slice(0, available);
     if (available <= 0) {
       showToast("Not enough tokens", "Claim daily tokens, watch an ad, or visit the shop.", "warning");
@@ -1747,7 +1756,7 @@ export function NativeTrimSwipeApp() {
       })),
     );
     const trimmed = results.filter((item) => item.trimmed).map((item) => item.photo);
-    if (!isPro && trimmed.length > 0) await spendTokens(trimmed.length);
+    if (!hasUnlimitedTrims && trimmed.length > 0) await spendTokens(trimmed.length);
     const actualSaved = results.reduce(
       (sum, item) =>
         item.trimmed ? sum + (item.savedMB ?? estimateTrimSavingsForSettings(item.photo, settings)) : sum,
@@ -1785,7 +1794,7 @@ export function NativeTrimSwipeApp() {
     deleted: NativePhoto[],
     toTrim: NativePhoto[],
   ): Promise<number> {
-    const available = isPro ? toTrim.length : tokenBalance;
+    const available = hasUnlimitedTrims ? toTrim.length : tokenBalance;
     const trimCandidates = toTrim.filter((photo) => canAttemptTrim(photo, settings)).slice(0, available);
     if (trimCandidates.length < toTrim.length) {
       showToast(
@@ -1812,7 +1821,7 @@ export function NativeTrimSwipeApp() {
             ).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
             setTrimmingCount((count) => Math.max(0, count - trimCandidates.length));
             const trimmed = trimCandidates.filter((_, index) => results[index]?.trimmed);
-            if (!isPro && trimmed.length > 0) await spendTokens(trimmed.length);
+            if (!hasUnlimitedTrims && trimmed.length > 0) await spendTokens(trimmed.length);
             const trimmedIds = new Set(trimmed.map((photo) => photo.id));
             const actualTrimSavings = trimCandidates.reduce(
               (sum, photo, index) =>
@@ -1883,7 +1892,7 @@ export function NativeTrimSwipeApp() {
     toTrim: NativePhoto[],
   ): Promise<number> {
     const deleteSavings = deleted.reduce((sum, photo) => sum + photo.sizeMB, 0);
-    const available = isPro ? toTrim.length : tokenBalance;
+    const available = hasUnlimitedTrims ? toTrim.length : tokenBalance;
     const trimCandidates = toTrim.filter((photo) => canAttemptTrim(photo, settings)).slice(0, available);
     if (trimCandidates.length < toTrim.length) {
       showToast("Not enough tokens", `${trimCandidates.length}/${toTrim.length} selected trims can be applied.`, "warning");
@@ -1908,7 +1917,7 @@ export function NativeTrimSwipeApp() {
               ).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
               setTrimmingCount((count) => Math.max(0, count - trimCandidates.length));
               const trimmedPhotos = trimCandidates.filter((_, index) => trimResults[index]?.trimmed);
-              if (!isPro && trimmedPhotos.length > 0) await spendTokens(trimmedPhotos.length);
+              if (!hasUnlimitedTrims && trimmedPhotos.length > 0) await spendTokens(trimmedPhotos.length);
               const trimmedIds = new Set(trimmedPhotos.map((photo) => photo.id));
               const actualTrimSavings = trimCandidates.reduce(
                 (sum, photo, index) =>
@@ -1972,7 +1981,7 @@ export function NativeTrimSwipeApp() {
     toTrim: NativePhoto[],
   ): Promise<number> {
     const deleteSavings = deleted.reduce((sum, photo) => sum + photo.sizeMB, 0);
-    const available = isPro ? toTrim.length : tokenBalance;
+    const available = hasUnlimitedTrims ? toTrim.length : tokenBalance;
     const trimCandidates = toTrim.filter((photo) => canAttemptTrim(photo, settings)).slice(0, available);
     if (trimCandidates.length < toTrim.length) {
       showToast("Not enough tokens", `${trimCandidates.length}/${toTrim.length} selected trims can be applied.`, "warning");
@@ -1996,7 +2005,7 @@ export function NativeTrimSwipeApp() {
               ).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
               setTrimmingCount((count) => Math.max(0, count - trimCandidates.length));
               const trimmedPhotos = trimCandidates.filter((_, index) => trimResults[index]?.trimmed);
-              if (!isPro && trimmedPhotos.length > 0) await spendTokens(trimmedPhotos.length);
+              if (!hasUnlimitedTrims && trimmedPhotos.length > 0) await spendTokens(trimmedPhotos.length);
               const trimmedIds = new Set(trimmedPhotos.map((photo) => photo.id));
               const actualTrimSavings = trimCandidates.reduce(
                 (sum, photo, index) =>
@@ -2055,7 +2064,7 @@ export function NativeTrimSwipeApp() {
   }
 
   async function handleSingleTrimComplete(photo: NativePhoto, savedMB: number) {
-    if (!isPro) await spendTokens(1);
+    if (!hasUnlimitedTrims) await spendTokens(1);
     sessionRef.current.trimmed += 1;
     sessionRef.current.freed += savedMB;
     commitStats((current) =>
@@ -2228,7 +2237,12 @@ export function NativeTrimSwipeApp() {
             onToast={showToast}
             dailyReward={dailyReward}
             onClaimDailyTokens={claimDailyTokens}
-            onProStatusChange={setIsPro}
+            onProStatusChange={(nextIsPro, nextHasUnlimitedTrims) => {
+              setIsPro(nextIsPro);
+              if (nextHasUnlimitedTrims !== undefined) {
+                setHasUnlimitedTrims(nextHasUnlimitedTrims);
+              }
+            }}
           />
         ) : screen === "games" ? (
           <GamesScreen
@@ -2258,6 +2272,7 @@ export function NativeTrimSwipeApp() {
             scanInProgressText={scanInProgressText}
             tokens={tokenBalance}
             isPro={isPro}
+            hasUnlimitedTrims={hasUnlimitedTrims}
             adBusy={adBusy}
             onStartSwipe={() => { setScreen("swipe"); void loadRound(settings, { showFallbackToast: true }); }}
             onOpenTrim={() => setScreen("trim")}
@@ -2284,7 +2299,9 @@ export function NativeTrimSwipeApp() {
             onCreateReport={openCleanupReport}
             onRestorePurchases={async () => {
               const restored = await restorePurchasesPublic();
-              setIsPro(restored);
+              const access = await getPurchaseAccessStatus();
+              setIsPro(restored && access.isPro);
+              setHasUnlimitedTrims(restored && access.hasUnlimitedTrims);
               showToast(
                 restored ? "Restored" : "Nothing to restore",
                 restored ? "Premium access restored." : "No previous purchases were found for this Apple ID.",
