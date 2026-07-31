@@ -14,11 +14,22 @@ import Purchases, {
 import { addTokens, TOKEN_PACKS } from "./tokens";
 
 const REVENUECAT_API_KEY = process.env.EXPO_PUBLIC_RC_KEY ?? "";
-const LIFETIME_PRODUCT_ID = process.env.EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID ?? "lifetime_premium_1";
+export const LIFETIME_PRODUCT_ID =
+  process.env.EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID ?? "lifetime_premium_1";
+export const MONTHLY_PRODUCT_ID =
+  process.env.EXPO_PUBLIC_RC_MONTHLY_PRODUCT_ID ?? "trimswipe_monthly";
+export const YEARLY_PRODUCT_ID =
+  process.env.EXPO_PUBLIC_RC_YEARLY_PRODUCT_ID ?? "trimswipe_yearly";
+const SUBSCRIPTION_PRODUCT_IDS = new Set([MONTHLY_PRODUCT_ID, YEARLY_PRODUCT_ID]);
 const ENTITLEMENT_ID = process.env.EXPO_PUBLIC_RC_ENTITLEMENT_ID ?? "TrimswipePro";
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const FORCE_PRO_FOR_TESTING = false;
 const TRANSACTION_LEDGER_FILE = "trimswipe-purchase-transactions-v1.json";
+const SUBSCRIPTION_TOKEN_GRANTS_FILE = "trimswipe-subscription-token-grants-v1.json";
+const SUBSCRIPTION_MONTHLY_TOKEN_GRANTS: Record<string, number> = {
+  [MONTHLY_PRODUCT_ID]: 250,
+  [YEARLY_PRODUCT_ID]: 500,
+};
 
 type PurchaseRequest = {
   productId?: string;
@@ -64,6 +75,10 @@ let transactionLedgerPromise: Promise<Set<string>> | null = null;
 let foregroundSubscription: { remove: () => void } | null = null;
 const transactionsBeingProcessed = new Set<string>();
 const tokenProductsBeingPurchased = new Set<string>();
+let subscriptionTokenGrants: Record<string, { productId: string; amount: number }> | null = null;
+let subscriptionTokenGrantsPromise: Promise<
+  Record<string, { productId: string; amount: number }>
+> | null = null;
 
 function getErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -131,6 +146,90 @@ async function persistProcessedTransactionIds(): Promise<void> {
   }
 }
 
+function subscriptionTokenGrantsUri(): string | null {
+  return FileSystem.documentDirectory
+    ? `${FileSystem.documentDirectory}${SUBSCRIPTION_TOKEN_GRANTS_FILE}`
+    : null;
+}
+
+async function loadSubscriptionTokenGrants(): Promise<
+  Record<string, { productId: string; amount: number }>
+> {
+  if (subscriptionTokenGrants) return subscriptionTokenGrants;
+  if (subscriptionTokenGrantsPromise) return subscriptionTokenGrantsPromise;
+
+  subscriptionTokenGrantsPromise = (async () => {
+    const path = subscriptionTokenGrantsUri();
+    if (!path) {
+      subscriptionTokenGrants = {};
+      return subscriptionTokenGrants;
+    }
+
+    try {
+      const info = await FileSystem.getInfoAsync(path);
+      if (info.exists) {
+        const parsed = JSON.parse(await FileSystem.readAsStringAsync(path)) as unknown;
+        if (parsed && typeof parsed === "object") {
+          subscriptionTokenGrants = Object.fromEntries(
+            Object.entries(parsed as Record<string, unknown>).flatMap(([month, value]) => {
+              if (!value || typeof value !== "object") return [];
+              const grant = value as { productId?: unknown; amount?: unknown };
+              if (typeof grant.productId !== "string" || typeof grant.amount !== "number") {
+                return [];
+              }
+              return [[month, { productId: grant.productId, amount: Math.max(0, grant.amount) }]];
+            }),
+          );
+          return subscriptionTokenGrants;
+        }
+      }
+    } catch (err) {
+      console.log("[RevenueCat] subscription token grant ledger load failed", err);
+    }
+
+    subscriptionTokenGrants = {};
+    return subscriptionTokenGrants;
+  })().finally(() => {
+    subscriptionTokenGrantsPromise = null;
+  });
+
+  return subscriptionTokenGrantsPromise;
+}
+
+async function persistSubscriptionTokenGrants(): Promise<void> {
+  const path = subscriptionTokenGrantsUri();
+  if (!path || !subscriptionTokenGrants) return;
+  try {
+    await FileSystem.writeAsStringAsync(path, JSON.stringify(subscriptionTokenGrants));
+  } catch (err) {
+    console.log("[RevenueCat] subscription token grant ledger save failed", err);
+  }
+}
+
+function currentCalendarMonthKey(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+async function reconcileSubscriptionTokenGrant(info: CustomerInfo): Promise<number> {
+  const entitlement = info.entitlements.active[ENTITLEMENT_ID];
+  const grantAmount = entitlement
+    ? SUBSCRIPTION_MONTHLY_TOKEN_GRANTS[entitlement.productIdentifier] ?? 0
+    : 0;
+  if (!grantAmount) return 0;
+
+  const grants = await loadSubscriptionTokenGrants();
+  const month = currentCalendarMonthKey();
+  const previous = grants[month];
+  const additionalTokens = Math.max(0, grantAmount - (previous?.amount ?? 0));
+  if (additionalTokens === 0) return 0;
+
+  await addTokens(additionalTokens, "grant");
+  grants[month] = { productId: entitlement.productIdentifier, amount: grantAmount };
+  await persistSubscriptionTokenGrants();
+  return additionalTokens;
+}
+
 async function initializeTransactionLedger(info: CustomerInfo): Promise<void> {
   const ledger = await loadProcessedTransactionIds();
   if (transactionLedgerInitialized) return;
@@ -186,13 +285,16 @@ async function reconcileNewTokenTransactions(info: CustomerInfo): Promise<number
 async function refreshPurchaseState(): Promise<{ info: CustomerInfo; tokensGranted: number }> {
   const info = await Purchases.getCustomerInfo();
   await initializeTransactionLedger(info);
-  const tokensGranted = await reconcileNewTokenTransactions(info);
-  return { info, tokensGranted };
+  const purchasedTokens = await reconcileNewTokenTransactions(info);
+  const subscriptionTokens = await reconcileSubscriptionTokenGrant(info);
+  return { info, tokensGranted: purchasedTokens + subscriptionTokens };
 }
 
 function installPurchaseObservers(): void {
   Purchases.addCustomerInfoUpdateListener((info) => {
-    void initializeTransactionLedger(info).then(() => reconcileNewTokenTransactions(info));
+    void initializeTransactionLedger(info)
+      .then(() => reconcileNewTokenTransactions(info))
+      .then(() => reconcileSubscriptionTokenGrant(info));
   });
 
   if (Platform.OS === "ios" && !foregroundSubscription) {
@@ -341,9 +443,15 @@ async function getProducts(): Promise<PurchaseResult> {
     const offerings: PurchasesOfferings = await Purchases.getOfferings();
     const packages: PurchasesPackage[] = offerings.current?.availablePackages || [];
     if (packages.length === 0) {
-      const ids = [LIFETIME_PRODUCT_ID, ...Object.keys(TOKEN_PACKS)].filter(Boolean);
-      const storeProducts =
-        ids.length > 0 ? await Purchases.getProducts(ids, PURCHASE_TYPE.INAPP) : [];
+      const inAppIds = [LIFETIME_PRODUCT_ID, ...Object.keys(TOKEN_PACKS)].filter(Boolean);
+      const subscriptionIds = [MONTHLY_PRODUCT_ID, YEARLY_PRODUCT_ID].filter(Boolean);
+      const [inAppProducts, subscriptionProducts] = await Promise.all([
+        inAppIds.length > 0 ? Purchases.getProducts(inAppIds, PURCHASE_TYPE.INAPP) : [],
+        subscriptionIds.length > 0
+          ? Purchases.getProducts(subscriptionIds, PURCHASE_TYPE.SUBS)
+          : [],
+      ]);
+      const storeProducts = [...inAppProducts, ...subscriptionProducts];
       return { products: storeProducts.map(serializeStoreProduct) };
     }
 
@@ -394,10 +502,12 @@ async function purchase(productId: string): Promise<PurchaseResult> {
     const isPro = isProFromInfo(customerInfo);
     await initializeTransactionLedger(customerInfo);
     await markTransactionProcessed(transaction?.transactionIdentifier);
+    const subscriptionTokens = await reconcileSubscriptionTokenGrant(customerInfo);
 
     return {
       success: true,
       isPro,
+      tokensGranted: subscriptionTokens,
       transactionId: transaction?.transactionIdentifier,
       customerInfo: serializeCustomerInfo(customerInfo),
     };
@@ -412,7 +522,10 @@ async function purchase(productId: string): Promise<PurchaseResult> {
 }
 
 async function purchaseStoreProductById(productId: string) {
-  const products = await Purchases.getProducts([productId], PURCHASE_TYPE.INAPP);
+  const purchaseType = SUBSCRIPTION_PRODUCT_IDS.has(productId)
+    ? PURCHASE_TYPE.SUBS
+    : PURCHASE_TYPE.INAPP;
+  const products = await Purchases.getProducts([productId], purchaseType);
   const product = products.find((item) => item.identifier === productId);
   if (!product) {
     throw new Error(`Product "${productId}" not available from StoreKit`);
@@ -426,11 +539,12 @@ async function restore(): Promise<PurchaseResult> {
   try {
     const info = await Purchases.restorePurchases();
     await initializeTransactionLedger(info);
-    const tokensGranted = await reconcileNewTokenTransactions(info);
+    const purchasedTokens = await reconcileNewTokenTransactions(info);
+    const subscriptionTokens = await reconcileSubscriptionTokenGrant(info);
     return {
       isPro: isProFromInfo(info),
-      success: tokensGranted > 0,
-      tokensGranted,
+      success: purchasedTokens > 0 || subscriptionTokens > 0,
+      tokensGranted: purchasedTokens + subscriptionTokens,
       customerInfo: serializeCustomerInfo(info),
     };
   } catch (err: any) {
@@ -534,9 +648,9 @@ async function presentPaywall(): Promise<PurchaseResult> {
       const purchasedIds = [...info.allPurchasedProductIdentifiers];
       console.log("[RevenueCat] post-paywall purchased ids:", purchasedIds);
 
-      if (!purchasedIds.includes(LIFETIME_PRODUCT_ID)) {
-        console.warn("[RevenueCat] expected lifetime product not found after paywall flow", {
-          expectedLifetimeProductId: LIFETIME_PRODUCT_ID,
+      if (!isProFromInfo(info)) {
+        console.warn("[RevenueCat] Pro entitlement is not active after paywall flow", {
+          entitlementId: ENTITLEMENT_ID,
           purchasedIds,
         });
       }
@@ -601,6 +715,8 @@ export type ShopProduct = {
   tokens: number;
   /** True if this product unlocks the Lifetime Pro entitlement. */
   isLifetime: boolean;
+  /** True if this product is an auto-renewable Pro subscription. */
+  isSubscription: boolean;
 };
 
 export async function checkProStatus(): Promise<boolean> {
@@ -608,7 +724,7 @@ export async function checkProStatus(): Promise<boolean> {
   const ok = await initializePurchases();
   if (!ok) return false;
   try {
-    const info = await Purchases.getCustomerInfo();
+    const { info } = await refreshPurchaseState();
     return isProFromInfo(info);
   } catch (err: any) {
     console.log("[RevenueCat] checkProStatus error:", err?.message);
@@ -623,6 +739,7 @@ export async function loadShopProducts(): Promise<ShopProduct[]> {
     ...p,
     tokens: TOKEN_PACKS[p.id] ?? 0,
     isLifetime: p.id === LIFETIME_PRODUCT_ID,
+    isSubscription: SUBSCRIPTION_PRODUCT_IDS.has(p.id),
   }));
 }
 
@@ -657,13 +774,49 @@ export async function purchaseTokenPack(
 export async function purchaseLifetime(): Promise<{
   success: boolean;
   isPro: boolean;
+  tokensGranted: number;
   error?: string;
 }> {
   const ok = await initializePurchases();
-  if (!ok) return { success: false, isPro: false, error: "RevenueCat not configured" };
+  if (!ok) {
+    return { success: false, isPro: false, tokensGranted: 0, error: "RevenueCat not configured" };
+  }
 
   const result = await purchase(LIFETIME_PRODUCT_ID);
-  return { success: result.success === true, isPro: result.isPro === true, error: result.error };
+  return {
+    success: result.success === true,
+    isPro: result.isPro === true,
+    tokensGranted: result.tokensGranted ?? 0,
+    error: result.error,
+  };
+}
+
+export async function purchaseSubscription(productId: string): Promise<{
+  success: boolean;
+  isPro: boolean;
+  tokensGranted: number;
+  error?: string;
+}> {
+  const ok = await initializePurchases();
+  if (!ok) {
+    return { success: false, isPro: false, tokensGranted: 0, error: "RevenueCat not configured" };
+  }
+  if (!SUBSCRIPTION_PRODUCT_IDS.has(productId)) {
+    return {
+      success: false,
+      isPro: false,
+      tokensGranted: 0,
+      error: `Unknown subscription product: ${productId}`,
+    };
+  }
+
+  const result = await purchase(productId);
+  return {
+    success: result.success === true,
+    isPro: result.isPro === true,
+    tokensGranted: result.tokensGranted ?? 0,
+    error: result.error,
+  };
 }
 
 export async function restorePurchasesPublic(): Promise<boolean> {

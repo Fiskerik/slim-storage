@@ -19,9 +19,13 @@ import {
   checkProStatus,
   loadShopProducts,
   purchaseLifetime,
+  purchaseSubscription,
   purchaseTokenPack,
   redeemOfferCodePublic,
   restorePurchasesPublic,
+  LIFETIME_PRODUCT_ID,
+  MONTHLY_PRODUCT_ID,
+  YEARLY_PRODUCT_ID,
   type ShopProduct,
 } from "../lib/purchases";
 import {
@@ -46,6 +50,12 @@ export type ShopScreenProps = {
 };
 
 const TOKEN_ORDER = ["tokens_50", "tokens_100", "tokens_200", "tokens_500"];
+const PREMIUM_PLANS = [
+  { key: "monthly", label: "Monthly", productId: MONTHLY_PRODUCT_ID, cadence: "per month" },
+  { key: "yearly", label: "Yearly", productId: YEARLY_PRODUCT_ID, cadence: "per year" },
+  { key: "lifetime", label: "Lifetime", productId: LIFETIME_PRODUCT_ID, cadence: "one-time" },
+] as const;
+type PremiumPlanKey = (typeof PREMIUM_PLANS)[number]["key"];
 
 export function ShopScreen({
   onBack,
@@ -60,6 +70,7 @@ export function ShopScreen({
   const [adBusy, setAdBusy] = useState(false);
   const [isPro, setIsPro] = useState(false);
   const [tokens, setTokens] = useState(0);
+  const [selectedPlan, setSelectedPlan] = useState<PremiumPlanKey>("lifetime");
   const adShine = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -104,7 +115,15 @@ export function ShopScreen({
   const tokenPacks = TOKEN_ORDER.map(
     (id) => products.find((p) => p.id === id) ?? fallbackPack(id),
   ).filter(Boolean) as ShopProduct[];
-  const lifetime = products.find((p) => p.isLifetime) ?? fallbackLifetime();
+  const premiumProducts = PREMIUM_PLANS.map(({ key, productId, label, cadence }) => ({
+    key,
+    label,
+    cadence,
+    product: products.find((p) => p.id === productId) ?? fallbackPremiumProduct(key, productId),
+  }));
+  const selectedPremium =
+    premiumProducts.find((plan) => plan.key === selectedPlan) ?? premiumProducts[2];
+  const selectedProduct = selectedPremium.product;
 
   async function handleBuyTokens(id: string) {
     if (busy) return;
@@ -123,19 +142,26 @@ export function ShopScreen({
     }
   }
 
-  async function handleBuyLifetime() {
+  async function handleBuyPremium() {
     if (busy) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    setBusy(lifetime.id);
+    setBusy(selectedProduct.id);
     try {
-      const res = await purchaseLifetime();
+      const res =
+        selectedPlan === "lifetime"
+          ? await purchaseLifetime()
+          : await purchaseSubscription(selectedProduct.id);
       if (res.success && res.isPro) {
         setIsPro(true);
         onProStatusChange?.(true);
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         onToast?.(
           "Welcome to Pro",
-          "Unlimited trims and an ad-free experience are unlocked.",
+          selectedPlan === "lifetime"
+            ? "Unlimited trims and an ad-free experience are unlocked forever."
+            : `${selectedPremium.label} Pro is now active. Your subscription is managed by Apple.${
+                res.tokensGranted > 0 ? ` +${res.tokensGranted} tokens added.` : ""
+              }`,
           "success",
         );
       } else if (res.error && res.error !== "cancelled") {
@@ -154,7 +180,7 @@ export function ShopScreen({
       onProStatusChange?.(pro);
       onToast?.(
         pro ? "Restored" : "Nothing to restore",
-        pro ? "Lifetime Pro restored." : "No previous purchases were found for this Apple ID.",
+        pro ? "Premium access restored." : "No previous purchases were found for this Apple ID.",
         pro ? "success" : "warning",
       );
     } finally {
@@ -178,7 +204,7 @@ export function ShopScreen({
             "success",
           );
         } else if (result.isPro) {
-          onToast?.("Code redeemed", "Lifetime Pro is now unlocked.", "success");
+          onToast?.("Code redeemed", "Pro access is now unlocked.", "success");
         } else {
           onToast?.("Code redeemed", "Your purchase is being synced with Apple.", "success");
         }
@@ -226,9 +252,9 @@ export function ShopScreen({
         {isPro ? (
           <Card style={[styles.proCard]} tone="warm">
             <View style={{ flex: 1 }}>
-              <Text style={type.eyebrow}>Lifetime Pro</Text>
+              <Text style={type.eyebrow}>TrimSwipe Pro</Text>
               <Text style={styles.proTitle}>{"You're all set"}</Text>
-              <Text style={styles.proSub}>Unlimited trims · no ads · forever</Text>
+              <Text style={styles.proSub}>Unlimited trims · no ads</Text>
             </View>
             <Ionicons name="diamond" size={28} color={colors.primary} />
           </Card>
@@ -236,16 +262,39 @@ export function ShopScreen({
           <View style={styles.lifetimeModal}>
             <View style={styles.lifetimeRibbon}>
               <Ionicons name="diamond" size={14} color={colors.white} />
-              <Text style={styles.lifetimeRibbonText}>LIMITED OFFER · LIFETIME</Text>
+              <Text style={styles.lifetimeRibbonText}>UNLOCK PRO</Text>
+            </View>
+            <View style={styles.planTabs}>
+              {premiumProducts.map((plan) => {
+                const selected = plan.key === selectedPlan;
+                return (
+                  <Pressable
+                    key={plan.key}
+                    onPress={() => setSelectedPlan(plan.key)}
+                    style={[styles.planTab, selected && styles.planTabActive]}
+                  >
+                    <Text style={[styles.planTabLabel, selected && styles.planTabLabelActive]}>
+                      {plan.label}
+                    </Text>
+                    <Text style={[styles.planTabPrice, selected && styles.planTabPriceActive]}>
+                      {plan.product.price}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
             <View style={styles.lifetimeHeaderRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.lifetimeBigTitle}>Go Lifetime Pro</Text>
-                <Text style={styles.lifetimeBigSub}>One payment. Every benefit. Forever.</Text>
+                <Text style={styles.lifetimeBigTitle}>Go {selectedPremium.label} Pro</Text>
+                <Text style={styles.lifetimeBigSub}>
+                  {selectedPlan === "lifetime"
+                    ? "One payment. Every benefit. Forever."
+                    : `Full access, billed ${selectedPremium.cadence}.`}
+                </Text>
               </View>
               <View style={styles.lifetimePriceBlock}>
-                <Text style={styles.lifetimeBigPrice}>{lifetime?.price ?? "$24.99"}</Text>
-                <Text style={styles.lifetimePriceHint}>one-time</Text>
+                <Text style={styles.lifetimeBigPrice}>{selectedProduct.price}</Text>
+                <Text style={styles.lifetimePriceHint}>{selectedPremium.cadence}</Text>
               </View>
             </View>
             <View style={styles.lifetimeBenefits}>
@@ -264,15 +313,15 @@ export function ShopScreen({
               ))}
             </View>
             <Pressable
-              disabled={busy === lifetime.id}
-              onPress={handleBuyLifetime}
+              disabled={busy === selectedProduct.id}
+              onPress={() => void handleBuyPremium()}
               style={[styles.cta, styles.ctaPrimary]}
             >
-              {busy === lifetime.id ? (
+              {busy === selectedProduct.id ? (
                 <ActivityIndicator color={colors.white} />
               ) : (
                 <Text style={styles.ctaText}>
-                  Unlock Lifetime Pro · {lifetime?.price ?? "$24.99"}
+                  Unlock {selectedPremium.label} Pro · {selectedProduct.price}
                 </Text>
               )}
             </Pressable>
@@ -419,8 +468,8 @@ export function ShopScreen({
         </Pressable>
 
         <Text style={styles.legal}>
-          Purchases are processed by Apple. Token packs are consumable; Lifetime Pro is a one-time
-          purchase tied to your Apple ID.
+          Purchases are processed by Apple. Monthly and yearly Pro plans renew automatically until
+          cancelled. Lifetime Pro is a one-time purchase tied to your Apple ID.
         </Text>
 
         <View style={{ height: 80 }} />
@@ -441,19 +490,42 @@ function fallbackPack(id: string): ShopProduct | null {
     currency: "USD",
     tokens,
     isLifetime: false,
+    isSubscription: false,
   };
 }
 
-function fallbackLifetime(): ShopProduct {
+function fallbackPremiumProduct(key: PremiumPlanKey, id: string): ShopProduct {
+  const details = {
+    monthly: {
+      title: "Monthly Pro",
+      description: "Unlimited trims and no ads, billed monthly",
+      price: "$2.99",
+      priceAmount: 2.99,
+    },
+    yearly: {
+      title: "Yearly Pro",
+      description: "Unlimited trims and no ads, billed yearly",
+      price: "$24.99",
+      priceAmount: 24.99,
+    },
+    lifetime: {
+      title: "Lifetime Pro",
+      description: "Unlimited trims and no ads forever",
+      price: "$49.99",
+      priceAmount: 49.99,
+    },
+  }[key];
+
   return {
-    id: "lifetime_premium_1",
-    title: "Lifetime Pro",
-    description: "Unlimited trims and no ads",
-    price: "$24.99",
-    priceAmount: 24.99,
+    id,
+    title: details.title,
+    description: details.description,
+    price: details.price,
+    priceAmount: details.priceAmount,
     currency: "USD",
     tokens: 0,
-    isLifetime: true,
+    isLifetime: key === "lifetime",
+    isSubscription: key !== "lifetime",
   };
 }
 
@@ -516,6 +588,25 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
   },
   lifetimeRibbonText: { color: colors.white, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
+  planTabs: {
+    flexDirection: "row",
+    gap: 6,
+    padding: 5,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.1)",
+  },
+  planTab: {
+    flex: 1,
+    alignItems: "center",
+    borderRadius: 12,
+    paddingVertical: 9,
+    paddingHorizontal: 4,
+  },
+  planTabActive: { backgroundColor: colors.white },
+  planTabLabel: { color: "#fed7aa", fontSize: 12, fontWeight: "900" },
+  planTabLabelActive: { color: colors.primary },
+  planTabPrice: { marginTop: 3, color: "#ffffff", fontSize: 13, fontWeight: "900" },
+  planTabPriceActive: { color: colors.text },
   lifetimeHeaderRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
   lifetimeBigTitle: { fontSize: 26, fontWeight: "900", color: colors.white, letterSpacing: -0.5 },
   lifetimeBigSub: { fontSize: 13, color: "#cbd5e1", marginTop: 4, fontWeight: "600" },

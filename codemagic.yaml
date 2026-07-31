@@ -15,7 +15,7 @@ workflows:
       node: 22.12.0
       vars:
         BUNDLE_ID: "com.fiskerik.trimswipe" # Fixed to match your real app bundle ID
-        APP_MARKETING_VERSION: "1.0.9"
+        APP_MARKETING_VERSION: "1.1.0"
         EXPO_NO_TYPESCRIPT_SETUP: "1"
     triggering:
       events:

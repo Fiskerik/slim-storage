@@ -14,14 +14,14 @@ function adMobAppId(value: string | undefined, fallback: string, name: string): 
 const config: ExpoConfig = {
   name: "Trimswipe",
   slug: "slim-storage",
-  version: "1.0.9",
+  version: "1.1.0",
   icon: "./assets/images/icon.png",
   orientation: "portrait",
   scheme: "trimswipe",
   userInterfaceStyle: "automatic",
   ios: {
     bundleIdentifier: "com.fiskerik.trimswipe",
-    buildNumber: "67",
+    buildNumber: "68",
     supportsTablet: true,
     infoPlist: {
       NSCameraUsageDescription: "Needed to find your pictures.",

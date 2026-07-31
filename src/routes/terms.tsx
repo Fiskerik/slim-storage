@@ -56,9 +56,12 @@ function TermsPage() {
 
       <Section title="3. In-App Purchases">
         Slim may offer premium features ("Slim Pro") as in-app purchases
-        processed through Apple's App Store. All purchases are subject to
-        Apple's terms. Refund requests should be directed to Apple. We do not
-        process payments directly.
+        processed through Apple's App Store. Slim Pro may be purchased as a
+        one-time lifetime product or as an auto-renewable monthly or yearly
+        subscription. Subscriptions renew automatically until cancelled through
+        your Apple Account settings. All purchases are subject to Apple's
+        terms. Refund requests should be directed to Apple. We do not process
+        payments directly.
       </Section>
 
       <Section title="4. Intellectual Property">
