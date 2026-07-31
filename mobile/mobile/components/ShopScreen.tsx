@@ -70,6 +70,7 @@ export function ShopScreen({
   const [adBusy, setAdBusy] = useState(false);
   const [isPro, setIsPro] = useState(false);
   const [hasUnlimitedTrims, setHasUnlimitedTrims] = useState(false);
+  const [activeProductId, setActiveProductId] = useState<string | null>(null);
   const [tokens, setTokens] = useState(0);
   const [selectedPlan, setSelectedPlan] = useState<PremiumPlanKey>("lifetime");
   const adShine = useRef(new Animated.Value(0)).current;
@@ -88,6 +89,12 @@ export function ShopScreen({
         setProducts(list);
         setIsPro(access.isPro);
         setHasUnlimitedTrims(access.hasUnlimitedTrims);
+        setActiveProductId(access.activeProductId);
+        if (access.activeProductId === MONTHLY_PRODUCT_ID) {
+          setSelectedPlan("yearly");
+        } else if (access.activeProductId === YEARLY_PRODUCT_ID) {
+          setSelectedPlan("lifetime");
+        }
         onProStatusChange?.(access.isPro, access.hasUnlimitedTrims);
       } finally {
         if (alive) setLoading(false);
@@ -117,10 +124,11 @@ export function ShopScreen({
   const tokenPacks = TOKEN_ORDER.map(
     (id) => products.find((p) => p.id === id) ?? fallbackPack(id),
   ).filter(Boolean) as ShopProduct[];
-  const premiumProducts = PREMIUM_PLANS.map(({ key, productId, label, cadence }) => ({
+  const premiumProducts = PREMIUM_PLANS.map(({ key, productId, label, cadence, tokens }) => ({
     key,
     label,
     cadence,
+    tokens,
     product: products.find((p) => p.id === productId) ?? fallbackPremiumProduct(key, productId),
   }));
   const selectedPremium =
@@ -155,8 +163,9 @@ export function ShopScreen({
           : await purchaseSubscription(selectedProduct.id);
       if (res.success && res.isPro) {
         setIsPro(true);
-        setHasUnlimitedTrims(selectedPlan === "lifetime");
-        onProStatusChange?.(true, selectedPlan === "lifetime");
+        setHasUnlimitedTrims(res.hasUnlimitedTrims);
+        setActiveProductId(res.activeProductId ?? selectedProduct.id);
+        onProStatusChange?.(true, res.hasUnlimitedTrims);
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         onToast?.(
           "Welcome to Pro",
@@ -178,15 +187,18 @@ export function ShopScreen({
   async function handleRestore() {
     setBusy("restore");
     try {
-      const pro = await restorePurchasesPublic();
+      await restorePurchasesPublic();
       const access = await getPurchaseAccessStatus();
-      setIsPro(pro && access.isPro);
-      setHasUnlimitedTrims(pro && access.hasUnlimitedTrims);
-      onProStatusChange?.(pro && access.isPro, pro && access.hasUnlimitedTrims);
+      setIsPro(access.isPro);
+      setHasUnlimitedTrims(access.hasUnlimitedTrims);
+      setActiveProductId(access.activeProductId);
+      onProStatusChange?.(access.isPro, access.hasUnlimitedTrims);
       onToast?.(
-        pro ? "Restored" : "Nothing to restore",
-        pro ? "Premium access restored." : "No previous purchases were found for this Apple ID.",
-        pro ? "success" : "warning",
+        access.isPro ? "Restored" : "Nothing to restore",
+        access.isPro
+          ? "Premium access restored."
+          : "No active purchases were found for this Apple ID.",
+        access.isPro ? "success" : "warning",
       );
     } finally {
       setBusy(null);
@@ -267,7 +279,9 @@ export function ShopScreen({
             </View>
             <Ionicons name="diamond" size={28} color={colors.primary} />
           </Card>
-        ) : (
+        ) : null}
+
+        {(!isPro || !hasUnlimitedTrims) ? (
           <View style={styles.lifetimeModal}>
             <View style={styles.lifetimeRibbon}>
               <Ionicons name="diamond" size={14} color={colors.white} />
@@ -324,12 +338,14 @@ export function ShopScreen({
               ))}
             </View>
             <Pressable
-              disabled={busy === selectedProduct.id}
+              disabled={busy === selectedProduct.id || selectedProduct.id === activeProductId}
               onPress={() => void handleBuyPremium()}
               style={[styles.cta, styles.ctaPrimary]}
             >
               {busy === selectedProduct.id ? (
                 <ActivityIndicator color={colors.white} />
+              ) : selectedProduct.id === activeProductId ? (
+                <Text style={styles.ctaText}>Current plan</Text>
               ) : (
                 <Text style={styles.ctaText}>
                   Unlock {selectedPremium.label} Pro · {selectedProduct.price}
@@ -337,7 +353,7 @@ export function ShopScreen({
               )}
             </Pressable>
           </View>
-        )}
+        ) : null}
 
         {Platform.OS === "ios" ? (
           <Pressable

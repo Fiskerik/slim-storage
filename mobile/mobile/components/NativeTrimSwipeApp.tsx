@@ -2298,14 +2298,16 @@ export function NativeTrimSwipeApp() {
             onReload={reloadSettingsRound}
             onCreateReport={openCleanupReport}
             onRestorePurchases={async () => {
-              const restored = await restorePurchasesPublic();
+              await restorePurchasesPublic();
               const access = await getPurchaseAccessStatus();
-              setIsPro(restored && access.isPro);
-              setHasUnlimitedTrims(restored && access.hasUnlimitedTrims);
+              setIsPro(access.isPro);
+              setHasUnlimitedTrims(access.hasUnlimitedTrims);
               showToast(
-                restored ? "Restored" : "Nothing to restore",
-                restored ? "Premium access restored." : "No previous purchases were found for this Apple ID.",
-                restored ? "success" : "warning",
+                access.isPro ? "Restored" : "Nothing to restore",
+                access.isPro
+                  ? "Premium access restored."
+                  : "No active purchases were found for this Apple ID.",
+                access.isPro ? "success" : "warning",
               );
             }}
           />

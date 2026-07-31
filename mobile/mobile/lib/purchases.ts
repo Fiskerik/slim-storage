@@ -17,9 +17,9 @@ const REVENUECAT_API_KEY = process.env.EXPO_PUBLIC_RC_KEY ?? "";
 export const LIFETIME_PRODUCT_ID =
   process.env.EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID ?? "lifetime_premium_1";
 export const MONTHLY_PRODUCT_ID =
-  process.env.EXPO_PUBLIC_RC_MONTHLY_PRODUCT_ID ?? "trimswipe_monthly";
+  process.env.EXPO_PUBLIC_RC_MONTHLY_PRODUCT_ID ?? "trimswipe_monthly_sub";
 export const YEARLY_PRODUCT_ID =
-  process.env.EXPO_PUBLIC_RC_YEARLY_PRODUCT_ID ?? "trimswipe_yearly";
+  process.env.EXPO_PUBLIC_RC_YEARLY_PRODUCT_ID ?? "trimswipe_annual_sub";
 const SUBSCRIPTION_PRODUCT_IDS = new Set([MONTHLY_PRODUCT_ID, YEARLY_PRODUCT_ID]);
 const ENTITLEMENT_ID = process.env.EXPO_PUBLIC_RC_ENTITLEMENT_ID ?? "TrimswipePro";
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
@@ -39,6 +39,7 @@ type PurchaseRequest = {
 type PurchaseResult = {
   isPro?: boolean;
   hasUnlimitedTrims?: boolean;
+  activeProductId?: string | null;
   success?: boolean;
   tokensGranted?: number;
   transactionId?: string;
@@ -375,6 +376,10 @@ function hasUnlimitedTrimsFromInfo(info: CustomerInfo): boolean {
   return info.entitlements.active[ENTITLEMENT_ID]?.productIdentifier === LIFETIME_PRODUCT_ID;
 }
 
+function activeProductIdFromInfo(info: CustomerInfo): string | null {
+  return info.entitlements.active[ENTITLEMENT_ID]?.productIdentifier ?? null;
+}
+
 function serializeCustomerInfo(info: CustomerInfo) {
   const entitlements: Record<string, any> = {};
   for (const [key, ent] of Object.entries(info.entitlements.active)) {
@@ -516,6 +521,7 @@ async function purchase(productId: string): Promise<PurchaseResult> {
       success: true,
       isPro,
       hasUnlimitedTrims: hasUnlimitedTrimsFromInfo(customerInfo),
+      activeProductId: activeProductIdFromInfo(customerInfo),
       tokensGranted: subscriptionTokens,
       transactionId: transaction?.transactionIdentifier,
       customerInfo: serializeCustomerInfo(customerInfo),
@@ -553,6 +559,7 @@ async function restore(): Promise<PurchaseResult> {
     return {
       isPro: isProFromInfo(info),
       hasUnlimitedTrims: hasUnlimitedTrimsFromInfo(info),
+      activeProductId: activeProductIdFromInfo(info),
       success: purchasedTokens > 0 || subscriptionTokens > 0,
       tokensGranted: purchasedTokens + subscriptionTokens,
       customerInfo: serializeCustomerInfo(info),
@@ -692,6 +699,7 @@ async function presentCustomerCenter(): Promise<PurchaseResult> {
       success: true,
       isPro: isProFromInfo(info),
       hasUnlimitedTrims: hasUnlimitedTrimsFromInfo(info),
+      activeProductId: activeProductIdFromInfo(info),
       customerInfo: serializeCustomerInfo(info),
     };
   } catch (err: any) {
@@ -746,19 +754,23 @@ export async function checkProStatus(): Promise<boolean> {
 export async function getPurchaseAccessStatus(): Promise<{
   isPro: boolean;
   hasUnlimitedTrims: boolean;
+  activeProductId: string | null;
 }> {
-  if (FORCE_PRO_FOR_TESTING) return { isPro: true, hasUnlimitedTrims: true };
+  if (FORCE_PRO_FOR_TESTING) {
+    return { isPro: true, hasUnlimitedTrims: true, activeProductId: LIFETIME_PRODUCT_ID };
+  }
   const ok = await initializePurchases();
-  if (!ok) return { isPro: false, hasUnlimitedTrims: false };
+  if (!ok) return { isPro: false, hasUnlimitedTrims: false, activeProductId: null };
   try {
     const { info } = await refreshPurchaseState();
     return {
       isPro: isProFromInfo(info),
       hasUnlimitedTrims: hasUnlimitedTrimsFromInfo(info),
+      activeProductId: activeProductIdFromInfo(info),
     };
   } catch (err: any) {
     console.log("[RevenueCat] getPurchaseAccessStatus error:", err?.message);
-    return { isPro: false, hasUnlimitedTrims: false };
+    return { isPro: false, hasUnlimitedTrims: false, activeProductId: null };
   }
 }
 
@@ -804,18 +816,29 @@ export async function purchaseTokenPack(
 export async function purchaseLifetime(): Promise<{
   success: boolean;
   isPro: boolean;
+  hasUnlimitedTrims: boolean;
+  activeProductId: string | null;
   tokensGranted: number;
   error?: string;
 }> {
   const ok = await initializePurchases();
   if (!ok) {
-    return { success: false, isPro: false, tokensGranted: 0, error: "RevenueCat not configured" };
+    return {
+      success: false,
+      isPro: false,
+      hasUnlimitedTrims: false,
+      activeProductId: null,
+      tokensGranted: 0,
+      error: "RevenueCat not configured",
+    };
   }
 
   const result = await purchase(LIFETIME_PRODUCT_ID);
   return {
     success: result.success === true,
     isPro: result.isPro === true,
+    hasUnlimitedTrims: result.hasUnlimitedTrims === true,
+    activeProductId: result.activeProductId ?? null,
     tokensGranted: result.tokensGranted ?? 0,
     error: result.error,
   };
@@ -824,17 +847,28 @@ export async function purchaseLifetime(): Promise<{
 export async function purchaseSubscription(productId: string): Promise<{
   success: boolean;
   isPro: boolean;
+  hasUnlimitedTrims: boolean;
+  activeProductId: string | null;
   tokensGranted: number;
   error?: string;
 }> {
   const ok = await initializePurchases();
   if (!ok) {
-    return { success: false, isPro: false, tokensGranted: 0, error: "RevenueCat not configured" };
+    return {
+      success: false,
+      isPro: false,
+      hasUnlimitedTrims: false,
+      activeProductId: null,
+      tokensGranted: 0,
+      error: "RevenueCat not configured",
+    };
   }
   if (!SUBSCRIPTION_PRODUCT_IDS.has(productId)) {
     return {
       success: false,
       isPro: false,
+      hasUnlimitedTrims: false,
+      activeProductId: null,
       tokensGranted: 0,
       error: `Unknown subscription product: ${productId}`,
     };
@@ -844,6 +878,8 @@ export async function purchaseSubscription(productId: string): Promise<{
   return {
     success: result.success === true,
     isPro: result.isPro === true,
+    hasUnlimitedTrims: result.hasUnlimitedTrims === true,
+    activeProductId: result.activeProductId ?? null,
     tokensGranted: result.tokensGranted ?? 0,
     error: result.error,
   };
