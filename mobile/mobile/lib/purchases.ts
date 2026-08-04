@@ -455,6 +455,7 @@ async function getProducts(): Promise<PurchaseResult> {
   try {
     const offerings: PurchasesOfferings = await Purchases.getOfferings();
     const packages: PurchasesPackage[] = offerings.current?.availablePackages || [];
+    const introEligibleProductIds = await getIntroEligibleProductIds();
     if (packages.length === 0) {
       const inAppIds = [LIFETIME_PRODUCT_ID, ...Object.keys(TOKEN_PACKS)].filter(Boolean);
       const subscriptionIds = [MONTHLY_PRODUCT_ID, YEARLY_PRODUCT_ID].filter(Boolean);
@@ -465,19 +466,17 @@ async function getProducts(): Promise<PurchaseResult> {
           : [],
       ]);
       const storeProducts = [...inAppProducts, ...subscriptionProducts];
-      return { products: storeProducts.map(serializeStoreProduct) };
+      return {
+        products: storeProducts.map((product) =>
+          serializeStoreProduct(product, introEligibleProductIds.has(product.identifier)),
+        ),
+      };
     }
 
     return {
-      products: packages.map((pkg) => ({
-        id: pkg.product.identifier,
-        title: pkg.product.title,
-        description: pkg.product.description,
-        price: pkg.product.priceString,
-        priceAmount: pkg.product.price,
-        currency: pkg.product.currencyCode,
-        packageType: pkg.packageType,
-      })),
+      products: packages.map((pkg) =>
+        serializeStoreProduct(pkg.product, introEligibleProductIds.has(pkg.product.identifier)),
+      ),
     };
   } catch (err: any) {
     console.error("[RevenueCat] getProducts error:", err?.message);
@@ -485,7 +484,29 @@ async function getProducts(): Promise<PurchaseResult> {
   }
 }
 
-function serializeStoreProduct(product: PurchasesStoreProduct) {
+async function getIntroEligibleProductIds(): Promise<Set<string>> {
+  if (Platform.OS !== "ios") return new Set();
+  try {
+    const eligibility = await Purchases.checkTrialOrIntroductoryPriceEligibility([
+      MONTHLY_PRODUCT_ID,
+      YEARLY_PRODUCT_ID,
+    ]);
+    return new Set(
+      Object.entries(eligibility)
+        .filter(
+          ([, result]) =>
+            result.status ===
+            Purchases.INTRO_ELIGIBILITY_STATUS.INTRO_ELIGIBILITY_STATUS_ELIGIBLE,
+        )
+        .map(([productId]) => productId),
+    );
+  } catch (err: any) {
+    console.log("[RevenueCat] introductory offer eligibility check failed", err?.message);
+    return new Set();
+  }
+}
+
+function serializeStoreProduct(product: PurchasesStoreProduct, introEligible = false) {
   return {
     id: product.identifier,
     title: product.title,
@@ -494,6 +515,16 @@ function serializeStoreProduct(product: PurchasesStoreProduct) {
     priceAmount: product.price,
     currency: product.currencyCode,
     packageType: "STORE_PRODUCT",
+    introEligible,
+    introPrice: product.introPrice
+      ? {
+          price: product.introPrice.price,
+          priceString: product.introPrice.priceString,
+          cycles: product.introPrice.cycles,
+          periodUnit: product.introPrice.periodUnit,
+          periodNumberOfUnits: product.introPrice.periodNumberOfUnits,
+        }
+      : null,
   };
 }
 
@@ -736,6 +767,14 @@ export type ShopProduct = {
   isLifetime: boolean;
   /** True if this product is an auto-renewable Pro subscription. */
   isSubscription: boolean;
+  introEligible?: boolean;
+  introPrice?: {
+    price: number;
+    priceString: string;
+    cycles: number;
+    periodUnit: string;
+    periodNumberOfUnits: number;
+  } | null;
 };
 
 export async function checkProStatus(): Promise<boolean> {

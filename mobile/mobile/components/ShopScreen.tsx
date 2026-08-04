@@ -134,6 +134,17 @@ export function ShopScreen({
   const selectedPremium =
     premiumProducts.find((plan) => plan.key === selectedPlan) ?? premiumProducts[2];
   const selectedProduct = selectedPremium.product;
+  const selectedIntroOffer = formatIntroductoryOffer(selectedProduct);
+  const selectedPlanAction =
+    selectedIntroOffer && !isPro
+      ? "Start free trial"
+      : isPro
+        ? selectedPlan === "lifetime"
+          ? "Buy Lifetime Pro"
+          : selectedPlan === "yearly" && activeProductId === MONTHLY_PRODUCT_ID
+            ? "Upgrade to Yearly Pro"
+            : "Switch plan"
+        : "Unlock Pro";
 
   async function handleBuyTokens(id: string) {
     if (busy) return;
@@ -302,6 +313,9 @@ export function ShopScreen({
                     <Text style={[styles.planTabPrice, selected && styles.planTabPriceActive]}>
                       {plan.product.price}
                     </Text>
+                    {plan.product.introEligible && plan.product.introPrice?.price === 0 ? (
+                      <Text style={styles.planTabTrial}>FREE TRIAL</Text>
+                    ) : null}
                   </Pressable>
                 );
               })}
@@ -314,6 +328,9 @@ export function ShopScreen({
                     ? "One payment. Every benefit. Forever."
                     : `Full access, billed ${selectedPremium.cadence}.`}
                 </Text>
+                {selectedIntroOffer ? (
+                  <Text style={styles.trialText}>{selectedIntroOffer}</Text>
+                ) : null}
               </View>
               <View style={styles.lifetimePriceBlock}>
                 <Text style={styles.lifetimeBigPrice}>{selectedProduct.price}</Text>
@@ -348,7 +365,7 @@ export function ShopScreen({
                 <Text style={styles.ctaText}>Current plan</Text>
               ) : (
                 <Text style={styles.ctaText}>
-                  Unlock {selectedPremium.label} Pro · {selectedProduct.price}
+                  {selectedPlanAction} · {selectedProduct.price}
                 </Text>
               )}
             </Pressable>
@@ -505,6 +522,19 @@ export function ShopScreen({
   );
 }
 
+function formatIntroductoryOffer(product: ShopProduct): string | null {
+  const intro = product.introPrice;
+  if (!product.isSubscription || !product.introEligible || !intro || intro.price !== 0) {
+    return null;
+  }
+
+  const unit = intro.periodUnit.toLowerCase();
+  const pluralUnit = intro.periodNumberOfUnits === 1 ? unit : unit + "s";
+  const duration = String(intro.periodNumberOfUnits) + " " + pluralUnit;
+  const cadence = product.id === MONTHLY_PRODUCT_ID ? "per month" : "per year";
+  return "Free for " + duration + ", then " + product.price + " " + cadence + ".";
+}
+
 function fallbackPack(id: string): ShopProduct | null {
   const tokens = TOKEN_PACKS[id];
   if (!tokens) return null;
@@ -634,9 +664,11 @@ const styles = StyleSheet.create({
   planTabLabelActive: { color: colors.primary },
   planTabPrice: { marginTop: 3, color: "#ffffff", fontSize: 13, fontWeight: "900" },
   planTabPriceActive: { color: colors.text },
+  planTabTrial: { marginTop: 2, color: "#fed7aa", fontSize: 8, fontWeight: "900" },
   lifetimeHeaderRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
   lifetimeBigTitle: { fontSize: 26, fontWeight: "900", color: colors.white, letterSpacing: -0.5 },
   lifetimeBigSub: { fontSize: 13, color: "#cbd5e1", marginTop: 4, fontWeight: "600" },
+  trialText: { fontSize: 12, color: "#fed7aa", marginTop: 5, fontWeight: "800" },
   lifetimePriceBlock: { alignItems: "flex-end" },
   lifetimeBigPrice: { fontSize: 28, fontWeight: "900", color: colors.honey },
   lifetimePriceHint: { fontSize: 11, color: "#94a3b8", fontWeight: "700" },
