@@ -127,7 +127,7 @@ public final class ExpoPhotoIntelligenceModule: Module {
       do {
         try handler.perform([faceRequest])
         let quality = faceRequest.results?
-          .compactMap { $0.faceCaptureQuality?.floatValue }
+          .compactMap { $0.faceCaptureQuality }
           .max()
         if let quality {
           record["bestFaceCaptureQuality"] = Double(quality)
