@@ -6,7 +6,7 @@
     "icon": "mobile/mobile/assets/images/icon.png",
     "ios": {
       "bundleIdentifier": "com.fiskerik.trimswipe",
-      "buildNumber": "68",
+      "buildNumber": "69",
       "supportsTablet": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,

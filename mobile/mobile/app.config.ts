@@ -21,7 +21,7 @@ const config: ExpoConfig = {
   userInterfaceStyle: "automatic",
   ios: {
     bundleIdentifier: "com.fiskerik.trimswipe",
-    buildNumber: "68",
+    buildNumber: "69",
     supportsTablet: true,
     infoPlist: {
       NSCameraUsageDescription: "Needed to find your pictures.",
@@ -29,8 +29,6 @@ const config: ExpoConfig = {
         "Trimswipe needs access to your photo library so you can swipe through your photos and free up storage.",
       NSPhotoLibraryAddUsageDescription:
         "Trimswipe may save optimized versions of your photos.",
-      NSUserTrackingUsageDescription:
-        "This identifier will be used to deliver personalized ads to you.",
       ITSAppUsesNonExemptEncryption: false,
       UIBackgroundModes: ["processing"],
       BGTaskSchedulerPermittedIdentifiers: ["trimswipe-cleanup-maintenance"],
@@ -76,8 +74,6 @@ const config: ExpoConfig = {
           DEFAULT_ADMOB_ANDROID_APP_ID,
           "EXPO_PUBLIC_ADMOB_ANDROID_APP_ID",
         ),
-        userTrackingUsageDescription:
-          "This identifier will be used to deliver personalized ads to you.",
       },
     ],
   ],

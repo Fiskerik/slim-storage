@@ -141,7 +141,7 @@ export async function showRewardedAd(): Promise<number> {
   return new Promise<number>((resolve) => {
     try {
       const ad = m.RewardedAd.createForAdRequest(unitId, {
-        requestNonPersonalizedAdsOnly: false,
+        requestNonPersonalizedAdsOnly: true,
       });
 
       let earned = false;
@@ -216,7 +216,7 @@ export async function showInterstitialAd(): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     try {
       const ad = m.InterstitialAd.createForAdRequest(unitId, {
-        requestNonPersonalizedAdsOnly: false,
+        requestNonPersonalizedAdsOnly: true,
       });
 
       let settled = false;
