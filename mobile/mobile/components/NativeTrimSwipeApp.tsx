@@ -38,7 +38,7 @@ import {
   getPhotoPermissionStatus,
   getTrimStatus,
   loadCleanupPlan,
-  loadRelatedPhotoPairs,
+  loadDuplicatePhotoGroups,
   loadPhotoRound,
   requestPhotoPermission,
   scanPhotoLibrary,
@@ -49,6 +49,14 @@ import {
   type NativePhoto,
   type NativePhotoPermission,
 } from "../lib/native-photo-source";
+import {
+  loadNativePhotoReviewLedger,
+  recordNativePhotoReview,
+  recordNativePhotoTrim,
+  saveNativePhotoReviewLedger,
+  shouldExcludeReviewedPhoto,
+  type NativePhotoReviewLedger,
+} from "../lib/native-review-ledger";
 import {
   DEFAULT_NATIVE_STATS,
   EMPTY_DAILY_STATS,
@@ -71,6 +79,7 @@ import { StatsDashboard } from "./StatsDashboard";
 import { OnboardingCarousel } from "./OnboardingCarousel";
 import { TrimScreen } from "./TrimScreen";
 import { ShopScreen } from "./ShopScreen";
+import { DuplicateClusterReview, type DuplicateCluster } from "./DuplicateClusterReview";
 import { addTokens, subscribeTokens, spendTokens, DAILY_CLAIM_TOKENS } from "../lib/tokens";
 import { getPurchaseAccessStatus, restorePurchasesPublic } from "../lib/purchases";
 import { showRewardedAd, showInterstitialAd, initAds } from "../lib/ads";
@@ -344,7 +353,7 @@ function targetLabel(settings: NativeSettings): string {
   if (settings.targetMode === "old-and-large") {
     return `${prefix}${formatAgeThreshold(settings.minAgeYears)} and ${formatSizeThreshold(settings.minSizeMB)}+`;
   }
-  if (settings.targetMode === "duplicates" || settings.targetMode === "similar") return `${prefix}Uncategorized`;
+  if (settings.targetMode === "duplicates" || settings.targetMode === "similar") return `${prefix}Similar Photos`;
   if (settings.targetMode === "blurry" || settings.targetMode === "mistakes") return `${prefix}Blurry`;
   if (settings.targetMode === "screenshots") return `${prefix}Screenshots`;
   if (settings.targetMode === "live-photos") return `${prefix}Live Photos`;
@@ -575,17 +584,28 @@ function appendActionLog(stats: NativeStats, entry: NativeActionLogEntry): Nativ
   };
 }
 
-function recentSelectionIds(stats: NativeStats): string[] {
+function recentSelectionIds(
+  stats: NativeStats,
+  ledger?: NativePhotoReviewLedger | null,
+  includePreviouslyReviewed = false,
+): string[] {
   const cutoff = Date.now() - SELECTION_GRACE_DAYS * DAY_MS;
   const ids = new Set<string>();
-  stats.recentSeenPhotos.forEach((item) => {
-    const seenAt = Date.parse(item.lastSeenAt);
-    if (!Number.isNaN(seenAt) && seenAt >= cutoff) ids.add(item.photoId);
-  });
-  stats.actionLog.forEach((item) => {
-    const actedAt = Date.parse(item.createdAt);
-    if (!Number.isNaN(actedAt) && actedAt >= cutoff) ids.add(item.photoId);
-  });
+  if (!includePreviouslyReviewed) {
+    stats.recentSeenPhotos.forEach((item) => {
+      const seenAt = Date.parse(item.lastSeenAt);
+      if (!Number.isNaN(seenAt) && seenAt >= cutoff) ids.add(item.photoId);
+    });
+    stats.actionLog.forEach((item) => {
+      const actedAt = Date.parse(item.createdAt);
+      if (!Number.isNaN(actedAt) && actedAt >= cutoff) ids.add(item.photoId);
+    });
+  }
+  if (ledger) {
+    Object.keys(ledger.records).forEach((photoId) => {
+      if (shouldExcludeReviewedPhoto(ledger, photoId, { includePreviouslyReviewed })) ids.add(photoId);
+    });
+  }
   return [...ids];
 }
 
@@ -711,6 +731,7 @@ function CelebrationBurst({ visible }: { visible: boolean }) {
 export function NativeTrimSwipeApp() {
   const [screen, setScreen] = useState<Screen>("home");
   const [stats, setStats] = useState<NativeStats>(DEFAULT_NATIVE_STATS);
+  const [reviewLedger, setReviewLedger] = useState<NativePhotoReviewLedger | null>(null);
   const [queue, setQueue] = useState<NativePhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [statsLoaded, setStatsLoaded] = useState(false);
@@ -812,9 +833,12 @@ export function NativeTrimSwipeApp() {
 
   useEffect(() => {
     let cancelled = false;
-    loadNativeStats().then((loaded) => {
+    loadNativeStats().then(async (loaded) => {
+      if (cancelled) return;
+      const ledger = await loadNativePhotoReviewLedger(loaded);
       if (cancelled) return;
       setStats(loaded);
+      setReviewLedger(ledger);
       setStatsLoaded(true);
     });
     return () => { cancelled = true; };
@@ -910,6 +934,52 @@ export function NativeTrimSwipeApp() {
       await Share.share({ message: progressShareText(stats) }).catch(() => undefined);
     }
   }
+
+  function commitReviewLedger(updater: (current: NativePhotoReviewLedger) => NativePhotoReviewLedger) {
+    setReviewLedger((current) => {
+      if (!current) return current;
+      const nextLedger = updater(current);
+      void saveNativePhotoReviewLedger(nextLedger);
+      return nextLedger;
+    });
+  }
+
+  function currentAvoidIds(): string[] {
+    return recentSelectionIds(stats, reviewLedger, settings.includePreviouslyReviewed);
+  }
+
+  function recordAppliedTrimResults(
+    sourcePhotos: NativePhoto[],
+    results: { trimmed: boolean; newAssetId?: string }[],
+  ) {
+    commitReviewLedger((current) =>
+      sourcePhotos.reduce(
+        (nextLedger, photo, index) =>
+          results[index]?.trimmed
+            ? recordNativePhotoTrim(nextLedger, photo.id, results[index]?.newAssetId)
+            : nextLedger,
+        current,
+      ),
+    );
+  }
+
+  useEffect(() => {
+    if (!reviewLedger || stats.actionLog.length === 0) return;
+    commitReviewLedger((current) =>
+      stats.actionLog.reduce(
+        (nextLedger, entry) =>
+          recordNativePhotoReview(
+            nextLedger,
+            entry.photoId,
+            entry.action === "trim" ? "trimmed" : entry.action === "delete" ? "deleted" : "kept",
+            entry.createdAt,
+          ),
+        current,
+      ),
+    );
+    // The latest action-log entry is sufficient to trigger synchronization.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stats.actionLog[0]?.id]);
 
   function openCleanupReport(period: ReportPeriod) {
     if (!isPro) return;
@@ -1022,7 +1092,7 @@ export function NativeTrimSwipeApp() {
       setPermissionLimited(permission.limited);
       let fallbackNotice = "";
       let photos = await loadPhotoRound(safeCount, activeSettings, {
-        avoidIds: recentSelectionIds(stats),
+        avoidIds: currentAvoidIds(),
         onFallback: (detail) => {
           fallbackNotice = detail;
         },
@@ -1037,7 +1107,7 @@ export function NativeTrimSwipeApp() {
           `${targetLabel(activeSettings)} did not return matching local photos. ` +
           `Switched to ${targetLabel(fallbackSettings)}.`;
         photos = await loadPhotoRound(safeCount, fallbackSettings, {
-          avoidIds: recentSelectionIds(stats),
+          avoidIds: currentAvoidIds(),
         });
       }
       if (photos.length === 0 && activeSettings.targetMode !== "balanced") {
@@ -1046,7 +1116,7 @@ export function NativeTrimSwipeApp() {
           `${targetLabel(activeSettings)} did not return matching local photos. ` +
           "Loaded a balanced set instead.";
         photos = await loadPhotoRound(safeCount, broadSettings, {
-          avoidIds: recentSelectionIds(stats),
+          avoidIds: currentAvoidIds(),
         });
       }
       setQueue(photos);
@@ -1194,6 +1264,7 @@ export function NativeTrimSwipeApp() {
       setTrimmingCount((count) => Math.max(0, count - chargeableTrims.length));
     }
     const trimmedResults = batch.trimResults;
+    recordAppliedTrimResults(chargeableTrims, trimmedResults);
     const trimmedOkIds = new Set(trimmedResults.filter((r) => r.trimmed).map((r) => r.id));
     const deletedCount = batch.deletedCount;
     const deletedPhotos = batch.deletedPhotos;
@@ -1373,9 +1444,9 @@ export function NativeTrimSwipeApp() {
   function planTitleForCategory(category: NativeCleanupCategory, planSettings: NativeSettings): string {
     if (category === "large") return `Photos >${formatSizeThreshold(planSettings.minSizeMB)}`;
     if (category === "old") return `Photos >${formatAgeThreshold(planSettings.minAgeYears)} old`;
-    if (category === "screenshots") return "One-tap cleanup";
+    if (category === "screenshots") return "Screenshots";
     if (category === "live") return "Live Photos";
-    if (category === "duplicates") return "Uncategorized";
+    if (category === "duplicates") return "Similar Photos";
     if (category === "bursts") return "Bursts";
     return "Likely mistakes";
   }
@@ -1387,18 +1458,11 @@ export function NativeTrimSwipeApp() {
     avoidIds: string[],
   ): Promise<NativeCleanupPlan> {
     if (category === "screenshots") {
-      const [screens, duplicates, bursts] = await Promise.all([
-        loadCleanupPlan("screenshots", 18, planSettings, { avoidIds }),
-        loadCleanupPlan("duplicates", 18, planSettings, { avoidIds }),
-        loadCleanupPlan("bursts", 18, planSettings, { avoidIds }),
-      ]);
-      const byId = new Map<string, NativePhoto>();
-      [...screens.deleteCandidates, ...duplicates.deleteCandidates.slice(1), ...bursts.deleteCandidates.slice(1)]
-        .forEach((photo) => byId.set(photo.id, photo));
-      const deleteCandidates = [...byId.values()];
+      const screens = await loadCleanupPlan("screenshots", 18, planSettings, { avoidIds });
+      const deleteCandidates = screens.deleteCandidates;
       return {
         category: "screenshots",
-        title: "One-tap cleanup",
+        title: "Screenshots",
         candidates: deleteCandidates,
         deleteCandidates,
         trimCandidates: [],
@@ -1408,7 +1472,7 @@ export function NativeTrimSwipeApp() {
     }
 
     const plan = await loadCleanupPlan(category, count, planSettings, { avoidIds });
-    if (category === "duplicates" || category === "bursts") {
+    if (category === "bursts") {
       const deleteCandidates = plan.deleteCandidates.slice(1);
       return {
         ...plan,
@@ -1464,12 +1528,14 @@ export function NativeTrimSwipeApp() {
     const exact = await buildExactCleanupPlan(category, count, baseSettings, avoidIds);
     if (cleanupActionCount(exact) > 0) return { plan: exact };
 
-    const withRecent = await buildExactCleanupPlan(category, count, baseSettings, []);
-    if (cleanupActionCount(withRecent) > 0) {
-      return {
-        plan: withRecent,
-        fallbackNotice: "Included recently reviewed photos because this filter had no new matches.",
-      };
+    if (baseSettings.includePreviouslyReviewed) {
+      const withRecent = await buildExactCleanupPlan(category, count, baseSettings, []);
+      if (cleanupActionCount(withRecent) > 0) {
+        return {
+          plan: withRecent,
+          fallbackNotice: "Included previously reviewed photos because that setting is enabled.",
+        };
+      }
     }
 
     const relaxedSettings: NativeSettings[] = [];
@@ -1505,6 +1571,10 @@ export function NativeTrimSwipeApp() {
   }
 
   async function openCleanupCategory(category: NativeCleanupCategory) {
+    if (category === "duplicates") {
+      setScreen("this-or-that");
+      return;
+    }
     setCleanupPlanBusy(true);
     setCleanupPlan(null);
     setScreen("cleanup-plan");
@@ -1516,7 +1586,7 @@ export function NativeTrimSwipeApp() {
         return;
       }
       setPermissionDenied(false);
-      const avoidIds = recentSelectionIds(stats);
+      const avoidIds = currentAvoidIds();
       const { plan, fallbackNotice } = await loadCleanupPlanWithFallback(category, 24, settings, avoidIds);
       setCleanupPlan(plan);
       if (fallbackNotice) {
@@ -1540,21 +1610,18 @@ export function NativeTrimSwipeApp() {
     setScreen("cleanup-plan");
     try {
       await runLibraryScan();
-      const avoidIds = recentSelectionIds(stats);
-      const [largeResult, oldResult, screenshots, similarResult, bursts] = await Promise.all([
+      const avoidIds = currentAvoidIds();
+      const [largeResult, oldResult, screenshots] = await Promise.all([
         loadCleanupPlanWithFallback("large", 18, settings, avoidIds),
         loadCleanupPlanWithFallback("old", 18, settings, avoidIds),
         loadCleanupPlan("screenshots", 18, settings, { avoidIds }),
-        loadCleanupPlanWithFallback("duplicates", 18, settings, avoidIds),
-        loadCleanupPlan("bursts", 18, settings, { avoidIds }),
       ]);
       const large = largeResult.plan;
       const old = oldResult.plan;
-      const similar = similarResult.plan;
       const trimById = new Map<string, NativePhoto>();
-      [...large.trimCandidates, ...old.trimCandidates, ...similar.trimCandidates].forEach((photo) => trimById.set(photo.id, photo));
+      [...large.trimCandidates, ...old.trimCandidates].forEach((photo) => trimById.set(photo.id, photo));
       const deleteById = new Map<string, NativePhoto>();
-      [...screenshots.deleteCandidates, ...similar.deleteCandidates.slice(1), ...bursts.deleteCandidates.slice(1)]
+      screenshots.deleteCandidates
         .forEach((photo) => {
           if (!trimById.has(photo.id)) deleteById.set(photo.id, photo);
         });
@@ -1596,20 +1663,18 @@ export function NativeTrimSwipeApp() {
   }
 
   async function buildBackgroundCleanupPlan(schedule: NativeBackgroundScanSchedule): Promise<NativeCleanupPlan> {
-    const avoidIds = recentSelectionIds(stats);
-    const [largeResult, oldResult, screenshots, similarResult, bursts] = await Promise.all([
+    const avoidIds = currentAvoidIds();
+    const [largeResult, oldResult, screenshots] = await Promise.all([
       loadCleanupPlanWithFallback("large", 24, settings, avoidIds),
       loadCleanupPlanWithFallback("old", 24, settings, avoidIds),
       loadCleanupPlan("screenshots", 24, settings, { avoidIds }),
-      loadCleanupPlanWithFallback("duplicates", 24, settings, avoidIds),
-      loadCleanupPlan("bursts", 24, settings, { avoidIds }),
     ]);
     const trimById = new Map<string, NativePhoto>();
-    [...largeResult.plan.trimCandidates, ...oldResult.plan.trimCandidates, ...similarResult.plan.trimCandidates].forEach((photo) => {
+    [...largeResult.plan.trimCandidates, ...oldResult.plan.trimCandidates].forEach((photo) => {
       trimById.set(photo.id, photo);
     });
     const deleteById = new Map<string, NativePhoto>();
-    [...screenshots.deleteCandidates, ...similarResult.plan.deleteCandidates.slice(1), ...bursts.deleteCandidates.slice(1)].forEach((photo) => {
+    screenshots.deleteCandidates.forEach((photo) => {
       if (!trimById.has(photo.id)) deleteById.set(photo.id, photo);
     });
 
@@ -1751,10 +1816,12 @@ export function NativeTrimSwipeApp() {
       candidates.map((p, i) => ({
         photo: p,
         trimmed: rs[i]?.trimmed === true,
+        newAssetId: rs[i]?.newAssetId,
         savedMB: rs[i]?.savedMB,
         error: rs[i]?.error,
       })),
     );
+    recordAppliedTrimResults(candidates, results);
     const trimmed = results.filter((item) => item.trimmed).map((item) => item.photo);
     if (!hasUnlimitedTrims && trimmed.length > 0) await spendTokens(trimmed.length);
     const actualSaved = results.reduce(
@@ -1805,7 +1872,7 @@ export function NativeTrimSwipeApp() {
     }
 
     return requestConfirmation({
-      title: "Apply This or That choices?",
+      title: "Apply suggested removals?",
       detail: `Delete ${deleted.length} and trim ${trimCandidates.length}${trimCandidates.length < toTrim.length ? ` of ${toTrim.length}` : ""} photo${deleted.length + trimCandidates.length === 1 ? "" : "s"}.`,
       danger: deleted.length > 0,
       onConfirm: async () => {
@@ -1818,7 +1885,8 @@ export function NativeTrimSwipeApp() {
               settings.trimOutputMode === "replace",
               settings.trimKinds,
               { allowSecondPass: settings.trimReviewMode === "trimmed-only" },
-            ).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
+            ).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, newAssetId: rs[i]?.newAssetId, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
+            recordAppliedTrimResults(trimCandidates, results);
             setTrimmingCount((count) => Math.max(0, count - trimCandidates.length));
             const trimmed = trimCandidates.filter((_, index) => results[index]?.trimmed);
             if (!hasUnlimitedTrims && trimmed.length > 0) await spendTokens(trimmed.length);
@@ -1914,7 +1982,8 @@ export function NativeTrimSwipeApp() {
                 settings.trimOutputMode === "replace",
                 settings.trimKinds,
                 { allowSecondPass: settings.trimReviewMode === "trimmed-only" },
-              ).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
+              ).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, newAssetId: rs[i]?.newAssetId, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
+              recordAppliedTrimResults(trimCandidates, trimResults);
               setTrimmingCount((count) => Math.max(0, count - trimCandidates.length));
               const trimmedPhotos = trimCandidates.filter((_, index) => trimResults[index]?.trimmed);
               if (!hasUnlimitedTrims && trimmedPhotos.length > 0) await spendTokens(trimmedPhotos.length);
@@ -1989,7 +2058,7 @@ export function NativeTrimSwipeApp() {
     const trimSavings = trimCandidates.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0);
 
     return requestConfirmation({
-      title: "Apply Memory Lane choices?",
+      title: "Apply Past Moments choices?",
       detail: `Delete ${deleted.length} and trim ${trimCandidates.length}${trimCandidates.length < toTrim.length ? ` of ${toTrim.length}` : ""} photo${deleted.length + trimCandidates.length === 1 ? "" : "s"} for about ${formatMB(deleteSavings + trimSavings)} saved.`,
       danger: deleted.length > 0,
       onConfirm: async () => {
@@ -2002,7 +2071,8 @@ export function NativeTrimSwipeApp() {
                 settings.trimOutputMode === "replace",
                 settings.trimKinds,
                 { allowSecondPass: settings.trimReviewMode === "trimmed-only" },
-              ).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
+              ).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, newAssetId: rs[i]?.newAssetId, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
+              recordAppliedTrimResults(trimCandidates, trimResults);
               setTrimmingCount((count) => Math.max(0, count - trimCandidates.length));
               const trimmedPhotos = trimCandidates.filter((_, index) => trimResults[index]?.trimmed);
               if (!hasUnlimitedTrims && trimmedPhotos.length > 0) await spendTokens(trimmedPhotos.length);
@@ -2052,7 +2122,7 @@ export function NativeTrimSwipeApp() {
 
               if (deleteResult.deleted !== deleted.length || trimmedPhotos.length !== trimCandidates.length) {
                 showToast(
-                  "Memory Lane partly applied",
+                  "Past Moments partly applied",
                   `${deleteResult.deleted}/${deleted.length} deleted and ${trimmedPhotos.length}/${trimCandidates.length} trimmed. ${trimFailureSummary(trimResults.map((result, index) => ({ id: trimCandidates[index]?.id ?? String(index), trimmed: result.trimmed, error: result.error })))}`.trim(),
                   "warning",
                 );
@@ -2169,6 +2239,7 @@ export function NativeTrimSwipeApp() {
             settings={settings}
             tokens={tokenBalance}
             isPro={isPro}
+            avoidIds={currentAvoidIds()}
             onBack={() => setScreen("games")}
             onConfirmOutcome={confirmThisOrThatOutcome}
           />
@@ -2178,7 +2249,7 @@ export function NativeTrimSwipeApp() {
             tokens={tokenBalance}
             isPro={isPro}
             trimsRemaining={trimCurrencyAvailable}
-            avoidIds={recentSelectionIds(stats)}
+            avoidIds={currentAvoidIds()}
             onBack={() => setScreen("games")}
             onToast={showToast}
             onConfirmOutcome={confirmStorageBudgetOutcome}
@@ -2188,7 +2259,7 @@ export function NativeTrimSwipeApp() {
             settings={settings}
             tokens={tokenBalance}
             isPro={isPro}
-            avoidIds={recentSelectionIds(stats)}
+            avoidIds={currentAvoidIds()}
             trimsRemaining={trimCurrencyAvailable}
             onBack={() => setScreen("games")}
             onToast={showToast}
@@ -2199,7 +2270,7 @@ export function NativeTrimSwipeApp() {
             settings={settings}
             trimsRemaining={trimCurrencyAvailable}
             trimLimit={trimCurrencyAvailable}
-            avoidIds={recentSelectionIds(stats)}
+            avoidIds={currentAvoidIds()}
             isPro={isPro}
             onBack={() => setScreen("games")}
             onTrimmed={handleSingleTrimComplete}
@@ -3493,7 +3564,7 @@ const GAME_SMART_FOLDER_DEFS: Array<{
   { key: "old", label: (settings) => `>${formatGameAgeThreshold(settings.minAgeYears)}`, icon: "time-outline", match: (photo, settings) => gameAgeYears(photo.creationTime) >= settings.minAgeYears },
   { key: "screenshots", label: () => "Screens", icon: "phone-portrait-outline", match: (photo) => photo.cleanupReasons.includes("Screenshot") || photo.title.toLowerCase().includes("screen") },
   { key: "live", label: () => "Live", icon: "radio-button-on-outline", match: (photo) => photo.cleanupReasons.includes("Live Photo") },
-  { key: "duplicates", label: () => "Uncategorized", icon: "copy-outline", match: (photo) => photo.cleanupReasons.includes("Similar") || photo.cleanupReasons.includes("Uncategorized") },
+  { key: "duplicates", label: () => "Similar Photos", icon: "copy-outline", match: (photo) => photo.cleanupReasons.includes("Similar") || photo.cleanupReasons.includes("Uncategorized") },
   { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (photo) => photo.cleanupReasons.includes("Burst") },
 ];
 
@@ -3567,7 +3638,7 @@ function GamesScreen({ stats, settings, queue, tokens, isPro, onStartGame, onPic
       <View style={styles.gamesVisualHero}>
         <View style={styles.gameTopRow}>
           <View style={styles.gamesHeroCopy}>
-            <Text style={styles.eyebrow}>Games</Text>
+            <Text style={styles.eyebrow}>Review modes</Text>
             <Text style={styles.heroTitle}>Choose how to clean</Text>
             <Text style={styles.dashboardCopy}>{todayLabel} · {stats.reviewed} photos reviewed</Text>
           </View>
@@ -3597,7 +3668,7 @@ function GamesScreen({ stats, settings, queue, tokens, isPro, onStartGame, onPic
       <Pressable onPress={() => onStartGame({ sessionMode: "classic" })} style={styles.primaryGameVisualCard}>
         <Image source={GAME_IMAGES.swipe} style={styles.primaryGameArt} resizeMode="cover" />
         <View style={styles.primaryGameText}>
-          <View style={styles.primaryGameBadge}><Text style={styles.primaryGameBadgeText}>Main game</Text></View>
+          <View style={styles.primaryGameBadge}><Text style={styles.primaryGameBadgeText}>Primary review</Text></View>
           <Text style={styles.primaryGameTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.66}>TrimSwipe</Text>
           <Text style={styles.primaryGameDetail}>Swipe left, up, or right.</Text>
         </View>
@@ -3608,10 +3679,10 @@ function GamesScreen({ stats, settings, queue, tokens, isPro, onStartGame, onPic
         </View>
       </Pressable>
       <View style={styles.gameGrid}>
-        <VisualGameCard icon="swap-horizontal-outline" title="This or That" detail="Pick the keeper" image={GAME_IMAGES.choice} active={settings.targetMode === "similar"} onPress={onOpenThisOrThat} />
-        <VisualGameCard icon="speedometer-outline" title="Storage Budget" detail="Stay under 50 MB" image={GAME_IMAGES.budget} onPress={onOpenStorageBudget} />
-        <VisualGameCard icon="timer-outline" title="Speed Round" detail="60 seconds" image={GAME_IMAGES.speed} active={settings.sessionMode === "time-attack"} onPress={() => onStartGame({ sessionMode: "time-attack" })} />
-        <VisualGameCard icon="calendar-outline" title="Memory Lane" detail="Old photos first" image={GAME_IMAGES.memory} active={settings.targetMode === "old-only"} onPress={onOpenMemoryLane} />
+        <VisualGameCard icon="swap-horizontal-outline" title="Compare Similar" detail="Review a full group" image={GAME_IMAGES.choice} active={settings.targetMode === "similar"} onPress={onOpenThisOrThat} />
+        <VisualGameCard icon="speedometer-outline" title="Free Space Plan" detail="Stay under 50 MB" image={GAME_IMAGES.budget} onPress={onOpenStorageBudget} />
+        <VisualGameCard icon="timer-outline" title="Quick Review" detail="60 seconds" image={GAME_IMAGES.speed} active={settings.sessionMode === "time-attack"} onPress={() => onStartGame({ sessionMode: "time-attack" })} />
+        <VisualGameCard icon="calendar-outline" title="Past Moments" detail="Old photos first" image={GAME_IMAGES.memory} active={settings.targetMode === "old-only"} onPress={onOpenMemoryLane} />
       </View>
       <View style={styles.focusPanel}>
         <View style={styles.focusHeader}>
@@ -3812,181 +3883,67 @@ function GameSmartFolderCard({ folder, onPress }: { folder: GameSmartFolder; onP
 
 // ─── This or That ─────────────────────────────────────────────────────────────
 
-type ThisOrThatLoserMode = "delete" | "trim" | "skip";
-
-function LoserColumn({ title, tone, photos, settings, onMove }: { title: string; tone: ThisOrThatLoserMode; photos: NativePhoto[]; settings: NativeSettings; onMove: (photo: NativePhoto) => void }) {
-  const total = photos.reduce((sum, photo) => sum + (tone === "delete" ? photo.sizeMB : tone === "trim" ? estimateTrimSavingsForSettings(photo, settings) : 0), 0);
-  return (
-    <View style={[styles.loserColumn, tone === "delete" ? styles.loserColumnDelete : tone === "trim" ? styles.loserColumnTrim : styles.loserColumnSkip]}>
-      <Text style={tone === "delete" ? styles.deleteSummary : tone === "trim" ? styles.trimSummary : styles.skipSummary}>{title}</Text>
-      <Text style={styles.mutedSmall}>
-        {photos.length} photos {tone === "skip" ? "- no action" : `- ${tone === "delete" ? formatMB(total) : `~${formatMB(total)}`}`}
-      </Text>
-      <View style={styles.loserThumbGrid}>
-        {photos.map((photo) => (
-          <LoserThumb key={photo.id} photo={photo} tone={tone} settings={settings} onMove={() => onMove(photo)} />
-        ))}
-      </View>
-    </View>
-  );
-}
-
-function LoserThumb({ photo, tone, settings, onMove }: { photo: NativePhoto; tone: ThisOrThatLoserMode; settings: NativeSettings; onMove: () => void }) {
-  const trimLabel = trimmedPhotoLabel(photo, settings);
-  return (
-    <Pressable onPress={onMove} style={styles.loserThumb}>
-      <Image source={{ uri: photo.uri }} style={styles.loserThumbImage} resizeMode="cover" />
-      {trimLabel ? <Text style={styles.trimmedLoserBadge}>{trimLabel}</Text> : null}
-      <Text style={styles.loserThumbText}>{tone === "delete" ? formatMB(photo.sizeMB) : tone === "trim" ? `~${formatMB(estimateTrimSavingsForSettings(photo, settings))}` : "Save"}</Text>
-    </Pressable>
-  );
-}
-
-function ThisOrThatScreen({ settings, tokens, isPro, onBack, onConfirmOutcome }: {
-  settings: NativeSettings; tokens: number; isPro: boolean; onBack: () => void;
+function ThisOrThatScreen({ settings, tokens, isPro, avoidIds, onBack, onConfirmOutcome }: {
+  settings: NativeSettings; tokens: number; isPro: boolean; avoidIds: string[]; onBack: () => void;
   onConfirmOutcome: (kept: NativePhoto[], deleted: NativePhoto[], toTrim: NativePhoto[]) => Promise<number>;
 }) {
-  const [pairs, setPairs] = useState<[NativePhoto, NativePhoto][]>([]);
+  const [clusters, setClusters] = useState<DuplicateCluster[]>([]);
   const [index, setIndex] = useState(0);
-  const [kept, setKept] = useState<NativePhoto[]>([]);
-  const [deleted, setDeleted] = useState<NativePhoto[]>([]);
-  const [skippedPairs, setSkippedPairs] = useState(0);
-  const [loserModes, setLoserModes] = useState<Record<string, ThisOrThatLoserMode>>({});
-  const loserModesRef = useRef<Record<string, ThisOrThatLoserMode>>({});
-  const [loadingPairs, setLoadingPairs] = useState(true);
+  const [loadingClusters, setLoadingClusters] = useState(true);
   const [busy, setBusy] = useState(false);
   const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
   const [localAvoidIds, setLocalAvoidIds] = useState<string[]>([]);
 
-  async function loadPairs(extraAvoidIds: string[] = []) {
-    setLoadingPairs(true);
+  async function loadClusters(extraAvoidIds: string[] = []) {
+    setLoadingClusters(true);
     try {
       const permission = await requestPhotoPermission();
-      if (!permission.granted) { setPairs([]); return; }
-      const mergedAvoidIds = [...new Set([...localAvoidIds, ...extraAvoidIds])];
-      const pairSettings = roundSettings({
-        ...settings,
-        cardsPerRound: 12,
-        sessionMode: "classic",
-      });
-      let nextPairs = await loadRelatedPhotoPairs(6, pairSettings, { avoidIds: mergedAvoidIds });
-      if (nextPairs.length === 0) {
-        const fallbackPhotos = await loadPhotoRound(12, pairSettings, {
-          avoidIds: mergedAvoidIds,
-          includeTrimmed: true,
-        });
-        nextPairs = [];
-        for (let i = 0; i + 1 < fallbackPhotos.length; i += 2) {
-          nextPairs.push([fallbackPhotos[i], fallbackPhotos[i + 1]]);
-        }
-      }
-      setPairs(nextPairs);
-      loserModesRef.current = {};
-      setIndex(0); setKept([]); setDeleted([]); setSkippedPairs(0); setLoserModes({});
-    } finally { setLoadingPairs(false); }
+      if (!permission.granted) { setClusters([]); return; }
+      const mergedAvoidIds = [...new Set([...avoidIds, ...localAvoidIds, ...extraAvoidIds])];
+      const nextClusters = await loadDuplicatePhotoGroups(8, settings, { avoidIds: mergedAvoidIds });
+      setClusters(nextClusters);
+      setIndex(0);
+    } finally {
+      setLoadingClusters(false);
+    }
   }
 
-  useEffect(() => { void loadPairs(); }, []);
-  const pair = pairs[index];
-  const deleteLosers = deleted.filter((photo) => loserModes[photo.id] === "delete" || !loserModes[photo.id]);
-  const trimLosers = deleted.filter((photo) => loserModes[photo.id] === "trim");
-  const skipLosers = deleted.filter((photo) => loserModes[photo.id] === "skip");
-  const deleteFreed = deleteLosers.reduce((sum, photo) => sum + photo.sizeMB, 0);
-  const trimFreed = trimLosers.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0);
-  const totalFreed = deleteFreed + trimFreed;
+  // The initial scan deliberately uses the settings snapshot from when the mode opens.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void loadClusters(); }, []);
+  const cluster = clusters[index];
 
-  function pick(keepIndex: 0 | 1) {
-    if (!pair) return;
-    const keeper = pair[keepIndex];
-    const loser = pair[keepIndex === 0 ? 1 : 0];
-    setKept((current) => [...current, keeper]);
-    setDeleted((current) => [...current, loser]);
-    setLoserMode(loser, "delete");
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setIndex((current) => current + 1);
-  }
-
-  function skipPair() {
-    if (!pair) return;
-    void Haptics.selectionAsync();
-    setSkippedPairs((current) => current + 1);
-    setIndex((current) => current + 1);
-  }
-
-  function deleteBoth() {
-    if (!pair) return;
-    setDeleted((current) => [...current, pair[0], pair[1]]);
-    setLoserMode(pair[0], "delete");
-    setLoserMode(pair[1], "delete");
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    setIndex((current) => current + 1);
-  }
-
-  function setLoserMode(photo: NativePhoto, mode: ThisOrThatLoserMode) {
-    loserModesRef.current = { ...loserModesRef.current, [photo.id]: mode };
-    setLoserModes(loserModesRef.current);
-  }
-
-  function cycleLoserMode(photo: NativePhoto) {
-    const mode = loserModes[photo.id] ?? "delete";
-    const nextMode: ThisOrThatLoserMode =
-      mode === "delete" ? "trim" : mode === "trim" ? "skip" : "delete";
-    setLoserMode(photo, nextMode);
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }
-
-  async function confirmOutcome() {
+  async function confirmSelection(selection: { keeperId: string; removalIds: string[] }) {
+    if (!cluster || busy) return;
+    const keeper = cluster.photos.find((photo) => photo.id === selection.keeperId);
+    const removals = cluster.photos.filter((photo) => selection.removalIds.includes(photo.id));
+    if (!keeper || removals.length === 0) return;
     setBusy(true);
     try {
-      const currentModes = loserModesRef.current;
-      const currentDeleteLosers = deleted.filter((photo) => currentModes[photo.id] === "delete" || !currentModes[photo.id]);
-      const currentTrimLosers = deleted.filter((photo) => currentModes[photo.id] === "trim");
-      const count = await onConfirmOutcome(kept, currentDeleteLosers, currentTrimLosers);
-      if (count > 0 || deleted.length === 0) {
-        const roundIds = [...kept, ...deleted].map((photo) => photo.id);
-        setLocalAvoidIds((current) => [...new Set([...current, ...roundIds])].slice(-120));
-        void loadPairs(roundIds);
+      const applied = await onConfirmOutcome([keeper], removals, []);
+      if (applied > 0) {
+        const reviewedIds = cluster.photos.map((photo) => photo.id);
+        setLocalAvoidIds((current) => [...new Set([...current, ...reviewedIds])]);
+        if (index + 1 < clusters.length) setIndex((current) => current + 1);
+        else void loadClusters(reviewedIds);
       }
     } finally {
       setBusy(false);
     }
   }
 
-  if (loadingPairs) return <Centered><ActivityIndicator color="#f97316" size="large" /><Text style={styles.muted}>Building This or That pairs...</Text></Centered>;
+  if (loadingClusters) {
+    return <Centered><ActivityIndicator color="#334155" size="large" /><Text style={styles.muted}>Comparing photos privately on this iPhone...</Text></Centered>;
+  }
 
-  if (!pair) {
-    if (deleted.length === 0 && kept.length === 0 && skippedPairs === 0) {
-      return (
-        <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-          <MiniGameHeader title="This or That" detail="No pairs yet" tokens={tokens} isPro={isPro} onBack={onBack} />
-          <View style={styles.dashboardHero}>
-            <Text style={styles.heroTitle}>No photo pairs found</Text>
-            <Text style={styles.dashboardCopy}>
-              The current library selection did not return enough local photos for This or That.
-            </Text>
-            <PrimaryButton label="Reload photos" onPress={() => void loadPairs()} />
-          </View>
-        </ScrollView>
-      );
-    }
+  if (!cluster) {
     return (
       <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-        <MiniGameHeader title="This or That" detail="Round complete" tokens={tokens} isPro={isPro} onBack={onBack} />
+        <MiniGameHeader title="Compare Similar" detail="No groups ready" tokens={tokens} isPro={isPro} onBack={onBack} />
         <View style={styles.dashboardHero}>
-          <Text style={styles.heroTitle}>{deleted.length} losers ready</Text>
-          <Text style={styles.dashboardCopy}>Losers default to Delete. Tap a thumbnail to cycle Delete, Trim, Save.</Text>
-          <View style={styles.loserSummaryRow}>
-            <Text style={styles.deleteSummary}>Delete {deleteLosers.length}: {formatMB(deleteFreed)}</Text>
-            <Text style={styles.trimSummary}>Trim {trimLosers.length}: ~{formatMB(trimFreed)}</Text>
-            <Text style={styles.skipSummary}>Save {skipLosers.length}</Text>
-          </View>
-          <View style={styles.loserColumns}>
-            <LoserColumn title="Delete" tone="delete" photos={deleteLosers} settings={settings} onMove={cycleLoserMode} />
-            <LoserColumn title="Trim" tone="trim" photos={trimLosers} settings={settings} onMove={cycleLoserMode} />
-          </View>
-          <LoserColumn title="Save" tone="skip" photos={skipLosers} settings={settings} onMove={cycleLoserMode} />
-          <PrimaryButton label={busy ? "Applying..." : `Apply, save ~${formatMB(totalFreed)}`} disabled={busy || deleteLosers.length + trimLosers.length === 0} onPress={confirmOutcome} />
-          <SecondaryButton label="Play another round without deleting" onPress={() => void loadPairs()} />
+          <Text style={styles.heroTitle}>No similar-photo groups found</Text>
+          <Text style={styles.dashboardCopy}>Only confirmed groups are shown here. Unrelated photos are never used as substitutes.</Text>
+          <PrimaryButton label="Scan again" onPress={() => void loadClusters()} />
         </View>
       </ScrollView>
     );
@@ -3994,24 +3951,13 @@ function ThisOrThatScreen({ settings, tokens, isPro, onBack, onConfirmOutcome }:
 
   return (
     <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-      <MiniGameHeader title="This or That" detail={`${index + 1}/${pairs.length} pairs`} tokens={tokens} isPro={isPro} onBack={onBack} />
-      <View style={styles.dashboardHero}>
-        <Text style={styles.heroTitle}>Tap the photo to keep</Text>
-        <Text style={styles.dashboardCopy}>The unpicked photo waits for final delete confirmation.</Text>
-      </View>
-      <View style={styles.thisThatRow}>
-        <ChoicePhoto photo={pair[0]} label="A" onPress={() => pick(0)} onLongPress={() => setFullPhoto(pair[0])} />
-        <ChoicePhoto photo={pair[1]} label="B" onPress={() => pick(1)} onLongPress={() => setFullPhoto(pair[1])} />
-      </View>
-      <View style={styles.thisThatActionRow}>
-        <Pressable onPress={skipPair} style={styles.pairSecondaryButton}>
-          <Text style={styles.pairSecondaryText}>Skip</Text>
-        </Pressable>
-        <Pressable onPress={deleteBoth} style={styles.pairDangerButton}>
-          <Text style={styles.pairDangerText}>Delete both</Text>
-        </Pressable>
-      </View>
-      <Text style={styles.centerText}>Queued savings: {formatMB(deleteFreed)}</Text>
+      <MiniGameHeader title="Compare Similar" detail={`Group ${index + 1}/${clusters.length}`} tokens={tokens} isPro={isPro} onBack={onBack} />
+      <DuplicateClusterReview
+        cluster={cluster}
+        confirmLabel={busy ? "Applying..." : "Review suggested removals"}
+        onPreviewPhoto={setFullPhoto}
+        onConfirmRemovals={(selection) => void confirmSelection(selection)}
+      />
       <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </ScrollView>
   );
@@ -4138,16 +4084,16 @@ function StorageBudgetScreen({ settings, tokens, isPro, trimsRemaining, avoidIds
     }
   }
 
-  if (loadingPhotos) return <Centered><ActivityIndicator color="#f97316" size="large" /><Text style={styles.muted}>Building a Storage Budget board...</Text></Centered>;
+  if (loadingPhotos) return <Centered><ActivityIndicator color="#334155" size="large" /><Text style={styles.muted}>Building a Free Space Plan...</Text></Centered>;
 
   if (photos.length === 0) {
     return (
       <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-        <MiniGameHeader title="Storage Budget" detail="No board yet" tokens={tokens} isPro={isPro} onBack={onBack} />
+        <MiniGameHeader title="Free Space Plan" detail="No plan yet" tokens={tokens} isPro={isPro} onBack={onBack} />
         <View style={styles.dashboardHero}>
           <Text style={styles.heroTitle}>No budget photos found</Text>
           <Text style={styles.dashboardCopy}>
-            The current library selection did not return enough local photos for a Storage Budget board.
+            The current library selection did not return enough local photos for a Free Space Plan.
           </Text>
           <PrimaryButton label="Reload photos" onPress={() => void loadBoard(photos.map((photo) => photo.id))} />
         </View>
@@ -4162,7 +4108,7 @@ function StorageBudgetScreen({ settings, tokens, isPro, trimsRemaining, avoidIds
         onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
         scrollEventThrottle={16}
       >
-        <MiniGameHeader title="Storage Budget" detail="Keep what fits" tokens={tokens} isPro={isPro} onBack={onBack} />
+        <MiniGameHeader title="Free Space Plan" detail="Keep what fits" tokens={tokens} isPro={isPro} onBack={onBack} />
       <View style={styles.dashboardHero}>
         <View style={styles.dashboardHeroTop}>
           <View>
@@ -4343,11 +4289,11 @@ function MemoryLaneScreen({ settings, tokens, isPro, avoidIds, trimsRemaining, o
     if (!hasReviewedAny) {
       return (
         <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-          <MiniGameHeader title="Memory Lane" detail="No memories loaded" tokens={tokens} isPro={isPro} onBack={onBack} />
+          <MiniGameHeader title="Past Moments" detail="No memories loaded" tokens={tokens} isPro={isPro} onBack={onBack} />
           <View style={styles.dashboardHero}>
             <Text style={styles.heroTitle}>No memories found</Text>
             <Text style={styles.dashboardCopy}>
-              The current photo access selection did not return older local photos for Memory Lane.
+              The current photo access selection did not return older local photos for Past Moments.
             </Text>
             <PrimaryButton label="Reload photos" disabled={busy} onPress={() => void loadMemories()} />
           </View>
@@ -4356,7 +4302,7 @@ function MemoryLaneScreen({ settings, tokens, isPro, avoidIds, trimsRemaining, o
     }
     return (
       <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-        <MiniGameHeader title="Memory Lane" detail="Round complete" tokens={tokens} isPro={isPro} onBack={onBack} />
+        <MiniGameHeader title="Past Moments" detail="Round complete" tokens={tokens} isPro={isPro} onBack={onBack} />
         <View style={styles.dashboardHero}>
           <View style={styles.memorySummaryList}>
             <MemorySummaryItem label="Kept" value={kept.length} tone="keep" />
@@ -4387,7 +4333,7 @@ function MemoryLaneScreen({ settings, tokens, isPro, avoidIds, trimsRemaining, o
 
   return (
     <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-      <MiniGameHeader title="Memory Lane" detail={`${index + 1}/${photos.length} memories`} tokens={tokens} isPro={isPro} onBack={onBack} />
+      <MiniGameHeader title="Past Moments" detail={`${index + 1}/${photos.length} memories`} tokens={tokens} isPro={isPro} onBack={onBack} />
       <Pressable onLongPress={() => setFullPhoto(photo)} delayLongPress={350} style={[styles.memoryCard, { borderColor: cardBorderColor, borderWidth: revealed ? 3 : StyleSheet.hairlineWidth }]}>
         <Image source={{ uri: photo.uri }} style={styles.memoryImage} resizeMode="cover" />
         <View style={styles.photoShade} />
@@ -4656,22 +4602,6 @@ function Toast({ toast }: { toast: ToastMessage | null }) {
   );
 }
 
-function ChoicePhoto({ photo, label, onPress, onLongPress }: { photo: NativePhoto; label: string; onPress: () => void; onLongPress: () => void }) {
-  const trimLabel = trimmedPhotoLabel(photo);
-  return (
-    <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={350} style={styles.choicePhoto}>
-      <Image source={{ uri: photo.uri }} style={styles.choiceImage} resizeMode="cover" />
-      <View style={styles.choiceShade} />
-      <Text style={styles.choiceBadge}>{label}</Text>
-      {trimLabel ? <Text style={styles.trimmedChoiceBadge}>{trimLabel}</Text> : null}
-      <View style={styles.choiceFooter}>
-        <Text style={styles.choiceTitle} numberOfLines={2}>{photo.title}</Text>
-        <Text style={styles.choiceMeta}>{formatMB(photo.sizeMB)}</Text>
-      </View>
-    </Pressable>
-  );
-}
-
 function BudgetPhotoTile({ photo, kept, onPress, onLongPress }: { photo: NativePhoto; kept: boolean; onPress: () => void; onLongPress: () => void }) {
   const trimLabel = trimmedPhotoLabel(photo);
   return (
@@ -4750,7 +4680,7 @@ const FOCUS_OPTIONS: [NativeTargetMode, string, string][] = [
   ["big-or-old", "Large or old", "Photos over either threshold"],
   ["big-only", "Large", "Photos over the size threshold"],
   ["old-only", "Old", "Older memories first"],
-  ["similar", "Uncategorized", "Photos without a stronger cleanup category"],
+  ["similar", "Similar Photos", "Visually related photos to compare together"],
   ["blurry", "Blurry", "Likely blurry, dark, or accidental shots"],
   ["multibursts", "Bursts", "Rapid-fire photo groups"],
   ["screenshots", "Screens", "Screenshots and screen grabs"],
@@ -5312,6 +5242,12 @@ function SettingsScreen({
         value={settings.trimReviewMode}
         options={[["normal", "Untrimmed"], ["trimmed-only", "Trimmed only"], ["all", "All photos"]]}
         onChange={(trimReviewMode) => onChange({ trimReviewMode })}
+      />
+      <Segmented
+        label="Previously reviewed"
+        value={settings.includePreviouslyReviewed ? "include" : "hide"}
+        options={[["hide", "Hide by default"], ["include", "Include"]]}
+        onChange={(value) => onChange({ includePreviouslyReviewed: value === "include" })}
       />
       <SettingStepper label="Daily goal" value={settings.dailyGoalMB} suffix="MB" min={5} max={500} step={5} onChange={(dailyGoalMB) => onChange({ dailyGoalMB })} />
       <FocusDropdown value={settings.targetMode} onChange={(targetMode) => onChange({ targetMode })} />

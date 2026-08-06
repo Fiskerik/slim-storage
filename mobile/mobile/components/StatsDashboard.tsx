@@ -172,7 +172,7 @@ export function StatsDashboard({
               />
               <ScanBreakdownRow
                 icon="copy-outline"
-                label="Uncategorized"
+                label="Similar Photos"
                 count={scan.duplicateRemovalCount}
                 value={scan.duplicateDeleteSavingsMB}
                 color={colors.info}
