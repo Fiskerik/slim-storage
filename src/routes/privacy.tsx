@@ -31,21 +31,24 @@ function PrivacyPage() {
         </div>
         <h1 className="mt-4 font-display text-3xl font-bold tracking-tight">Privacy Policy</h1>
         <p className="mt-1 text-xs text-muted-foreground">
-          Effective: April 29, 2026 · Last updated: April 29, 2026
+          Effective: May 4, 2026 · Last updated: May 4, 2026
         </p>
       </header>
 
       <p className="mt-5 text-sm text-foreground/90 text-balance">
-        TrimSwipe is designed around a simple promise: your photos and personal data
-        stay on your device. We don't run analytics, we don't show ads, and we
-        don't upload your library to any server.
+        TrimSwipe is designed around a simple promise: your photos stay on your
+        device. We never upload your library to any server. The free version
+        shows ads from Google AdMob, and purchases are handled by Apple through
+        RevenueCat — those are the only third parties involved, and they never
+        receive your photos.
       </p>
 
       <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Pillar icon={<Smartphone className="h-4 w-4" />} title="On-device" body="Photo processing happens locally on your iPhone." />
-        <Pillar icon={<Eye className="h-4 w-4" />} title="No tracking" body="No analytics SDKs, no advertising IDs, no cookies." />
-        <Pillar icon={<Database className="h-4 w-4" />} title="No collection" body="We never store your photos, names, or email." />
+        <Pillar icon={<Eye className="h-4 w-4" />} title="No photo uploads" body="Your images and metadata never leave the device." />
+        <Pillar icon={<Database className="h-4 w-4" />} title="No accounts" body="We never store your name, email, or contact details." />
       </div>
+
 
       <Section title="1. What TrimSwipe does on your device">
         TrimSwipe helps you review your camera roll by swiping to keep, trim, or
