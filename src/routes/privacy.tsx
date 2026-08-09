@@ -87,11 +87,31 @@ function PrivacyPage() {
       </Section>
 
       <Section title="5. Third-party services">
-        TrimSwipe uses Apple's StoreKit for in-app purchases (TrimSwipe Pro) and
-        UserNotifications for daily reminders. These are operated by Apple
-        under Apple's privacy policy. TrimSwipe does not embed any third-party
-        analytics, ads, attribution, or crash-reporting SDKs.
+        TrimSwipe uses a small number of third-party services, none of which
+        ever receive your photos:
+        <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-foreground/85">
+          <li>
+            <strong>Apple StoreKit</strong> — processes in-app purchases and
+            subscriptions, and sends daily reminders via UserNotifications.
+          </li>
+          <li>
+            <strong>RevenueCat</strong> — validates your purchase receipts and
+            keeps your Pro status in sync across your devices. It receives an
+            anonymous app-generated user id and purchase data, not your name,
+            email, or photos.
+          </li>
+          <li>
+            <strong>Google AdMob</strong> — serves banner, interstitial, and
+            optional rewarded ads in the free version. AdMob may process device
+            identifiers, coarse location derived from IP, and ad-interaction
+            data to deliver and measure ads, as described in Google's privacy
+            policy. On iOS we only use tracking identifiers if you allow it in
+            the App Tracking Transparency prompt; otherwise ads are
+            non-personalised. Buying TrimSwipe Pro removes ads.
+          </li>
+        </ul>
       </Section>
+
 
       <Section title="6. Children">
         TrimSwipe does not knowingly collect data from anyone, including children
