@@ -163,7 +163,7 @@ function TermsPage() {
       </Section>
 
 
-      <Section title="11. Contact">
+      <Section title="13. Contact">
         Questions about these terms? Reach out at{" "}
         <a
           href="mailto:eaconsulting.supp@gmail.com"
