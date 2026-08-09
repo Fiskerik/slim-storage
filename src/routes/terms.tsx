@@ -36,14 +36,19 @@ function TermsPage() {
       </header>
 
       <p className="mt-5 text-sm text-foreground/90 text-balance">
-        By downloading or using TrimSwipe ("the App"), you agree to these Terms of
-        Service. If you do not agree, please do not use the App.
+        By downloading or using TrimSwipe ("the App"), you agree to these Terms
+        of Use (EULA). If you do not agree, please do not use the App. These
+        Terms are the end user license agreement between you and the developer;
+        Apple is not a party to this agreement.
       </p>
 
-      <Section title="1. Use of the App">
-        TrimSwipe is a photo-management tool that helps you review and organize your
-        camera roll. You may use the App for personal, non-commercial purposes.
-        You agree not to reverse-engineer, decompile, or attempt to extract the
+      <Section title="1. Licence & Use of the App">
+        TrimSwipe is a photo-management tool that helps you review and organize
+        your camera roll. We grant you a limited, non-transferable,
+        non-exclusive licence to use the App on any Apple-branded device that
+        you own or control, as permitted by the Apple Media Services Terms of
+        Use. You may use the App for personal, non-commercial purposes. You
+        agree not to reverse-engineer, decompile, or attempt to extract the
         source code of the App.
       </Section>
 
@@ -54,15 +59,45 @@ function TermsPage() {
         all local data at any time from Profile → "Delete all TrimSwipe data".
       </Section>
 
-      <Section title="3. In-App Purchases">
-        TrimSwipe may offer premium features ("TrimSwipe Pro") as in-app purchases
-        processed through Apple's App Store. TrimSwipe Pro may be purchased as a
-        one-time lifetime product or as an auto-renewable monthly or yearly
-        subscription. Subscriptions renew automatically until cancelled through
-        your Apple Account settings. All purchases are subject to Apple's
-        terms. Refund requests should be directed to Apple. We do not process
-        payments directly.
+      <Section title="3. In-App Purchases & Subscriptions">
+        TrimSwipe offers premium features ("TrimSwipe Pro") and consumable Trim
+        Token packs as in-app purchases processed through Apple's App Store.
+        <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-foreground/85">
+          <li>
+            <strong>TrimSwipe Pro (subscription)</strong> — an auto-renewable
+            subscription available with a monthly or yearly term. The price
+            shown at purchase applies for each renewal period.
+          </li>
+          <li>
+            <strong>Lifetime Pro</strong> — a one-time, non-renewing purchase
+            tied to your Apple Account.
+          </li>
+          <li>
+            <strong>Trim Token packs</strong> — one-time consumable purchases
+            (50, 100, 200 or 500 tokens) that are used up as you trim photos.
+          </li>
+        </ul>
+        <p className="mt-2">
+          Payment is charged to your Apple Account at confirmation of purchase.
+          Subscriptions renew automatically for the same period and price unless
+          auto-renew is turned off at least 24 hours before the end of the
+          current period. Your account is charged for renewal within 24 hours
+          prior to the end of the current period. You can manage or cancel your
+          subscription at any time in Apple Account → Subscriptions; cancelling
+          stops future renewals but does not refund the current period. Any
+          unused portion of a free trial is forfeited when you purchase a
+          subscription. Refund requests are handled by Apple — we do not process
+          payments directly.
+        </p>
+        <p className="mt-2">
+          Privacy practices for purchases are described in our{" "}
+          <Link to="/privacy" className="font-medium text-primary underline underline-offset-2">
+            Privacy Policy
+          </Link>
+          .
+        </p>
       </Section>
+
 
       <Section title="4. Intellectual Property">
         The App, including its design, code, graphics, and content, is owned by
