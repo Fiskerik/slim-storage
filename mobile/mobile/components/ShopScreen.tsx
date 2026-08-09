@@ -829,4 +829,21 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     marginTop: spacing.sm,
   },
+  legalLinks: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  legalLink: {
+    fontSize: 11,
+    color: colors.primary,
+    fontWeight: "600",
+    textDecorationLine: "underline",
+  },
+  legalDot: {
+    fontSize: 11,
+    color: colors.textSubtle,
+  },
 });
