@@ -16,7 +16,7 @@ export async function initNativeShell() {
     document.documentElement.classList.add("native-ios");
   }
 
-  console.log("[Slim] Native shell initialised", window.__SLIM_NATIVE__ ? "(native)" : "(web)");
+  console.log("[TrimSwipe] Native shell initialised", window.__SLIM_NATIVE__ ? "(native)" : "(web)");
 }
 
 export async function hapticTap() {

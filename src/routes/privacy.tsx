@@ -5,11 +5,11 @@ export const Route = createFileRoute("/privacy")({
   component: PrivacyPage,
   head: () => ({
     meta: [
-      { title: "Privacy Policy — Slim" },
+      { title: "Privacy Policy — TrimSwipe" },
       {
         name: "description",
         content:
-          "Slim is built on-device. We don't collect, sell, or upload your photos or personal data. Read the full privacy policy.",
+          "TrimSwipe is built on-device. We don't collect, sell, or upload your photos or personal data. Read the full privacy policy.",
       },
     ],
   }),
@@ -36,7 +36,7 @@ function PrivacyPage() {
       </header>
 
       <p className="mt-5 text-sm text-foreground/90 text-balance">
-        Slim is designed around a simple promise: your photos and personal data
+        TrimSwipe is designed around a simple promise: your photos and personal data
         stay on your device. We don't run analytics, we don't show ads, and we
         don't upload your library to any server.
       </p>
@@ -47,8 +47,8 @@ function PrivacyPage() {
         <Pillar icon={<Database className="h-4 w-4" />} title="No collection" body="We never store your photos, names, or email." />
       </div>
 
-      <Section title="1. What Slim does on your device">
-        Slim helps you review your camera roll by swiping to keep, trim, or
+      <Section title="1. What TrimSwipe does on your device">
+        TrimSwipe helps you review your camera roll by swiping to keep, trim, or
         delete photos. Trimming optimizes a copy of an image and strips
         sensitive metadata (such as GPS coordinates and device tags). All of
         this happens locally — the original and trimmed files never leave your
@@ -56,53 +56,53 @@ function PrivacyPage() {
       </Section>
 
       <Section title="2. Data we collect">
-        <strong>None that personally identifies you.</strong> Slim stores the
+        <strong>None that personally identifies you.</strong> TrimSwipe stores the
         following on-device only, in your phone's local storage:
         <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-foreground/85">
           <li>Aggregate stats (storage freed, streak, daily counts).</li>
           <li>App preferences (cards per round, reminder time, display name you typed).</li>
-          <li>Your in-app purchase status (Slim Pro), validated via Apple.</li>
+          <li>Your in-app purchase status (TrimSwipe Pro), validated via Apple.</li>
         </ul>
         <p className="mt-2">
           This data is never transmitted to us. Deleting the app or tapping
-          "Delete all Slim data" in Profile wipes it instantly.
+          "Delete all TrimSwipe data" in Profile wipes it instantly.
         </p>
       </Section>
 
       <Section title="3. iCloud sync (optional)">
         If you enable "Sync with iCloud" in Profile, your stats and settings
-        sync between your devices through Apple's iCloud. Slim does not run a
+        sync between your devices through Apple's iCloud. TrimSwipe does not run a
         server in this flow — Apple handles encryption and storage. We never
         see this data.
       </Section>
 
       <Section title="4. Photos & permissions">
-        Slim asks for Photo Library access so you can review your own photos
+        TrimSwipe asks for Photo Library access so you can review your own photos
         inside the app. You may grant Limited Access (specific photos) or Full
         Access. We only read photos you choose to swipe and only modify photos
         when you explicitly tap Trim or Delete. We never copy or upload them.
       </Section>
 
       <Section title="5. Third-party services">
-        Slim uses Apple's StoreKit for in-app purchases (Slim Pro) and
+        TrimSwipe uses Apple's StoreKit for in-app purchases (TrimSwipe Pro) and
         UserNotifications for daily reminders. These are operated by Apple
-        under Apple's privacy policy. Slim does not embed any third-party
+        under Apple's privacy policy. TrimSwipe does not embed any third-party
         analytics, ads, attribution, or crash-reporting SDKs.
       </Section>
 
       <Section title="6. Children">
-        Slim does not knowingly collect data from anyone, including children
+        TrimSwipe does not knowingly collect data from anyone, including children
         under 13. The app is rated for general audiences.
       </Section>
 
       <Section title="7. Your rights">
         Because we don't collect personal data, there is nothing for us to
         export or delete on your behalf. To erase all on-device data at any
-        time, open Profile → "Delete all Slim data", or uninstall the app.
+        time, open Profile → "Delete all TrimSwipe data", or uninstall the app.
       </Section>
 
       <Section title="8. Changes to this policy">
-        If we ever change how Slim handles data, we'll update this page and
+        If we ever change how TrimSwipe handles data, we'll update this page and
         bump the "Last updated" date. Material changes will be highlighted in
         the app on first launch.
       </Section>
@@ -126,7 +126,7 @@ function PrivacyPage() {
       </a>
 
       <p className="mt-6 text-center text-[10px] text-muted-foreground">
-        Slim · Made privately for cluttered camera rolls
+        TrimSwipe · Made privately for cluttered camera rolls
       </p>
     </div>
   );

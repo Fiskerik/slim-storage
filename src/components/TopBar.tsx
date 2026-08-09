@@ -12,7 +12,7 @@ export function TopBar() {
             <Scissors className="h-4 w-4" strokeWidth={2.4} />
           </div>
           <div className="leading-tight">
-            <p className="font-display text-base font-bold tracking-tight">Slim</p>
+            <p className="font-display text-base font-bold tracking-tight">TrimSwipe</p>
             <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
               On-device · Private
             </p>

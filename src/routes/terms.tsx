@@ -5,11 +5,11 @@ export const Route = createFileRoute("/terms")({
   component: TermsPage,
   head: () => ({
     meta: [
-      { title: "Terms of Service — Slim" },
+      { title: "Terms of Service — TrimSwipe" },
       {
         name: "description",
         content:
-          "Terms of Service for the Slim app. Read about usage rules, limitations, and your rights.",
+          "Terms of Service for the TrimSwipe app. Read about usage rules, limitations, and your rights.",
       },
     ],
   }),
@@ -36,27 +36,27 @@ function TermsPage() {
       </header>
 
       <p className="mt-5 text-sm text-foreground/90 text-balance">
-        By downloading or using Slim ("the App"), you agree to these Terms of
+        By downloading or using TrimSwipe ("the App"), you agree to these Terms of
         Service. If you do not agree, please do not use the App.
       </p>
 
       <Section title="1. Use of the App">
-        Slim is a photo-management tool that helps you review and organize your
+        TrimSwipe is a photo-management tool that helps you review and organize your
         camera roll. You may use the App for personal, non-commercial purposes.
         You agree not to reverse-engineer, decompile, or attempt to extract the
         source code of the App.
       </Section>
 
       <Section title="2. Account & Data">
-        Slim does not require an account. All data (stats, preferences) is
+        TrimSwipe does not require an account. All data (stats, preferences) is
         stored locally on your device. If you enable iCloud sync, Apple handles
         the storage and encryption — we never access this data. You can delete
-        all local data at any time from Profile → "Delete all Slim data".
+        all local data at any time from Profile → "Delete all TrimSwipe data".
       </Section>
 
       <Section title="3. In-App Purchases">
-        Slim may offer premium features ("Slim Pro") as in-app purchases
-        processed through Apple's App Store. Slim Pro may be purchased as a
+        TrimSwipe may offer premium features ("TrimSwipe Pro") as in-app purchases
+        processed through Apple's App Store. TrimSwipe Pro may be purchased as a
         one-time lifetime product or as an auto-renewable monthly or yearly
         subscription. Subscriptions renew automatically until cancelled through
         your Apple Account settings. All purchases are subject to Apple's
@@ -84,7 +84,7 @@ function TermsPage() {
       </Section>
 
       <Section title="7. Photo Permissions">
-        Slim requests access to your Photo Library solely to display and manage
+        TrimSwipe requests access to your Photo Library solely to display and manage
         photos within the App. Photos are never uploaded, copied, or shared with
         any third party. You may revoke access at any time in your device
         settings.
@@ -126,7 +126,7 @@ function TermsPage() {
       </a>
 
       <p className="mt-6 text-center text-[10px] text-muted-foreground">
-        Slim · Made privately for cluttered camera rolls
+        TrimSwipe · Made privately for cluttered camera rolls
       </p>
     </div>
   );

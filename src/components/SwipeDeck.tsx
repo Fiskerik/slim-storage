@@ -350,7 +350,7 @@ export function SwipeDeck() {
         const result = await (await getPhotoSourceAsync()).deletePhotos(deleteIds);
         console.log("[SwipeDeck] delete result", { requested: deleteIds.length, result });
       } catch (e) {
-        console.warn("[Slim] delete failed", e);
+        console.warn("[TrimSwipe] delete failed", e);
       }
     }
 
@@ -377,8 +377,8 @@ export function SwipeDeck() {
         <h2 className="mt-4 font-display text-2xl font-bold">Photo access needed</h2>
         <p className="mt-2 max-w-xs text-sm text-muted-foreground">
           {isNativeApp()
-            ? "Slim works on the photos already in your library. Open Settings → Slim → Photos and enable access."
-            : "Choose a folder of photos from your drive so Slim can build a cleanup queue in the browser."}
+            ? "TrimSwipe works on the photos already in your library. Open Settings → TrimSwipe → Photos and enable access."
+            : "Choose a folder of photos from your drive so TrimSwipe can build a cleanup queue in the browser."}
         </p>
         <button
           onClick={() => window.location.reload()}
@@ -439,7 +439,7 @@ export function SwipeDeck() {
       {permissionLimited && (
         <div className="mt-3 w-full max-w-sm rounded-xl border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           You're using limited Photos access. Some photos may be hidden. Manage selection in iOS
-          Settings → Slim → Photos.
+          Settings → TrimSwipe → Photos.
         </div>
       )}
 
@@ -876,7 +876,7 @@ function PaywallModal({ onClose, onUpgrade }: { onClose: () => void; onUpgrade: 
         </div>
         <h3 className="mt-4 font-display text-2xl font-bold">Daily free limit reached</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          You've used your {FREE_TRIM_LIMIT} free trims for today. Upgrade to Slim Pro for unlimited
+          You've used your {FREE_TRIM_LIMIT} free trims for today. Upgrade to TrimSwipe Pro for unlimited
           trims, or come back tomorrow.
         </p>
 
@@ -896,7 +896,7 @@ function PaywallModal({ onClose, onUpgrade }: { onClose: () => void; onUpgrade: 
           onClick={onUpgrade}
           className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3 text-sm font-semibold text-primary-foreground shadow-card transition hover:opacity-90"
         >
-          Unlock Slim Pro
+          Unlock TrimSwipe Pro
         </button>
         <button
           onClick={onClose}

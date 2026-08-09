@@ -5,10 +5,10 @@ export const Route = createFileRoute("/")({
   component: Index,
   head: () => ({
     meta: [
-      { title: "Slim — Swipe to clean your camera roll" },
+      { title: "TrimSwipe — Swipe to clean your camera roll" },
       {
         name: "description",
-        content: "Swipe left to keep, up to trim, right to delete. Slim your photo library on-device.",
+        content: "Swipe left to keep, up to trim, right to delete. TrimSwipe your photo library on-device.",
       },
     ],
   }),

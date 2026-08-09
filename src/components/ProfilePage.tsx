@@ -62,7 +62,7 @@ export function ProfilePage() {
   function deleteAll() {
     if (
       confirm(
-        "Delete all Slim data? This wipes your stats, streak, settings, and history. This cannot be undone.",
+        "Delete all TrimSwipe data? This wipes your stats, streak, settings, and history. This cannot be undone.",
       )
     ) {
       deleteAllData();
@@ -106,7 +106,7 @@ export function ProfilePage() {
           <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
             {stats.isPro ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 font-semibold text-primary">
-                <Crown className="h-3 w-3" /> Slim Pro
+                <Crown className="h-3 w-3" /> TrimSwipe Pro
               </span>
             ) : (
               <span>Free plan · {Math.max(0, 10 - (stats.trimsToday ?? 0))} trims left today</span>
@@ -137,7 +137,7 @@ export function ProfilePage() {
         onClick={() => setShareOpen(true)}
         className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-border bg-card py-3 text-sm font-semibold text-foreground transition hover:border-primary/40"
       >
-        <Share2 className="h-4 w-4" /> Share my Slim card
+        <Share2 className="h-4 w-4" /> Share my TrimSwipe card
       </button>
 
       {/* Pro upsell (free users only) */}
@@ -435,14 +435,14 @@ export function ProfilePage() {
         >
           <div className="flex items-center gap-3">
             <Trash2 className="h-4 w-4" />
-            <span className="text-sm font-semibold">Delete all Slim data</span>
+            <span className="text-sm font-semibold">Delete all TrimSwipe data</span>
           </div>
           <ChevronRight className="h-4 w-4" />
         </button>
       </div>
 
       <p className="mt-6 text-center text-[10px] text-muted-foreground">
-        Slim · v1.0 · Made with ❤️ for cluttered camera rolls
+        TrimSwipe · v1.0 · Made with ❤️ for cluttered camera rolls
       </p>
 
       {shareOpen && <ShareStatsCard onClose={() => setShareOpen(false)} />}
