@@ -5,11 +5,11 @@ export const Route = createFileRoute("/terms")({
   component: TermsPage,
   head: () => ({
     meta: [
-      { title: "Terms of Service — Slim" },
+      { title: "Terms of Service — TrimSwipe" },
       {
         name: "description",
         content:
-          "Terms of Service for the Slim app. Read about usage rules, limitations, and your rights.",
+          "Terms of Service for the TrimSwipe app. Read about usage rules, limitations, and your rights.",
       },
     ],
   }),
@@ -36,33 +36,68 @@ function TermsPage() {
       </header>
 
       <p className="mt-5 text-sm text-foreground/90 text-balance">
-        By downloading or using Slim ("the App"), you agree to these Terms of
-        Service. If you do not agree, please do not use the App.
+        By downloading or using TrimSwipe ("the App"), you agree to these Terms
+        of Use (EULA). If you do not agree, please do not use the App. These
+        Terms are the end user license agreement between you and the developer;
+        Apple is not a party to this agreement.
       </p>
 
-      <Section title="1. Use of the App">
-        Slim is a photo-management tool that helps you review and organize your
-        camera roll. You may use the App for personal, non-commercial purposes.
-        You agree not to reverse-engineer, decompile, or attempt to extract the
+      <Section title="1. Licence & Use of the App">
+        TrimSwipe is a photo-management tool that helps you review and organize
+        your camera roll. We grant you a limited, non-transferable,
+        non-exclusive licence to use the App on any Apple-branded device that
+        you own or control, as permitted by the Apple Media Services Terms of
+        Use. You may use the App for personal, non-commercial purposes. You
+        agree not to reverse-engineer, decompile, or attempt to extract the
         source code of the App.
       </Section>
 
       <Section title="2. Account & Data">
-        Slim does not require an account. All data (stats, preferences) is
+        TrimSwipe does not require an account. All data (stats, preferences) is
         stored locally on your device. If you enable iCloud sync, Apple handles
         the storage and encryption — we never access this data. You can delete
-        all local data at any time from Profile → "Delete all Slim data".
+        all local data at any time from Profile → "Delete all TrimSwipe data".
       </Section>
 
-      <Section title="3. In-App Purchases">
-        Slim may offer premium features ("Slim Pro") as in-app purchases
-        processed through Apple's App Store. Slim Pro may be purchased as a
-        one-time lifetime product or as an auto-renewable monthly or yearly
-        subscription. Subscriptions renew automatically until cancelled through
-        your Apple Account settings. All purchases are subject to Apple's
-        terms. Refund requests should be directed to Apple. We do not process
-        payments directly.
+      <Section title="3. In-App Purchases & Subscriptions">
+        TrimSwipe offers premium features ("TrimSwipe Pro") and consumable Trim
+        Token packs as in-app purchases processed through Apple's App Store.
+        <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-foreground/85">
+          <li>
+            <strong>TrimSwipe Pro (subscription)</strong> — an auto-renewable
+            subscription available with a monthly or yearly term. The price
+            shown at purchase applies for each renewal period.
+          </li>
+          <li>
+            <strong>Lifetime Pro</strong> — a one-time, non-renewing purchase
+            tied to your Apple Account.
+          </li>
+          <li>
+            <strong>Trim Token packs</strong> — one-time consumable purchases
+            (50, 100, 200 or 500 tokens) that are used up as you trim photos.
+          </li>
+        </ul>
+        <p className="mt-2">
+          Payment is charged to your Apple Account at confirmation of purchase.
+          Subscriptions renew automatically for the same period and price unless
+          auto-renew is turned off at least 24 hours before the end of the
+          current period. Your account is charged for renewal within 24 hours
+          prior to the end of the current period. You can manage or cancel your
+          subscription at any time in Apple Account → Subscriptions; cancelling
+          stops future renewals but does not refund the current period. Any
+          unused portion of a free trial is forfeited when you purchase a
+          subscription. Refund requests are handled by Apple — we do not process
+          payments directly.
+        </p>
+        <p className="mt-2">
+          Privacy practices for purchases are described in our{" "}
+          <Link to="/privacy" className="font-medium text-primary underline underline-offset-2">
+            Privacy Policy
+          </Link>
+          .
+        </p>
       </Section>
+
 
       <Section title="4. Intellectual Property">
         The App, including its design, code, graphics, and content, is owned by
@@ -84,7 +119,7 @@ function TermsPage() {
       </Section>
 
       <Section title="7. Photo Permissions">
-        Slim requests access to your Photo Library solely to display and manage
+        TrimSwipe requests access to your Photo Library solely to display and manage
         photos within the App. Photos are never uploaded, copied, or shared with
         any third party. You may revoke access at any time in your device
         settings.
@@ -96,18 +131,39 @@ function TermsPage() {
         ceases immediately. Deleting the App removes all locally stored data.
       </Section>
 
-      <Section title="9. Changes to These Terms">
+      <Section title="9. Advertising">
+        The free version of TrimSwipe shows ads served by Google AdMob,
+        including optional rewarded ads you can choose to watch in exchange for
+        Trim Tokens. Ads are provided by Google under its own terms and privacy
+        policy. Purchasing Lifetime Pro or a Pro subscription removes ads.
+      </Section>
+
+      <Section title="10. Apple's Role">
+        Apple is not responsible for the App or its content, maintenance,
+        support, or any claims relating to it. Apple has no warranty obligation
+        with respect to the App; in the event of a failure to conform to any
+        applicable warranty, you may notify Apple for a refund of the purchase
+        price, and to the maximum extent permitted by law Apple has no other
+        warranty obligation. Apple and its subsidiaries are third-party
+        beneficiaries of these Terms and may enforce them against you. You
+        represent that you are not located in a country subject to a U.S.
+        Government embargo and are not on any U.S. Government restricted-parties
+        list.
+      </Section>
+
+      <Section title="11. Changes to These Terms">
         We may update these Terms from time to time. Changes will be reflected
         on this page with an updated "Last updated" date. Continued use of the
         App after changes constitutes acceptance of the revised Terms.
       </Section>
 
-      <Section title="10. Governing Law">
+      <Section title="12. Governing Law">
         These Terms are governed by the laws of Sweden. Any disputes shall be
         resolved in the courts of Sweden.
       </Section>
 
-      <Section title="11. Contact">
+
+      <Section title="13. Contact">
         Questions about these terms? Reach out at{" "}
         <a
           href="mailto:eaconsulting.supp@gmail.com"
@@ -126,7 +182,7 @@ function TermsPage() {
       </a>
 
       <p className="mt-6 text-center text-[10px] text-muted-foreground">
-        Slim · Made privately for cluttered camera rolls
+        TrimSwipe · Made privately for cluttered camera rolls
       </p>
     </div>
   );

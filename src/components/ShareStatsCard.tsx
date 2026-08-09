@@ -29,10 +29,10 @@ export function ShareStatsCard({ onClose }: { onClose: () => void }) {
   async function share() {
     try {
       setBusy(true);
-      const text = `I freed ${freedLabel} with Slim 🧹\n${reviewed} photos reviewed · 🔥 ${stats.streak}-day streak`;
+      const text = `I freed ${freedLabel} with TrimSwipe 🧹\n${reviewed} photos reviewed · 🔥 ${stats.streak}-day streak`;
       const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
       if (nav.share) {
-        await nav.share({ title: "Slim", text });
+        await nav.share({ title: "TrimSwipe", text });
       } else {
         await navigator.clipboard.writeText(text);
         toast.success("Copied to clipboard");
@@ -56,7 +56,7 @@ export function ShareStatsCard({ onClose }: { onClose: () => void }) {
         <div className="flex items-start justify-between">
           <div>
             <p className="text-xs uppercase tracking-wider text-muted-foreground">Share</p>
-            <h3 className="mt-0.5 font-display text-xl font-bold">Your Slim card</h3>
+            <h3 className="mt-0.5 font-display text-xl font-bold">Your TrimSwipe card</h3>
           </div>
           <button
             onClick={onClose}
@@ -73,7 +73,7 @@ export function ShareStatsCard({ onClose }: { onClose: () => void }) {
         >
           <div className="flex items-center gap-2 text-xs opacity-85">
             <Sparkles className="h-3.5 w-3.5" />
-            <span className="uppercase tracking-[0.18em]">Slim · on-device</span>
+            <span className="uppercase tracking-[0.18em]">TrimSwipe · on-device</span>
           </div>
           <p className="mt-6 font-display text-5xl font-bold tabular-nums">{freedLabel}</p>
           <p className="mt-1 text-sm opacity-90">
@@ -96,7 +96,7 @@ export function ShareStatsCard({ onClose }: { onClose: () => void }) {
         </button>
         <button
           onClick={async () => {
-            const text = `I freed ${freedLabel} with Slim — ${reviewed} photos reviewed.`;
+            const text = `I freed ${freedLabel} with TrimSwipe — ${reviewed} photos reviewed.`;
             await navigator.clipboard.writeText(text);
             toast.success("Copied");
           }}

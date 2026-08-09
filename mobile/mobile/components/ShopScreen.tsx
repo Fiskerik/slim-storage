@@ -9,6 +9,7 @@ import {
   Text,
   View,
   Platform,
+  Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -512,9 +513,24 @@ export function ShopScreen({
         </Pressable>
 
         <Text style={styles.legal}>
-          Purchases are processed by Apple. Monthly and yearly Pro plans renew automatically until
-          cancelled. Lifetime Pro is a one-time purchase tied to your Apple ID.
+          Purchases are processed by Apple and charged to your Apple Account at confirmation.
+          TrimSwipe Pro is available as an auto-renewable monthly or yearly subscription, or as a
+          one-time Lifetime purchase. Subscriptions renew automatically for the same period and
+          price unless auto-renew is turned off at least 24 hours before the end of the current
+          period. Manage or cancel anytime in Apple Account → Subscriptions. Token packs are
+          one-time consumable purchases and are non-refundable once used.
         </Text>
+
+        <View style={styles.legalLinks}>
+          <Pressable onPress={() => Linking.openURL("https://trimswipe.lovable.app/terms")}>
+            <Text style={styles.legalLink}>Terms of Use (EULA)</Text>
+          </Pressable>
+          <Text style={styles.legalDot}>·</Text>
+          <Pressable onPress={() => Linking.openURL("https://trimswipe.lovable.app/privacy")}>
+            <Text style={styles.legalLink}>Privacy Policy</Text>
+          </Pressable>
+        </View>
+
 
         <View style={{ height: 80 }} />
       </ScrollView>
@@ -812,5 +828,22 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 16,
     marginTop: spacing.sm,
+  },
+  legalLinks: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  legalLink: {
+    fontSize: 11,
+    color: colors.primary,
+    fontWeight: "600",
+    textDecorationLine: "underline",
+  },
+  legalDot: {
+    fontSize: 11,
+    color: colors.textSubtle,
   },
 });

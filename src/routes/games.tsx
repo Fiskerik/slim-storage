@@ -5,7 +5,7 @@ export const Route = createFileRoute("/games")({
   component: GamesRoute,
   head: () => ({
     meta: [
-      { title: "Games — Slim" },
+      { title: "Games — TrimSwipe" },
       {
         name: "description",
         content:
