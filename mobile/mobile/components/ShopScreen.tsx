@@ -9,6 +9,7 @@ import {
   Text,
   View,
   Platform,
+  Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -50,10 +51,42 @@ export type ShopScreenProps = {
 };
 
 const TOKEN_ORDER = ["tokens_50", "tokens_100", "tokens_200", "tokens_500"];
+const LEGAL_LINKS = [
+  {
+    label: "Terms",
+    url: process.env.EXPO_PUBLIC_TERMS_URL ?? "https://trimswipe.lovable.app/terms",
+  },
+  {
+    label: "Privacy",
+    url: process.env.EXPO_PUBLIC_PRIVACY_URL ?? "https://trimswipe.lovable.app/privacy",
+  },
+  {
+    label: "Apple EULA",
+    url: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/",
+  },
+] as const;
 const PREMIUM_PLANS = [
-  { key: "monthly", label: "Monthly", productId: MONTHLY_PRODUCT_ID, cadence: "per month", tokens: 250 },
-  { key: "yearly", label: "Yearly", productId: YEARLY_PRODUCT_ID, cadence: "per year", tokens: 500 },
-  { key: "lifetime", label: "Lifetime", productId: LIFETIME_PRODUCT_ID, cadence: "one-time", tokens: 0 },
+  {
+    key: "monthly",
+    label: "Monthly",
+    productId: MONTHLY_PRODUCT_ID,
+    cadence: "per month",
+    tokens: 250,
+  },
+  {
+    key: "yearly",
+    label: "Yearly",
+    productId: YEARLY_PRODUCT_ID,
+    cadence: "per year",
+    tokens: 500,
+  },
+  {
+    key: "lifetime",
+    label: "Lifetime",
+    productId: LIFETIME_PRODUCT_ID,
+    cadence: "one-time",
+    tokens: 0,
+  },
 ] as const;
 type PremiumPlanKey = (typeof PREMIUM_PLANS)[number]["key"];
 
@@ -195,6 +228,14 @@ export function ShopScreen({
     }
   }
 
+  async function handleOpenLegalLink(label: string, url: string) {
+    try {
+      await Linking.openURL(url);
+    } catch {
+      onToast?.("Could not open link", `Please try opening the ${label} link again.`, "error");
+    }
+  }
+
   async function handleRestore() {
     setBusy("restore");
     try {
@@ -285,14 +326,16 @@ export function ShopScreen({
               <Text style={type.eyebrow}>TrimSwipe Pro</Text>
               <Text style={styles.proTitle}>{"You're all set"}</Text>
               <Text style={styles.proSub}>
-                {hasUnlimitedTrims ? "Unlimited trims · no ads · forever" : "Subscription tokens · no ads"}
+                {hasUnlimitedTrims
+                  ? "Unlimited trims · no ads · forever"
+                  : "Subscription tokens · no ads"}
               </Text>
             </View>
             <Ionicons name="diamond" size={28} color={colors.primary} />
           </Card>
         ) : null}
 
-        {(!isPro || !hasUnlimitedTrims) ? (
+        {!isPro || !hasUnlimitedTrims ? (
           <View style={styles.lifetimeModal}>
             <View style={styles.lifetimeRibbon}>
               <Ionicons name="diamond" size={14} color={colors.white} />
@@ -369,6 +412,21 @@ export function ShopScreen({
                 </Text>
               )}
             </Pressable>
+            <View style={styles.planLegalLinks}>
+              {LEGAL_LINKS.map((link, index) => (
+                <View key={link.label} style={styles.planLegalLinkItem}>
+                  {index > 0 ? <Text style={styles.planLegalSeparator}>|</Text> : null}
+                  <Pressable
+                    accessibilityRole="link"
+                    accessibilityLabel={`Open ${link.label}`}
+                    hitSlop={8}
+                    onPress={() => void handleOpenLegalLink(link.label, link.url)}
+                  >
+                    <Text style={styles.planLegalLinkText}>{link.label}</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
           </View>
         ) : null}
 
@@ -693,6 +751,22 @@ const styles = StyleSheet.create({
   ctaPrimary: { backgroundColor: colors.primary, ...shadow.press },
   ctaDisabled: { opacity: 0.5 },
   ctaText: { color: colors.white, fontWeight: "800", fontSize: 16 },
+  planLegalLinks: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingTop: 2,
+  },
+  planLegalLinkItem: { flexDirection: "row", alignItems: "center", gap: 8 },
+  planLegalSeparator: { color: "#64748b", fontSize: 11 },
+  planLegalLinkText: {
+    color: "#e2e8f0",
+    fontSize: 11,
+    fontWeight: "700",
+    textDecorationLine: "underline",
+  },
 
   loading: { alignItems: "center", paddingVertical: spacing.xl, gap: spacing.sm },
   loadingText: { color: colors.textMuted, fontSize: 13, fontWeight: "600" },
