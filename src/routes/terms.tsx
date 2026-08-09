@@ -131,16 +131,37 @@ function TermsPage() {
         ceases immediately. Deleting the App removes all locally stored data.
       </Section>
 
-      <Section title="9. Changes to These Terms">
+      <Section title="9. Advertising">
+        The free version of TrimSwipe shows ads served by Google AdMob,
+        including optional rewarded ads you can choose to watch in exchange for
+        Trim Tokens. Ads are provided by Google under its own terms and privacy
+        policy. Purchasing Lifetime Pro or a Pro subscription removes ads.
+      </Section>
+
+      <Section title="10. Apple's Role">
+        Apple is not responsible for the App or its content, maintenance,
+        support, or any claims relating to it. Apple has no warranty obligation
+        with respect to the App; in the event of a failure to conform to any
+        applicable warranty, you may notify Apple for a refund of the purchase
+        price, and to the maximum extent permitted by law Apple has no other
+        warranty obligation. Apple and its subsidiaries are third-party
+        beneficiaries of these Terms and may enforce them against you. You
+        represent that you are not located in a country subject to a U.S.
+        Government embargo and are not on any U.S. Government restricted-parties
+        list.
+      </Section>
+
+      <Section title="11. Changes to These Terms">
         We may update these Terms from time to time. Changes will be reflected
         on this page with an updated "Last updated" date. Continued use of the
         App after changes constitutes acceptance of the revised Terms.
       </Section>
 
-      <Section title="10. Governing Law">
+      <Section title="12. Governing Law">
         These Terms are governed by the laws of Sweden. Any disputes shall be
         resolved in the courts of Sweden.
       </Section>
+
 
       <Section title="11. Contact">
         Questions about these terms? Reach out at{" "}
