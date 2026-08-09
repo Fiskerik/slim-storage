@@ -8,7 +8,7 @@ export const Route = createFileRoute("/")({
       { title: "TrimSwipe — Swipe to clean your camera roll" },
       {
         name: "description",
-        content: "Swipe left to keep, up to trim, right to delete. TrimSwipe your photo library on-device.",
+        content: "Swipe left to keep, up to trim, right to delete. Clean your photo library on-device.",
       },
     ],
   }),
