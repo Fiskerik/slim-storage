@@ -172,7 +172,7 @@ export function StatsDashboard({
               />
               <ScanBreakdownRow
                 icon="copy-outline"
-                label="Uncategorized"
+                label="Similar Photos"
                 count={scan.duplicateRemovalCount}
                 value={scan.duplicateDeleteSavingsMB}
                 color={colors.info}
@@ -719,7 +719,7 @@ const styles = StyleSheet.create({
   heroFreed: { ...type.display, color: colors.primary, marginTop: 6 },
   heroSub: { ...type.body, color: colors.textMuted },
   pillRow: { flexDirection: "row", gap: 8, marginTop: spacing.md, flexWrap: "wrap" },
-  ringNum: { fontSize: 18, fontWeight: "900", color: colors.text },
+  ringNum: { fontSize: 18, fontWeight: "700", color: colors.text },
   ringHint: { fontSize: 9, fontWeight: "800", color: colors.textMuted, letterSpacing: 1.2 },
 
   scanCard: { gap: spacing.md },
@@ -733,7 +733,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primarySoft,
   },
   scanCopy: { flex: 1, minWidth: 0 },
-  scanTitle: { fontSize: 15, fontWeight: "900", color: colors.text },
+  scanTitle: { fontSize: 15, fontWeight: "700", color: colors.text },
   scanHint: { marginTop: 2, fontSize: 11, fontWeight: "700", color: colors.textMuted, lineHeight: 16 },
   scanButton: {
     borderRadius: radius.pill,
@@ -742,7 +742,7 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   scanButtonDisabled: { opacity: 0.55 },
-  scanButtonText: { color: colors.white, fontSize: 11, fontWeight: "900" },
+  scanButtonText: { color: colors.white, fontSize: 11, fontWeight: "700" },
   scanMetricGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   scanMetric: {
     width: "48%",
@@ -752,8 +752,8 @@ const styles = StyleSheet.create({
     borderColor: colors.borderSoft,
     padding: spacing.md,
   },
-  scanMetricLabel: { fontSize: 10, fontWeight: "900", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.8 },
-  scanMetricValue: { marginTop: 5, fontSize: 17, fontWeight: "900" },
+  scanMetricLabel: { fontSize: 10, fontWeight: "700", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.8 },
+  scanMetricValue: { marginTop: 5, fontSize: 17, fontWeight: "700" },
   scanBreakdown: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.borderSoft,
@@ -764,7 +764,7 @@ const styles = StyleSheet.create({
   scanBreakdownIcon: { width: 28, height: 28, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   scanBreakdownLabel: { flex: 1, fontSize: 12, fontWeight: "800", color: colors.text },
   scanBreakdownCount: { fontSize: 11, fontWeight: "800", color: colors.textMuted },
-  scanBreakdownValue: { width: 72, textAlign: "right", fontSize: 12, fontWeight: "900", color: colors.text },
+  scanBreakdownValue: { width: 72, textAlign: "right", fontSize: 12, fontWeight: "700", color: colors.text },
 
   chartTabs: {
     flexDirection: "row",
@@ -783,7 +783,7 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   chartTabActive: { backgroundColor: colors.primary },
-  chartTabText: { color: colors.textMuted, fontSize: 12, fontWeight: "900" },
+  chartTabText: { color: colors.textMuted, fontSize: 12, fontWeight: "700" },
   chartTabTextActive: { color: colors.white },
   legend: { flexDirection: "row", gap: spacing.lg, marginTop: spacing.md, justifyContent: "center" },
   legendDot: { flexDirection: "row", gap: 6, alignItems: "center" },
@@ -796,15 +796,15 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     gap: 8,
   },
-  dayBreakdownTitle: { fontSize: 13, fontWeight: "900", color: colors.text },
+  dayBreakdownTitle: { fontSize: 13, fontWeight: "700", color: colors.text },
   breakdownPill: { flexDirection: "row", alignItems: "center", gap: 8 },
   breakdownLabel: { flex: 1, fontSize: 12, fontWeight: "800", color: colors.text },
-  breakdownValue: { fontSize: 12, fontWeight: "900", color: colors.text },
+  breakdownValue: { fontSize: 12, fontWeight: "700", color: colors.text },
 
   donutRow: { flexDirection: "row", alignItems: "center", gap: spacing.lg },
   splitRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   splitLabel: { fontSize: 11, fontWeight: "800", color: colors.text, width: 42 },
-  splitValue: { flex: 1, fontSize: 11, fontWeight: "900", color: colors.text },
+  splitValue: { flex: 1, fontSize: 11, fontWeight: "700", color: colors.text },
   splitCount: { fontSize: 10, color: colors.textMuted, fontWeight: "700" },
 
   action: { fontSize: 12, fontWeight: "700", color: colors.primary },
@@ -816,7 +816,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.lg,
     gap: 4,
   },
-  smallStatValue: { fontSize: 22, fontWeight: "900" },
+  smallStatValue: { fontSize: 22, fontWeight: "700" },
   smallStatLabel: { fontSize: 10, color: colors.textMuted, fontWeight: "800", letterSpacing: 0.6, textTransform: "uppercase" },
 
   hogRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
@@ -831,7 +831,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   hogFill: { height: "100%", borderRadius: 3 },
-  hogSize: { fontSize: 12, fontWeight: "900", color: colors.text },
+  hogSize: { fontSize: 12, fontWeight: "700", color: colors.text },
 
   empty: { alignItems: "center", gap: 6, paddingVertical: spacing.xl },
   emptyTitle: { fontSize: 14, fontWeight: "800", color: colors.text },
@@ -850,7 +850,7 @@ const styles = StyleSheet.create({
   },
   badgeUnlocked: {
     borderColor: colors.primary,
-    backgroundColor: "#fff1e3",
+    backgroundColor: "#eaf0f4",
   },
   badgeIcon: {
     width: 38,

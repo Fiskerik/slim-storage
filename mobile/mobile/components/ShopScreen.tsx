@@ -51,10 +51,42 @@ export type ShopScreenProps = {
 };
 
 const TOKEN_ORDER = ["tokens_50", "tokens_100", "tokens_200", "tokens_500"];
+const LEGAL_LINKS = [
+  {
+    label: "Terms",
+    url: process.env.EXPO_PUBLIC_TERMS_URL ?? "https://trimswipe.lovable.app/terms",
+  },
+  {
+    label: "Privacy",
+    url: process.env.EXPO_PUBLIC_PRIVACY_URL ?? "https://trimswipe.lovable.app/privacy",
+  },
+  {
+    label: "Apple EULA",
+    url: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/",
+  },
+] as const;
 const PREMIUM_PLANS = [
-  { key: "monthly", label: "Monthly", productId: MONTHLY_PRODUCT_ID, cadence: "per month", tokens: 250 },
-  { key: "yearly", label: "Yearly", productId: YEARLY_PRODUCT_ID, cadence: "per year", tokens: 500 },
-  { key: "lifetime", label: "Lifetime", productId: LIFETIME_PRODUCT_ID, cadence: "one-time", tokens: 0 },
+  {
+    key: "monthly",
+    label: "Monthly",
+    productId: MONTHLY_PRODUCT_ID,
+    cadence: "per month",
+    tokens: 250,
+  },
+  {
+    key: "yearly",
+    label: "Yearly",
+    productId: YEARLY_PRODUCT_ID,
+    cadence: "per year",
+    tokens: 500,
+  },
+  {
+    key: "lifetime",
+    label: "Lifetime",
+    productId: LIFETIME_PRODUCT_ID,
+    cadence: "one-time",
+    tokens: 0,
+  },
 ] as const;
 type PremiumPlanKey = (typeof PREMIUM_PLANS)[number]["key"];
 
@@ -132,6 +164,16 @@ export function ShopScreen({
     tokens,
     product: products.find((p) => p.id === productId) ?? fallbackPremiumProduct(key, productId),
   }));
+  const monthlyPremium = premiumProducts.find((plan) => plan.key === "monthly")?.product;
+  const yearlyPremium = premiumProducts.find((plan) => plan.key === "yearly")?.product;
+  const yearlySavingsPercent =
+    monthlyPremium &&
+    yearlyPremium &&
+    monthlyPremium.currency === yearlyPremium.currency &&
+    monthlyPremium.priceAmount > 0 &&
+    yearlyPremium.priceAmount < monthlyPremium.priceAmount * 12
+      ? Math.round((1 - yearlyPremium.priceAmount / (monthlyPremium.priceAmount * 12)) * 100)
+      : 0;
   const selectedPremium =
     premiumProducts.find((plan) => plan.key === selectedPlan) ?? premiumProducts[2];
   const selectedProduct = selectedPremium.product;
@@ -193,6 +235,14 @@ export function ShopScreen({
       }
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function handleOpenLegalLink(label: string, url: string) {
+    try {
+      await Linking.openURL(url);
+    } catch {
+      onToast?.("Could not open link", `Please try opening the ${label} link again.`, "error");
     }
   }
 
@@ -286,14 +336,16 @@ export function ShopScreen({
               <Text style={type.eyebrow}>TrimSwipe Pro</Text>
               <Text style={styles.proTitle}>{"You're all set"}</Text>
               <Text style={styles.proSub}>
-                {hasUnlimitedTrims ? "Unlimited trims · no ads · forever" : "Subscription tokens · no ads"}
+                {hasUnlimitedTrims
+                  ? "Unlimited trims · no ads · forever"
+                  : "Subscription tokens · no ads"}
               </Text>
             </View>
             <Ionicons name="diamond" size={28} color={colors.primary} />
           </Card>
         ) : null}
 
-        {(!isPro || !hasUnlimitedTrims) ? (
+        {!isPro || !hasUnlimitedTrims ? (
           <View style={styles.lifetimeModal}>
             <View style={styles.lifetimeRibbon}>
               <Ionicons name="diamond" size={14} color={colors.white} />
@@ -302,6 +354,13 @@ export function ShopScreen({
             <View style={styles.planTabs}>
               {premiumProducts.map((plan) => {
                 const selected = plan.key === selectedPlan;
+                const hasTrial = plan.product.introEligible && plan.product.introPrice?.price === 0;
+                const offerBadge =
+                  plan.key === "yearly" && yearlySavingsPercent > 0
+                    ? `Save ${yearlySavingsPercent}%`
+                    : plan.key === "lifetime"
+                      ? "(Best offer)"
+                      : null;
                 return (
                   <Pressable
                     key={plan.key}
@@ -314,8 +373,20 @@ export function ShopScreen({
                     <Text style={[styles.planTabPrice, selected && styles.planTabPriceActive]}>
                       {plan.product.price}
                     </Text>
-                    {plan.product.introEligible && plan.product.introPrice?.price === 0 ? (
-                      <Text style={styles.planTabTrial}>FREE TRIAL</Text>
+                    {hasTrial || offerBadge ? (
+                      <View style={styles.planTabMetaRow}>
+                        {hasTrial ? <Text style={styles.planTabTrial}>FREE TRIAL</Text> : null}
+                        {offerBadge ? (
+                          <View
+                            style={[
+                              styles.planTabOfferPill,
+                              plan.key === "lifetime" && styles.planTabBestOfferPill,
+                            ]}
+                          >
+                            <Text style={styles.planTabOfferText}>{offerBadge}</Text>
+                          </View>
+                        ) : null}
+                      </View>
                     ) : null}
                   </Pressable>
                 );
@@ -370,6 +441,21 @@ export function ShopScreen({
                 </Text>
               )}
             </Pressable>
+            <View style={styles.planLegalLinks}>
+              {LEGAL_LINKS.map((link, index) => (
+                <View key={link.label} style={styles.planLegalLinkItem}>
+                  {index > 0 ? <Text style={styles.planLegalSeparator}>|</Text> : null}
+                  <Pressable
+                    accessibilityRole="link"
+                    accessibilityLabel={`Open ${link.label}`}
+                    hitSlop={8}
+                    onPress={() => void handleOpenLegalLink(link.label, link.url)}
+                  >
+                    <Text style={styles.planLegalLinkText}>{link.label}</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
           </View>
         ) : null}
 
@@ -628,7 +714,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: colors.honeySoft,
   },
-  balanceValue: { fontWeight: "900", fontSize: 16, color: colors.honey },
+  balanceValue: { fontWeight: "700", fontSize: 16, color: colors.honey },
 
   proCard: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   proTitle: { ...type.title, color: colors.primary, marginTop: 2 },
@@ -638,7 +724,7 @@ const styles = StyleSheet.create({
   lifetimeRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
   lifetimeTitle: { ...type.title, color: colors.primary, marginTop: 6 },
   lifetimeSub: { ...type.body, color: colors.textMuted, marginTop: 2 },
-  lifetimePrice: { fontSize: 22, fontWeight: "900", color: colors.primary },
+  lifetimePrice: { fontSize: 22, fontWeight: "700", color: colors.primary },
 
   // New prominent Lifetime Pro hero modal
   lifetimeModal: {
@@ -660,7 +746,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: colors.primary,
   },
-  lifetimeRibbonText: { color: colors.white, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
+  lifetimeRibbonText: { color: colors.white, fontSize: 10, fontWeight: "700", letterSpacing: 1 },
   planTabs: {
     flexDirection: "row",
     gap: 6,
@@ -671,22 +757,28 @@ const styles = StyleSheet.create({
   planTab: {
     flex: 1,
     alignItems: "center",
+    justifyContent: "center",
+    minHeight: 76,
     borderRadius: 12,
     paddingVertical: 9,
     paddingHorizontal: 4,
   },
   planTabActive: { backgroundColor: colors.white },
-  planTabLabel: { color: "#fed7aa", fontSize: 12, fontWeight: "900" },
+  planTabLabel: { color: "#cbd8e0", fontSize: 12, fontWeight: "700" },
   planTabLabelActive: { color: colors.primary },
-  planTabPrice: { marginTop: 3, color: "#ffffff", fontSize: 13, fontWeight: "900" },
+  planTabPrice: { marginTop: 3, color: "#ffffff", fontSize: 13, fontWeight: "700" },
   planTabPriceActive: { color: colors.text },
-  planTabTrial: { marginTop: 2, color: "#fed7aa", fontSize: 8, fontWeight: "900" },
+  planTabMetaRow: { marginTop: 4, minHeight: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3, flexWrap: "wrap" },
+  planTabTrial: { color: "#cbd8e0", fontSize: 7, fontWeight: "800" },
+  planTabOfferPill: { borderRadius: radius.pill, backgroundColor: colors.honey, paddingHorizontal: 6, paddingVertical: 3 },
+  planTabBestOfferPill: { backgroundColor: colors.primaryBright },
+  planTabOfferText: { color: colors.white, fontSize: 7, fontWeight: "800" },
   lifetimeHeaderRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
-  lifetimeBigTitle: { fontSize: 26, fontWeight: "900", color: colors.white, letterSpacing: -0.5 },
+  lifetimeBigTitle: { fontSize: 26, fontWeight: "700", color: colors.white, letterSpacing: -0.5 },
   lifetimeBigSub: { fontSize: 13, color: "#cbd5e1", marginTop: 4, fontWeight: "600" },
-  trialText: { fontSize: 12, color: "#fed7aa", marginTop: 5, fontWeight: "800" },
+  trialText: { fontSize: 12, color: "#cbd8e0", marginTop: 5, fontWeight: "800" },
   lifetimePriceBlock: { alignItems: "flex-end" },
-  lifetimeBigPrice: { fontSize: 28, fontWeight: "900", color: colors.honey },
+  lifetimeBigPrice: { fontSize: 28, fontWeight: "700", color: colors.honey },
   lifetimePriceHint: { fontSize: 11, color: "#94a3b8", fontWeight: "700" },
   lifetimeBenefits: { gap: 8, marginTop: 2 },
   lifetimeBenefitRow: { flexDirection: "row", alignItems: "center", gap: 10 },
@@ -709,6 +801,22 @@ const styles = StyleSheet.create({
   ctaPrimary: { backgroundColor: colors.primary, ...shadow.press },
   ctaDisabled: { opacity: 0.5 },
   ctaText: { color: colors.white, fontWeight: "800", fontSize: 16 },
+  planLegalLinks: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingTop: 2,
+  },
+  planLegalLinkItem: { flexDirection: "row", alignItems: "center", gap: 8 },
+  planLegalSeparator: { color: "#64748b", fontSize: 11 },
+  planLegalLinkText: {
+    color: "#e2e8f0",
+    fontSize: 11,
+    fontWeight: "700",
+    textDecorationLine: "underline",
+  },
 
   loading: { alignItems: "center", paddingVertical: spacing.xl, gap: spacing.sm },
   loadingText: { color: colors.textMuted, fontSize: 13, fontWeight: "600" },
@@ -733,14 +841,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   packTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  packTokens: { fontSize: 17, fontWeight: "900", color: colors.text },
+  packTokens: { fontSize: 17, fontWeight: "700", color: colors.text },
   badge: {
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: radius.pill,
     backgroundColor: colors.primary,
   },
-  badgeText: { color: colors.white, fontSize: 10, fontWeight: "900", letterSpacing: 0.8 },
+  badgeText: { color: colors.white, fontSize: 10, fontWeight: "700", letterSpacing: 0.8 },
   packHint: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
   priceWrap: { minWidth: 72, alignItems: "flex-end" },
   packPrice: { fontSize: 16, fontWeight: "800", color: colors.primary },
@@ -785,9 +893,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  dailyClaimTitle: { fontSize: 16, fontWeight: "900", color: colors.text },
+  dailyClaimTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
   dailyClaimSub: { fontSize: 12, color: colors.textMuted, marginTop: 2, fontWeight: "700" },
-  dailyClaimButtonText: { color: colors.primary, fontSize: 13, fontWeight: "900" },
+  dailyClaimButtonText: { color: colors.primary, fontSize: 13, fontWeight: "700" },
   adIcon: {
     width: 44,
     height: 44,
@@ -819,9 +927,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  redeemTitle: { fontSize: 15, fontWeight: "900", color: colors.primary },
+  redeemTitle: { fontSize: 15, fontWeight: "700", color: colors.primary },
   redeemSub: { fontSize: 12, color: colors.textMuted, marginTop: 2, fontWeight: "600" },
-  redeemAction: { color: colors.primary, fontWeight: "900", fontSize: 13 },
+  redeemAction: { color: colors.primary, fontWeight: "700", fontSize: 13 },
   legal: {
     fontSize: 11,
     color: colors.textSubtle,

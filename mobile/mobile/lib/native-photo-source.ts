@@ -1,6 +1,7 @@
 import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library";
 import type { NativeSettings, NativeTrimKind } from "./native-store";
+import { findSimilarPhotosOnDevice, isPhotoIntelligenceAvailable } from "./photo-intelligence";
 
 export type NativeCleanupCategory =
   | "large"
@@ -88,6 +89,18 @@ export type NativeCleanupPlan = {
   trimCandidates: NativePhoto[];
   estimatedDeleteSavingsMB: number;
   estimatedTrimSavingsMB: number;
+};
+
+export type NativeDuplicatePhoto = NativePhoto & {
+  suggestionReasons?: string[];
+  suggestionConfidence?: number;
+};
+
+export type NativeDuplicateGroup = {
+  id: string;
+  photos: NativeDuplicatePhoto[];
+  suggestedKeeperId: string;
+  similarityLabel?: string;
 };
 
 type PhotoMetadataCache = {
@@ -1225,7 +1238,7 @@ export async function loadCleanupPlan(
     old: "Photos >1 year old",
     screenshots: "Screenshots",
     live: "Live Photos",
-    duplicates: "Uncategorized",
+    duplicates: "Similar Photos",
     bursts: "Bursts",
     mistakes: "Likely mistakes",
   };
@@ -1346,6 +1359,123 @@ export async function loadRelatedPhotoPairs(
     );
 }
 
+/**
+ * Builds real similarity clusters instead of flattening every candidate into a
+ * single delete list. Vision runs entirely on-device; the conservative legacy
+ * time/dimension grouping remains available for Expo Go and unsupported builds.
+ */
+export async function loadDuplicatePhotoGroups(
+  groupCount: number,
+  settings: NativeSettings,
+  options: { avoidIds?: string[] } = {},
+): Promise<NativeDuplicateGroup[]> {
+  const avoidIds = new Set(options.avoidIds ?? []);
+  const requestedGroups = Math.max(1, groupCount);
+  const page = await MediaLibrary.getAssetsAsync({
+    first: 120,
+    mediaType: "photo",
+    sortBy: [[MediaLibrary.SortBy.creationTime, false]],
+  });
+  const assets = page.assets.filter(
+    (asset) => !avoidIds.has(asset.id) && !assetHasGeneratedTrimFilename(asset),
+  );
+  if (assets.length < 2) return [];
+
+  let groupedAssets: MediaLibrary.Asset[][] = [];
+  const analysisById = new Map<
+    string,
+    { aestheticScore?: number; bestFaceCaptureQuality?: number; isUtility: boolean }
+  >();
+
+  if (isPhotoIntelligenceAvailable()) {
+    try {
+      const analysis = await findSimilarPhotosOnDevice(assets.map((asset) => asset.id), 10);
+      analysis.items.forEach((item) => analysisById.set(item.assetId, item));
+      const parent = new Map(assets.map((asset) => [asset.id, asset.id]));
+      const find = (id: string): string => {
+        const current = parent.get(id) ?? id;
+        if (current === id) return id;
+        const root = find(current);
+        parent.set(id, root);
+        return root;
+      };
+      const join = (first: string, second: string) => {
+        const firstRoot = find(first);
+        const secondRoot = find(second);
+        if (firstRoot !== secondRoot) parent.set(secondRoot, firstRoot);
+      };
+      analysis.pairs.forEach((pair) => join(pair.firstAssetId, pair.secondAssetId));
+      const byRoot = new Map<string, MediaLibrary.Asset[]>();
+      assets.forEach((asset) => {
+        const root = find(asset.id);
+        byRoot.set(root, [...(byRoot.get(root) ?? []), asset]);
+      });
+      groupedAssets = [...byRoot.values()].filter((group) => group.length >= 2);
+    } catch (error) {
+      console.log("[NativePhotoSource] Vision similarity failed; using conservative fallback", { error });
+    }
+  }
+
+  if (groupedAssets.length === 0) groupedAssets = buildSimilarGroups(assets);
+  groupedAssets = groupedAssets
+    .sort((a, b) => Math.max(...b.map((asset) => asset.creationTime)) - Math.max(...a.map((asset) => asset.creationTime)))
+    .slice(0, requestedGroups);
+  if (groupedAssets.length === 0) return [];
+
+  const groupedIds = new Set(groupedAssets.flatMap((group) => group.map((asset) => asset.id)));
+  const photoList = await mapWithConcurrency(
+    assets.filter((asset) => groupedIds.has(asset.id)),
+    3,
+    (asset) => assetToPhoto(asset, groupedIds),
+  );
+  await upsertCache(photoList);
+  const photoById = new Map(photoList.map((photo) => [photo.id, photo]));
+
+  return groupedAssets.flatMap((assetGroup) => {
+    const photos = assetGroup
+      .map((asset) => photoById.get(asset.id))
+      .filter((photo): photo is NativePhoto => Boolean(photo));
+    if (photos.length < 2) return [];
+    const maxPixels = Math.max(...photos.map((photo) => photo.width * photo.height), 1);
+    const scored = photos
+      .map((photo) => {
+        const analysis = analysisById.get(photo.id);
+        const aesthetic = analysis?.aestheticScore == null ? 0.5 : (analysis.aestheticScore + 1) / 2;
+        const face = analysis?.bestFaceCaptureQuality ?? 0.5;
+        const resolution = (photo.width * photo.height) / maxPixels;
+        const utilityPenalty = analysis?.isUtility ? 0.12 : 0;
+        return { photo, analysis, score: aesthetic * 0.55 + face * 0.3 + resolution * 0.15 - utilityPenalty };
+      })
+      .sort((a, b) => b.score - a.score);
+    const keeper = scored[0];
+    const runnerUp = scored[1];
+    const reasons: string[] = [];
+    const highestAesthetic = Math.max(...scored.map((item) => item.analysis?.aestheticScore ?? -2));
+    const highestFace = Math.max(...scored.map((item) => item.analysis?.bestFaceCaptureQuality ?? -1));
+    if (keeper.analysis?.aestheticScore != null && keeper.analysis.aestheticScore >= highestAesthetic) {
+      reasons.push("Best overall image quality");
+    }
+    if (keeper.analysis?.bestFaceCaptureQuality != null && keeper.analysis.bestFaceCaptureQuality >= highestFace) {
+      reasons.push("Best face quality");
+    }
+    if (keeper.photo.width * keeper.photo.height >= maxPixels) reasons.push("Highest available resolution");
+    const confidence = Math.max(0.58, Math.min(0.94, 0.68 + (keeper.score - (runnerUp?.score ?? 0)) * 0.75));
+    const decorated = scored.map(({ photo }) =>
+      photo.id === keeper.photo.id
+        ? { ...photo, suggestionReasons: reasons.slice(0, 2), suggestionConfidence: confidence }
+        : photo,
+    );
+    return [{
+      id: assetGroup.map((asset) => asset.id).sort().join(":"),
+      photos: decorated,
+      suggestedKeeperId: keeper.photo.id,
+      similarityLabel: analysisById.size > 0
+        ? "Compared privately with Apple Vision on this iPhone"
+        : "Grouped conservatively by capture time and image properties",
+    }];
+  });
+}
+
 function photoAccessLevel(permission: MediaLibrary.PermissionResponse): NativePhotoPermission["accessLevel"] {
   if (permission.status !== "granted") return "none";
   if (permission.accessPrivileges === "all") return "all";
@@ -1378,7 +1508,7 @@ export async function loadPhotoRound(
   const cache = await readCache();
   const avoidIds = new Set(options.avoidIds ?? []);
   const excludeMaxTrimmed = options.excludeMaxTrimmed !== false;
-  const includeTrimmed = options.includeTrimmed === true;
+  const includeTrimmed = options.includeTrimmed === true || settings.includePreviouslyReviewed;
   const cachedTargeted = shuffle(
     cache.photos.filter(
       (photo) =>
@@ -1656,7 +1786,7 @@ export async function commitTrims(
   replaceOriginal = true,
   trimKinds: NativeTrimKind[] = DEFAULT_TRIM_KINDS,
   options: { allowSecondPass?: boolean } = {},
-): Promise<Array<{ id: string; trimmed: boolean; savedMB?: number; error?: string }>> {
+): Promise<Array<{ id: string; trimmed: boolean; newAssetId?: string; savedMB?: number; error?: string }>> {
   if (photos.length === 0) return [];
   const results: CreatedTrim[] = [];
   for (const p of photos) {
@@ -1681,7 +1811,7 @@ export async function commitTrims(
   }
   return results.map((r) =>
     r.success
-      ? { id: r.originalId, trimmed: true, savedMB: r.savedMB }
+      ? { id: r.originalId, trimmed: true, newAssetId: r.newAssetId, savedMB: r.savedMB }
       : { id: r.originalId, trimmed: false, error: r.error },
   );
 }
@@ -1696,7 +1826,7 @@ export async function commitTrimsAndDeletes(
 ): Promise<{
   deletedCount: number;
   deletedPhotos: NativePhoto[];
-  trimResults: Array<{ id: string; trimmed: boolean; savedMB?: number; error?: string }>;
+  trimResults: Array<{ id: string; trimmed: boolean; newAssetId?: string; savedMB?: number; error?: string }>;
 }> {
   const deleteIds = new Set(deletes.map((photo) => photo.id));
   const trimCandidates = trims.filter((photo) => !deleteIds.has(photo.id));
@@ -1722,7 +1852,7 @@ export async function commitTrimsAndDeletes(
         deletedPhotos: [],
         trimResults: trimCreates.map((result) =>
           result.success
-            ? { id: result.originalId, trimmed: true, savedMB: result.savedMB }
+            ? { id: result.originalId, trimmed: true, newAssetId: result.newAssetId, savedMB: result.savedMB }
             : { id: result.originalId, trimmed: false, error: result.error },
         ),
       };
@@ -1763,7 +1893,7 @@ export async function commitTrimsAndDeletes(
     deletedPhotos: deletes,
     trimResults: trimCreates.map((result) =>
       result.success
-        ? { id: result.originalId, trimmed: true, savedMB: result.savedMB }
+        ? { id: result.originalId, trimmed: true, newAssetId: result.newAssetId, savedMB: result.savedMB }
         : { id: result.originalId, trimmed: false, error: result.error },
     ),
   };

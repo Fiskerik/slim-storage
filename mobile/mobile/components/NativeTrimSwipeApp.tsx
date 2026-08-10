@@ -38,7 +38,7 @@ import {
   getPhotoPermissionStatus,
   getTrimStatus,
   loadCleanupPlan,
-  loadRelatedPhotoPairs,
+  loadDuplicatePhotoGroups,
   loadPhotoRound,
   requestPhotoPermission,
   scanPhotoLibrary,
@@ -49,6 +49,14 @@ import {
   type NativePhoto,
   type NativePhotoPermission,
 } from "../lib/native-photo-source";
+import {
+  loadNativePhotoReviewLedger,
+  recordNativePhotoReview,
+  recordNativePhotoTrim,
+  saveNativePhotoReviewLedger,
+  shouldExcludeReviewedPhoto,
+  type NativePhotoReviewLedger,
+} from "../lib/native-review-ledger";
 import {
   DEFAULT_NATIVE_STATS,
   EMPTY_DAILY_STATS,
@@ -71,8 +79,16 @@ import { StatsDashboard } from "./StatsDashboard";
 import { OnboardingCarousel } from "./OnboardingCarousel";
 import { TrimScreen } from "./TrimScreen";
 import { ShopScreen } from "./ShopScreen";
+import { DuplicateClusterReview, type DuplicateCluster } from "./DuplicateClusterReview";
 import { addTokens, subscribeTokens, spendTokens, DAILY_CLAIM_TOKENS } from "../lib/tokens";
-import { getPurchaseAccessStatus, restorePurchasesPublic } from "../lib/purchases";
+import {
+  getPurchaseAccessStatus,
+  LIFETIME_PRODUCT_ID,
+  MONTHLY_PRODUCT_ID,
+  restorePurchasesPublic,
+  YEARLY_PRODUCT_ID,
+} from "../lib/purchases";
+import { loadAccountSession, setAccountSignedIn } from "../lib/account-session";
 import { showRewardedAd, showInterstitialAd, initAds } from "../lib/ads";
 import { colors } from "../constants/design";
 import {
@@ -280,22 +296,22 @@ function cleanupReportHtml(stats: NativeStats, period: ReportPeriod): string {
   <head>
     <meta charset="utf-8" />
     <style>
-      body { margin: 0; padding: 32px; background: #fff7ed; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2937; }
-      .card { border-radius: 28px; background: #ffffff; border: 1px solid #fed7aa; padding: 28px; }
-      .eyebrow { color: #f97316; font-size: 12px; font-weight: 900; letter-spacing: 2px; text-transform: uppercase; }
+      body { margin: 0; padding: 32px; background: #f3f6f8; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2937; }
+      .card { border-radius: 28px; background: #ffffff; border: 1px solid #cbd8e0; padding: 28px; }
+      .eyebrow { color: #315f7d; font-size: 12px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; }
       h1 { margin: 8px 0 4px; font-size: 36px; }
       .muted { color: #64748b; font-size: 15px; }
       .hero { margin-top: 22px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-      .metric { border-radius: 20px; background: #fff7ed; padding: 18px; border: 1px solid #fed7aa; }
-      .label { color: #9a3412; font-size: 12px; font-weight: 900; text-transform: uppercase; }
-      .value { margin-top: 6px; font-size: 30px; font-weight: 900; }
+      .metric { border-radius: 20px; background: #f3f6f8; padding: 18px; border: 1px solid #cbd8e0; }
+      .label { color: #274b61; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+      .value { margin-top: 6px; font-size: 30px; font-weight: 700; }
       .big { margin-top: 18px; border-radius: 24px; background: #f0fdf4; border: 1px solid #bbf7d0; padding: 20px; }
       .big .value { color: #16a34a; font-size: 44px; }
-      .bar { height: 14px; border-radius: 999px; background: #ffedd5; overflow: hidden; display: flex; margin-top: 14px; }
-      .trim { width: ${trimWidth}%; background: #fb923c; }
+      .bar { height: 14px; border-radius: 999px; background: #e5ebef; overflow: hidden; display: flex; margin-top: 14px; }
+      .trim { width: ${trimWidth}%; background: #4f7892; }
       .delete { width: ${deleteWidth}%; background: #ef4444; }
       .grid { margin-top: 18px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-      .small { border-radius: 18px; background: #ffffff; border: 1px solid #fed7aa; padding: 16px; }
+      .small { border-radius: 18px; background: #ffffff; border: 1px solid #cbd8e0; padding: 16px; }
       .small .value { font-size: 28px; }
     </style>
   </head>
@@ -344,7 +360,7 @@ function targetLabel(settings: NativeSettings): string {
   if (settings.targetMode === "old-and-large") {
     return `${prefix}${formatAgeThreshold(settings.minAgeYears)} and ${formatSizeThreshold(settings.minSizeMB)}+`;
   }
-  if (settings.targetMode === "duplicates" || settings.targetMode === "similar") return `${prefix}Uncategorized`;
+  if (settings.targetMode === "duplicates" || settings.targetMode === "similar") return `${prefix}Similar Photos`;
   if (settings.targetMode === "blurry" || settings.targetMode === "mistakes") return `${prefix}Blurry`;
   if (settings.targetMode === "screenshots") return `${prefix}Screenshots`;
   if (settings.targetMode === "live-photos") return `${prefix}Live Photos`;
@@ -575,17 +591,28 @@ function appendActionLog(stats: NativeStats, entry: NativeActionLogEntry): Nativ
   };
 }
 
-function recentSelectionIds(stats: NativeStats): string[] {
+function recentSelectionIds(
+  stats: NativeStats,
+  ledger?: NativePhotoReviewLedger | null,
+  includePreviouslyReviewed = false,
+): string[] {
   const cutoff = Date.now() - SELECTION_GRACE_DAYS * DAY_MS;
   const ids = new Set<string>();
-  stats.recentSeenPhotos.forEach((item) => {
-    const seenAt = Date.parse(item.lastSeenAt);
-    if (!Number.isNaN(seenAt) && seenAt >= cutoff) ids.add(item.photoId);
-  });
-  stats.actionLog.forEach((item) => {
-    const actedAt = Date.parse(item.createdAt);
-    if (!Number.isNaN(actedAt) && actedAt >= cutoff) ids.add(item.photoId);
-  });
+  if (!includePreviouslyReviewed) {
+    stats.recentSeenPhotos.forEach((item) => {
+      const seenAt = Date.parse(item.lastSeenAt);
+      if (!Number.isNaN(seenAt) && seenAt >= cutoff) ids.add(item.photoId);
+    });
+    stats.actionLog.forEach((item) => {
+      const actedAt = Date.parse(item.createdAt);
+      if (!Number.isNaN(actedAt) && actedAt >= cutoff) ids.add(item.photoId);
+    });
+  }
+  if (ledger) {
+    Object.keys(ledger.records).forEach((photoId) => {
+      if (shouldExcludeReviewedPhoto(ledger, photoId, { includePreviouslyReviewed })) ids.add(photoId);
+    });
+  }
   return [...ids];
 }
 
@@ -641,7 +668,7 @@ function AnimatedScoreRing({ score, size = 90 }: { score: number; size?: number 
 
   return (
     <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
-      <Text style={{ position: "absolute", color: "#c2410c", fontSize: size * 0.28, fontWeight: "900" }}>
+      <Text style={{ position: "absolute", color: "#315f7d", fontSize: size * 0.28, fontWeight: "700" }}>
         {score}
       </Text>
       <Text style={{ position: "absolute", top: size * 0.6, color: "#ea580c", fontSize: 10, fontWeight: "800", textTransform: "uppercase" }}>
@@ -658,7 +685,7 @@ function CelebrationBurst({ visible }: { visible: boolean }) {
     Array.from({ length: 8 }, () => ({
       anim: new Animated.Value(0),
       angle: Math.random() * Math.PI * 2,
-      color: ["#f97316", "#22c55e", "#f59e0b", "#3b82f6", "#ec4899"][Math.floor(Math.random() * 5)],
+      color: ["#315f7d", "#22c55e", "#3f6f8d", "#3b82f6", "#ec4899"][Math.floor(Math.random() * 5)],
     }))
   ).current;
 
@@ -711,6 +738,7 @@ function CelebrationBurst({ visible }: { visible: boolean }) {
 export function NativeTrimSwipeApp() {
   const [screen, setScreen] = useState<Screen>("home");
   const [stats, setStats] = useState<NativeStats>(DEFAULT_NATIVE_STATS);
+  const [reviewLedger, setReviewLedger] = useState<NativePhotoReviewLedger | null>(null);
   const [queue, setQueue] = useState<NativePhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [statsLoaded, setStatsLoaded] = useState(false);
@@ -736,6 +764,8 @@ export function NativeTrimSwipeApp() {
   const [tokenBalance, setTokenBalance] = useState<number>(10);
   const [isPro, setIsPro] = useState(false);
   const [hasUnlimitedTrims, setHasUnlimitedTrims] = useState(false);
+  const [accountSignedIn, setAccountSignedInState] = useState(true);
+  const [activeProductId, setActiveProductId] = useState<string | null>(null);
   const [adBusy, setAdBusy] = useState(false);
   const cleanupCompletionsRef = useRef(0);
   const shareShotRef = useRef<View>(null);
@@ -812,9 +842,12 @@ export function NativeTrimSwipeApp() {
 
   useEffect(() => {
     let cancelled = false;
-    loadNativeStats().then((loaded) => {
+    loadNativeStats().then(async (loaded) => {
+      if (cancelled) return;
+      const ledger = await loadNativePhotoReviewLedger(loaded);
       if (cancelled) return;
       setStats(loaded);
+      setReviewLedger(ledger);
       setStatsLoaded(true);
     });
     return () => { cancelled = true; };
@@ -822,14 +855,17 @@ export function NativeTrimSwipeApp() {
 
   useEffect(() => {
     const unsub = subscribeTokens((s) => setTokenBalance(s.tokens));
-    void getPurchaseAccessStatus()
-      .then((access) => {
+    void Promise.all([loadAccountSession(), getPurchaseAccessStatus()])
+      .then(([session, access]) => {
+        setAccountSignedInState(session.signedIn);
         setIsPro(access.isPro);
         setHasUnlimitedTrims(access.hasUnlimitedTrims);
+        setActiveProductId(access.activeProductId);
       })
       .catch(() => {
         setIsPro(false);
         setHasUnlimitedTrims(false);
+        setActiveProductId(null);
       });
     void initAds().catch(() => {});
     void registerCleanupBackgroundTask();
@@ -910,6 +946,52 @@ export function NativeTrimSwipeApp() {
       await Share.share({ message: progressShareText(stats) }).catch(() => undefined);
     }
   }
+
+  function commitReviewLedger(updater: (current: NativePhotoReviewLedger) => NativePhotoReviewLedger) {
+    setReviewLedger((current) => {
+      if (!current) return current;
+      const nextLedger = updater(current);
+      void saveNativePhotoReviewLedger(nextLedger);
+      return nextLedger;
+    });
+  }
+
+  function currentAvoidIds(): string[] {
+    return recentSelectionIds(stats, reviewLedger, settings.includePreviouslyReviewed);
+  }
+
+  function recordAppliedTrimResults(
+    sourcePhotos: NativePhoto[],
+    results: { trimmed: boolean; newAssetId?: string }[],
+  ) {
+    commitReviewLedger((current) =>
+      sourcePhotos.reduce(
+        (nextLedger, photo, index) =>
+          results[index]?.trimmed
+            ? recordNativePhotoTrim(nextLedger, photo.id, results[index]?.newAssetId)
+            : nextLedger,
+        current,
+      ),
+    );
+  }
+
+  useEffect(() => {
+    if (!reviewLedger || stats.actionLog.length === 0) return;
+    commitReviewLedger((current) =>
+      stats.actionLog.reduce(
+        (nextLedger, entry) =>
+          recordNativePhotoReview(
+            nextLedger,
+            entry.photoId,
+            entry.action === "trim" ? "trimmed" : entry.action === "delete" ? "deleted" : "kept",
+            entry.createdAt,
+          ),
+        current,
+      ),
+    );
+    // The latest action-log entry is sufficient to trigger synchronization.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stats.actionLog[0]?.id]);
 
   function openCleanupReport(period: ReportPeriod) {
     if (!isPro) return;
@@ -1022,7 +1104,7 @@ export function NativeTrimSwipeApp() {
       setPermissionLimited(permission.limited);
       let fallbackNotice = "";
       let photos = await loadPhotoRound(safeCount, activeSettings, {
-        avoidIds: recentSelectionIds(stats),
+        avoidIds: currentAvoidIds(),
         onFallback: (detail) => {
           fallbackNotice = detail;
         },
@@ -1037,7 +1119,7 @@ export function NativeTrimSwipeApp() {
           `${targetLabel(activeSettings)} did not return matching local photos. ` +
           `Switched to ${targetLabel(fallbackSettings)}.`;
         photos = await loadPhotoRound(safeCount, fallbackSettings, {
-          avoidIds: recentSelectionIds(stats),
+          avoidIds: currentAvoidIds(),
         });
       }
       if (photos.length === 0 && activeSettings.targetMode !== "balanced") {
@@ -1046,7 +1128,7 @@ export function NativeTrimSwipeApp() {
           `${targetLabel(activeSettings)} did not return matching local photos. ` +
           "Loaded a balanced set instead.";
         photos = await loadPhotoRound(safeCount, broadSettings, {
-          avoidIds: recentSelectionIds(stats),
+          avoidIds: currentAvoidIds(),
         });
       }
       setQueue(photos);
@@ -1194,6 +1276,7 @@ export function NativeTrimSwipeApp() {
       setTrimmingCount((count) => Math.max(0, count - chargeableTrims.length));
     }
     const trimmedResults = batch.trimResults;
+    recordAppliedTrimResults(chargeableTrims, trimmedResults);
     const trimmedOkIds = new Set(trimmedResults.filter((r) => r.trimmed).map((r) => r.id));
     const deletedCount = batch.deletedCount;
     const deletedPhotos = batch.deletedPhotos;
@@ -1373,9 +1456,9 @@ export function NativeTrimSwipeApp() {
   function planTitleForCategory(category: NativeCleanupCategory, planSettings: NativeSettings): string {
     if (category === "large") return `Photos >${formatSizeThreshold(planSettings.minSizeMB)}`;
     if (category === "old") return `Photos >${formatAgeThreshold(planSettings.minAgeYears)} old`;
-    if (category === "screenshots") return "One-tap cleanup";
+    if (category === "screenshots") return "Screenshots";
     if (category === "live") return "Live Photos";
-    if (category === "duplicates") return "Uncategorized";
+    if (category === "duplicates") return "Similar Photos";
     if (category === "bursts") return "Bursts";
     return "Likely mistakes";
   }
@@ -1387,18 +1470,11 @@ export function NativeTrimSwipeApp() {
     avoidIds: string[],
   ): Promise<NativeCleanupPlan> {
     if (category === "screenshots") {
-      const [screens, duplicates, bursts] = await Promise.all([
-        loadCleanupPlan("screenshots", 18, planSettings, { avoidIds }),
-        loadCleanupPlan("duplicates", 18, planSettings, { avoidIds }),
-        loadCleanupPlan("bursts", 18, planSettings, { avoidIds }),
-      ]);
-      const byId = new Map<string, NativePhoto>();
-      [...screens.deleteCandidates, ...duplicates.deleteCandidates.slice(1), ...bursts.deleteCandidates.slice(1)]
-        .forEach((photo) => byId.set(photo.id, photo));
-      const deleteCandidates = [...byId.values()];
+      const screens = await loadCleanupPlan("screenshots", 18, planSettings, { avoidIds });
+      const deleteCandidates = screens.deleteCandidates;
       return {
         category: "screenshots",
-        title: "One-tap cleanup",
+        title: "Screenshots",
         candidates: deleteCandidates,
         deleteCandidates,
         trimCandidates: [],
@@ -1408,7 +1484,7 @@ export function NativeTrimSwipeApp() {
     }
 
     const plan = await loadCleanupPlan(category, count, planSettings, { avoidIds });
-    if (category === "duplicates" || category === "bursts") {
+    if (category === "bursts") {
       const deleteCandidates = plan.deleteCandidates.slice(1);
       return {
         ...plan,
@@ -1464,12 +1540,14 @@ export function NativeTrimSwipeApp() {
     const exact = await buildExactCleanupPlan(category, count, baseSettings, avoidIds);
     if (cleanupActionCount(exact) > 0) return { plan: exact };
 
-    const withRecent = await buildExactCleanupPlan(category, count, baseSettings, []);
-    if (cleanupActionCount(withRecent) > 0) {
-      return {
-        plan: withRecent,
-        fallbackNotice: "Included recently reviewed photos because this filter had no new matches.",
-      };
+    if (baseSettings.includePreviouslyReviewed) {
+      const withRecent = await buildExactCleanupPlan(category, count, baseSettings, []);
+      if (cleanupActionCount(withRecent) > 0) {
+        return {
+          plan: withRecent,
+          fallbackNotice: "Included previously reviewed photos because that setting is enabled.",
+        };
+      }
     }
 
     const relaxedSettings: NativeSettings[] = [];
@@ -1505,6 +1583,10 @@ export function NativeTrimSwipeApp() {
   }
 
   async function openCleanupCategory(category: NativeCleanupCategory) {
+    if (category === "duplicates") {
+      setScreen("this-or-that");
+      return;
+    }
     setCleanupPlanBusy(true);
     setCleanupPlan(null);
     setScreen("cleanup-plan");
@@ -1516,7 +1598,7 @@ export function NativeTrimSwipeApp() {
         return;
       }
       setPermissionDenied(false);
-      const avoidIds = recentSelectionIds(stats);
+      const avoidIds = currentAvoidIds();
       const { plan, fallbackNotice } = await loadCleanupPlanWithFallback(category, 24, settings, avoidIds);
       setCleanupPlan(plan);
       if (fallbackNotice) {
@@ -1540,21 +1622,18 @@ export function NativeTrimSwipeApp() {
     setScreen("cleanup-plan");
     try {
       await runLibraryScan();
-      const avoidIds = recentSelectionIds(stats);
-      const [largeResult, oldResult, screenshots, similarResult, bursts] = await Promise.all([
+      const avoidIds = currentAvoidIds();
+      const [largeResult, oldResult, screenshots] = await Promise.all([
         loadCleanupPlanWithFallback("large", 18, settings, avoidIds),
         loadCleanupPlanWithFallback("old", 18, settings, avoidIds),
         loadCleanupPlan("screenshots", 18, settings, { avoidIds }),
-        loadCleanupPlanWithFallback("duplicates", 18, settings, avoidIds),
-        loadCleanupPlan("bursts", 18, settings, { avoidIds }),
       ]);
       const large = largeResult.plan;
       const old = oldResult.plan;
-      const similar = similarResult.plan;
       const trimById = new Map<string, NativePhoto>();
-      [...large.trimCandidates, ...old.trimCandidates, ...similar.trimCandidates].forEach((photo) => trimById.set(photo.id, photo));
+      [...large.trimCandidates, ...old.trimCandidates].forEach((photo) => trimById.set(photo.id, photo));
       const deleteById = new Map<string, NativePhoto>();
-      [...screenshots.deleteCandidates, ...similar.deleteCandidates.slice(1), ...bursts.deleteCandidates.slice(1)]
+      screenshots.deleteCandidates
         .forEach((photo) => {
           if (!trimById.has(photo.id)) deleteById.set(photo.id, photo);
         });
@@ -1596,20 +1675,18 @@ export function NativeTrimSwipeApp() {
   }
 
   async function buildBackgroundCleanupPlan(schedule: NativeBackgroundScanSchedule): Promise<NativeCleanupPlan> {
-    const avoidIds = recentSelectionIds(stats);
-    const [largeResult, oldResult, screenshots, similarResult, bursts] = await Promise.all([
+    const avoidIds = currentAvoidIds();
+    const [largeResult, oldResult, screenshots] = await Promise.all([
       loadCleanupPlanWithFallback("large", 24, settings, avoidIds),
       loadCleanupPlanWithFallback("old", 24, settings, avoidIds),
       loadCleanupPlan("screenshots", 24, settings, { avoidIds }),
-      loadCleanupPlanWithFallback("duplicates", 24, settings, avoidIds),
-      loadCleanupPlan("bursts", 24, settings, { avoidIds }),
     ]);
     const trimById = new Map<string, NativePhoto>();
-    [...largeResult.plan.trimCandidates, ...oldResult.plan.trimCandidates, ...similarResult.plan.trimCandidates].forEach((photo) => {
+    [...largeResult.plan.trimCandidates, ...oldResult.plan.trimCandidates].forEach((photo) => {
       trimById.set(photo.id, photo);
     });
     const deleteById = new Map<string, NativePhoto>();
-    [...screenshots.deleteCandidates, ...similarResult.plan.deleteCandidates.slice(1), ...bursts.deleteCandidates.slice(1)].forEach((photo) => {
+    screenshots.deleteCandidates.forEach((photo) => {
       if (!trimById.has(photo.id)) deleteById.set(photo.id, photo);
     });
 
@@ -1751,10 +1828,12 @@ export function NativeTrimSwipeApp() {
       candidates.map((p, i) => ({
         photo: p,
         trimmed: rs[i]?.trimmed === true,
+        newAssetId: rs[i]?.newAssetId,
         savedMB: rs[i]?.savedMB,
         error: rs[i]?.error,
       })),
     );
+    recordAppliedTrimResults(candidates, results);
     const trimmed = results.filter((item) => item.trimmed).map((item) => item.photo);
     if (!hasUnlimitedTrims && trimmed.length > 0) await spendTokens(trimmed.length);
     const actualSaved = results.reduce(
@@ -1805,7 +1884,7 @@ export function NativeTrimSwipeApp() {
     }
 
     return requestConfirmation({
-      title: "Apply This or That choices?",
+      title: "Apply suggested removals?",
       detail: `Delete ${deleted.length} and trim ${trimCandidates.length}${trimCandidates.length < toTrim.length ? ` of ${toTrim.length}` : ""} photo${deleted.length + trimCandidates.length === 1 ? "" : "s"}.`,
       danger: deleted.length > 0,
       onConfirm: async () => {
@@ -1818,7 +1897,8 @@ export function NativeTrimSwipeApp() {
               settings.trimOutputMode === "replace",
               settings.trimKinds,
               { allowSecondPass: settings.trimReviewMode === "trimmed-only" },
-            ).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
+            ).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, newAssetId: rs[i]?.newAssetId, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
+            recordAppliedTrimResults(trimCandidates, results);
             setTrimmingCount((count) => Math.max(0, count - trimCandidates.length));
             const trimmed = trimCandidates.filter((_, index) => results[index]?.trimmed);
             if (!hasUnlimitedTrims && trimmed.length > 0) await spendTokens(trimmed.length);
@@ -1914,7 +1994,8 @@ export function NativeTrimSwipeApp() {
                 settings.trimOutputMode === "replace",
                 settings.trimKinds,
                 { allowSecondPass: settings.trimReviewMode === "trimmed-only" },
-              ).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
+              ).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, newAssetId: rs[i]?.newAssetId, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
+              recordAppliedTrimResults(trimCandidates, trimResults);
               setTrimmingCount((count) => Math.max(0, count - trimCandidates.length));
               const trimmedPhotos = trimCandidates.filter((_, index) => trimResults[index]?.trimmed);
               if (!hasUnlimitedTrims && trimmedPhotos.length > 0) await spendTokens(trimmedPhotos.length);
@@ -1989,7 +2070,7 @@ export function NativeTrimSwipeApp() {
     const trimSavings = trimCandidates.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0);
 
     return requestConfirmation({
-      title: "Apply Memory Lane choices?",
+      title: "Apply Past Moments choices?",
       detail: `Delete ${deleted.length} and trim ${trimCandidates.length}${trimCandidates.length < toTrim.length ? ` of ${toTrim.length}` : ""} photo${deleted.length + trimCandidates.length === 1 ? "" : "s"} for about ${formatMB(deleteSavings + trimSavings)} saved.`,
       danger: deleted.length > 0,
       onConfirm: async () => {
@@ -2002,7 +2083,8 @@ export function NativeTrimSwipeApp() {
                 settings.trimOutputMode === "replace",
                 settings.trimKinds,
                 { allowSecondPass: settings.trimReviewMode === "trimmed-only" },
-              ).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
+              ).then((rs) => trimCandidates.map((p, i) => ({ trimmed: rs[i]?.trimmed === true, newAssetId: rs[i]?.newAssetId, savedMB: rs[i]?.savedMB, error: rs[i]?.error })));
+              recordAppliedTrimResults(trimCandidates, trimResults);
               setTrimmingCount((count) => Math.max(0, count - trimCandidates.length));
               const trimmedPhotos = trimCandidates.filter((_, index) => trimResults[index]?.trimmed);
               if (!hasUnlimitedTrims && trimmedPhotos.length > 0) await spendTokens(trimmedPhotos.length);
@@ -2052,7 +2134,7 @@ export function NativeTrimSwipeApp() {
 
               if (deleteResult.deleted !== deleted.length || trimmedPhotos.length !== trimCandidates.length) {
                 showToast(
-                  "Memory Lane partly applied",
+                  "Past Moments partly applied",
                   `${deleteResult.deleted}/${deleted.length} deleted and ${trimmedPhotos.length}/${trimCandidates.length} trimmed. ${trimFailureSummary(trimResults.map((result, index) => ({ id: trimCandidates[index]?.id ?? String(index), trimmed: result.trimmed, error: result.error })))}`.trim(),
                   "warning",
                 );
@@ -2120,7 +2202,7 @@ export function NativeTrimSwipeApp() {
       >
         {!statsLoaded ? (
           <Centered>
-            <ActivityIndicator color="#f97316" size="large" />
+            <ActivityIndicator color="#315f7d" size="large" />
             <Text style={styles.muted}>Preparing TrimSwipe...</Text>
           </Centered>
         ) : onboardingDue ? (
@@ -2169,6 +2251,7 @@ export function NativeTrimSwipeApp() {
             settings={settings}
             tokens={tokenBalance}
             isPro={isPro}
+            avoidIds={currentAvoidIds()}
             onBack={() => setScreen("games")}
             onConfirmOutcome={confirmThisOrThatOutcome}
           />
@@ -2178,7 +2261,7 @@ export function NativeTrimSwipeApp() {
             tokens={tokenBalance}
             isPro={isPro}
             trimsRemaining={trimCurrencyAvailable}
-            avoidIds={recentSelectionIds(stats)}
+            avoidIds={currentAvoidIds()}
             onBack={() => setScreen("games")}
             onToast={showToast}
             onConfirmOutcome={confirmStorageBudgetOutcome}
@@ -2188,7 +2271,7 @@ export function NativeTrimSwipeApp() {
             settings={settings}
             tokens={tokenBalance}
             isPro={isPro}
-            avoidIds={recentSelectionIds(stats)}
+            avoidIds={currentAvoidIds()}
             trimsRemaining={trimCurrencyAvailable}
             onBack={() => setScreen("games")}
             onToast={showToast}
@@ -2199,7 +2282,7 @@ export function NativeTrimSwipeApp() {
             settings={settings}
             trimsRemaining={trimCurrencyAvailable}
             trimLimit={trimCurrencyAvailable}
-            avoidIds={recentSelectionIds(stats)}
+            avoidIds={currentAvoidIds()}
             isPro={isPro}
             onBack={() => setScreen("games")}
             onTrimmed={handleSingleTrimComplete}
@@ -2242,6 +2325,10 @@ export function NativeTrimSwipeApp() {
               if (nextHasUnlimitedTrims !== undefined) {
                 setHasUnlimitedTrims(nextHasUnlimitedTrims);
               }
+              if (nextIsPro) setAccountSignedInState(true);
+              void getPurchaseAccessStatus().then((access) => {
+                setActiveProductId(access.activeProductId);
+              });
             }}
           />
         ) : screen === "games" ? (
@@ -2293,15 +2380,20 @@ export function NativeTrimSwipeApp() {
           <SettingsScreen
             settings={settings}
             isPro={isPro}
+            accountSignedIn={accountSignedIn}
+            activeProductId={activeProductId}
             samplePhoto={top ?? queue[0]}
             onChange={updateSettings}
             onReload={reloadSettingsRound}
             onCreateReport={openCleanupReport}
             onRestorePurchases={async () => {
+              await setAccountSignedIn(true);
               await restorePurchasesPublic();
               const access = await getPurchaseAccessStatus();
+              setAccountSignedInState(true);
               setIsPro(access.isPro);
               setHasUnlimitedTrims(access.hasUnlimitedTrims);
+              setActiveProductId(access.activeProductId);
               showToast(
                 access.isPro ? "Restored" : "Nothing to restore",
                 access.isPro
@@ -2309,6 +2401,25 @@ export function NativeTrimSwipeApp() {
                   : "No active purchases were found for this Apple ID.",
                 access.isPro ? "success" : "warning",
               );
+            }}
+            onSignOut={async () => {
+              await setAccountSignedIn(false);
+              setAccountSignedInState(false);
+              setIsPro(false);
+              setHasUnlimitedTrims(false);
+              setActiveProductId(null);
+              showToast(
+                "Signed out",
+                "Premium benefits are disconnected on this device. Your App Store purchases are unchanged.",
+                "success",
+              );
+            }}
+            onManagePurchases={async () => {
+              try {
+                await Linking.openURL("https://apps.apple.com/account/subscriptions");
+              } catch {
+                showToast("Could not open subscriptions", "Open Settings > Apple Account > Subscriptions.", "warning");
+              }
             }}
           />
         )}
@@ -2482,7 +2593,7 @@ function CleanupPlanScreen({
   if (loading) {
     return (
       <Centered>
-        <ActivityIndicator color="#f97316" size="large" />
+        <ActivityIndicator color="#315f7d" size="large" />
         <Text style={styles.heroTitle}>Building preview</Text>
         <Text style={styles.centerText}>Finding the photos that will make the biggest dent.</Text>
       </Centered>
@@ -2590,7 +2701,7 @@ function SwipeScreen({
   if (loading) {
     return (
       <Centered>
-        <ActivityIndicator color="#f97316" size="large" />
+        <ActivityIndicator color="#315f7d" size="large" />
         <Text style={styles.muted}>Loading your photo round...</Text>
       </Centered>
     );
@@ -2915,7 +3026,7 @@ function ConfirmActionsReview({
           <Ionicons
             name={move === "delete" ? "trash-outline" : "cut-outline"}
             size={18}
-            color={moveDisabled ? "#94a3b8" : move === "delete" ? "#dc2626" : "#c2410c"}
+            color={moveDisabled ? "#94a3b8" : move === "delete" ? "#dc2626" : "#315f7d"}
           />
         </Pressable>
 
@@ -3178,7 +3289,7 @@ function StatsScreen({ stats, onStartRound, onOpenSettings, onShare }: {
       </View>
       {/* Impact summary */}
       <View style={styles.impactSummaryRow}>
-        <ImpactPill label="Freed" value={formatMB(stats.mbFreed)} accent="#f97316" />
+        <ImpactPill label="Freed" value={formatMB(stats.mbFreed)} accent="#315f7d" />
         <ImpactPill label="Reviewed" value={String(stats.reviewed)} accent="#3b82f6" />
         <ImpactPill label="Deleted" value={String(stats.deleted)} accent="#ef4444" />
         <ImpactPill label="Trimmed" value={String(stats.trimmed)} accent="#22c55e" />
@@ -3493,7 +3604,7 @@ const GAME_SMART_FOLDER_DEFS: Array<{
   { key: "old", label: (settings) => `>${formatGameAgeThreshold(settings.minAgeYears)}`, icon: "time-outline", match: (photo, settings) => gameAgeYears(photo.creationTime) >= settings.minAgeYears },
   { key: "screenshots", label: () => "Screens", icon: "phone-portrait-outline", match: (photo) => photo.cleanupReasons.includes("Screenshot") || photo.title.toLowerCase().includes("screen") },
   { key: "live", label: () => "Live", icon: "radio-button-on-outline", match: (photo) => photo.cleanupReasons.includes("Live Photo") },
-  { key: "duplicates", label: () => "Uncategorized", icon: "copy-outline", match: (photo) => photo.cleanupReasons.includes("Similar") || photo.cleanupReasons.includes("Uncategorized") },
+  { key: "duplicates", label: () => "Similar Photos", icon: "copy-outline", match: (photo) => photo.cleanupReasons.includes("Similar") || photo.cleanupReasons.includes("Uncategorized") },
   { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (photo) => photo.cleanupReasons.includes("Burst") },
 ];
 
@@ -3567,7 +3678,7 @@ function GamesScreen({ stats, settings, queue, tokens, isPro, onStartGame, onPic
       <View style={styles.gamesVisualHero}>
         <View style={styles.gameTopRow}>
           <View style={styles.gamesHeroCopy}>
-            <Text style={styles.eyebrow}>Games</Text>
+            <Text style={styles.eyebrow}>Review modes</Text>
             <Text style={styles.heroTitle}>Choose how to clean</Text>
             <Text style={styles.dashboardCopy}>{todayLabel} · {stats.reviewed} photos reviewed</Text>
           </View>
@@ -3586,7 +3697,7 @@ function GamesScreen({ stats, settings, queue, tokens, isPro, onStartGame, onPic
       </View>
       <Pressable onPress={updatePhotoAccess} style={styles.photoAccessCard}>
         <View style={styles.photoAccessIcon}>
-          <Ionicons name="images-outline" size={18} color="#c2410c" />
+          <Ionicons name="images-outline" size={18} color="#315f7d" />
         </View>
         <View style={styles.photoAccessCopy}>
           <Text style={styles.photoAccessLabel}>Photo access</Text>
@@ -3597,7 +3708,7 @@ function GamesScreen({ stats, settings, queue, tokens, isPro, onStartGame, onPic
       <Pressable onPress={() => onStartGame({ sessionMode: "classic" })} style={styles.primaryGameVisualCard}>
         <Image source={GAME_IMAGES.swipe} style={styles.primaryGameArt} resizeMode="cover" />
         <View style={styles.primaryGameText}>
-          <View style={styles.primaryGameBadge}><Text style={styles.primaryGameBadgeText}>Main game</Text></View>
+          <View style={styles.primaryGameBadge}><Text style={styles.primaryGameBadgeText}>Primary review</Text></View>
           <Text style={styles.primaryGameTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.66}>TrimSwipe</Text>
           <Text style={styles.primaryGameDetail}>Swipe left, up, or right.</Text>
         </View>
@@ -3608,10 +3719,10 @@ function GamesScreen({ stats, settings, queue, tokens, isPro, onStartGame, onPic
         </View>
       </Pressable>
       <View style={styles.gameGrid}>
-        <VisualGameCard icon="swap-horizontal-outline" title="This or That" detail="Pick the keeper" image={GAME_IMAGES.choice} active={settings.targetMode === "similar"} onPress={onOpenThisOrThat} />
-        <VisualGameCard icon="speedometer-outline" title="Storage Budget" detail="Stay under 50 MB" image={GAME_IMAGES.budget} onPress={onOpenStorageBudget} />
-        <VisualGameCard icon="timer-outline" title="Speed Round" detail="60 seconds" image={GAME_IMAGES.speed} active={settings.sessionMode === "time-attack"} onPress={() => onStartGame({ sessionMode: "time-attack" })} />
-        <VisualGameCard icon="calendar-outline" title="Memory Lane" detail="Old photos first" image={GAME_IMAGES.memory} active={settings.targetMode === "old-only"} onPress={onOpenMemoryLane} />
+        <VisualGameCard icon="swap-horizontal-outline" title="Compare Similar" detail="Review a full group" image={GAME_IMAGES.choice} active={settings.targetMode === "similar"} onPress={onOpenThisOrThat} />
+        <VisualGameCard icon="speedometer-outline" title="Free Space Plan" detail="Stay under 50 MB" image={GAME_IMAGES.budget} onPress={onOpenStorageBudget} />
+        <VisualGameCard icon="timer-outline" title="Quick Review" detail="60 seconds" image={GAME_IMAGES.speed} active={settings.sessionMode === "time-attack"} onPress={() => onStartGame({ sessionMode: "time-attack" })} />
+        <VisualGameCard icon="calendar-outline" title="Past Moments" detail="Old photos first" image={GAME_IMAGES.memory} active={settings.targetMode === "old-only"} onPress={onOpenMemoryLane} />
       </View>
       <View style={styles.focusPanel}>
         <View style={styles.focusHeader}>
@@ -3619,7 +3730,7 @@ function GamesScreen({ stats, settings, queue, tokens, isPro, onStartGame, onPic
             <Text style={styles.eyebrow}>Cleanup focus</Text>
             <Text style={styles.focusTitle}>Tune smart folders</Text>
           </View>
-          <Ionicons name="options-outline" size={22} color="#c2410c" />
+          <Ionicons name="options-outline" size={22} color="#315f7d" />
         </View>
         <GameFilterSlider
           label="Large photos"
@@ -3657,11 +3768,11 @@ type PlaceholderVariant = "swipe" | "choice" | "budget" | "speed" | "memory" | "
 
 function PlaceholderPhoto({ variant, style }: { variant: PlaceholderVariant; style?: ViewStyle }) {
   const palette: Record<PlaceholderVariant, [string, string, string]> = {
-    swipe: ["#fed7aa", "#fb923c", "#7c2d12"],
+    swipe: ["#cbd8e0", "#4f7892", "#253f50"],
     choice: ["#dbeafe", "#60a5fa", "#1e3a8a"],
     budget: ["#dcfce7", "#22c55e", "#14532d"],
     speed: ["#fee2e2", "#ef4444", "#7f1d1d"],
-    memory: ["#fef3c7", "#f59e0b", "#78350f"],
+    memory: ["#f4efe3", "#3f6f8d", "#66552f"],
     folder: ["#f1f5f9", "#94a3b8", "#334155"],
   };
   const [sky, accent, dark] = palette[variant];
@@ -3801,7 +3912,7 @@ function GameSmartFolderCard({ folder, onPress }: { folder: GameSmartFolder; onP
           <PlaceholderPhoto variant="folder" style={styles.focusFolderThumb} />
         )}
         <View style={styles.focusFolderIcon}>
-          <Ionicons name={folder.icon} size={13} color="#c2410c" />
+          <Ionicons name={folder.icon} size={13} color="#315f7d" />
         </View>
       </View>
       <Text style={styles.focusFolderLabel} numberOfLines={1}>{folder.label}</Text>
@@ -3812,181 +3923,67 @@ function GameSmartFolderCard({ folder, onPress }: { folder: GameSmartFolder; onP
 
 // ─── This or That ─────────────────────────────────────────────────────────────
 
-type ThisOrThatLoserMode = "delete" | "trim" | "skip";
-
-function LoserColumn({ title, tone, photos, settings, onMove }: { title: string; tone: ThisOrThatLoserMode; photos: NativePhoto[]; settings: NativeSettings; onMove: (photo: NativePhoto) => void }) {
-  const total = photos.reduce((sum, photo) => sum + (tone === "delete" ? photo.sizeMB : tone === "trim" ? estimateTrimSavingsForSettings(photo, settings) : 0), 0);
-  return (
-    <View style={[styles.loserColumn, tone === "delete" ? styles.loserColumnDelete : tone === "trim" ? styles.loserColumnTrim : styles.loserColumnSkip]}>
-      <Text style={tone === "delete" ? styles.deleteSummary : tone === "trim" ? styles.trimSummary : styles.skipSummary}>{title}</Text>
-      <Text style={styles.mutedSmall}>
-        {photos.length} photos {tone === "skip" ? "- no action" : `- ${tone === "delete" ? formatMB(total) : `~${formatMB(total)}`}`}
-      </Text>
-      <View style={styles.loserThumbGrid}>
-        {photos.map((photo) => (
-          <LoserThumb key={photo.id} photo={photo} tone={tone} settings={settings} onMove={() => onMove(photo)} />
-        ))}
-      </View>
-    </View>
-  );
-}
-
-function LoserThumb({ photo, tone, settings, onMove }: { photo: NativePhoto; tone: ThisOrThatLoserMode; settings: NativeSettings; onMove: () => void }) {
-  const trimLabel = trimmedPhotoLabel(photo, settings);
-  return (
-    <Pressable onPress={onMove} style={styles.loserThumb}>
-      <Image source={{ uri: photo.uri }} style={styles.loserThumbImage} resizeMode="cover" />
-      {trimLabel ? <Text style={styles.trimmedLoserBadge}>{trimLabel}</Text> : null}
-      <Text style={styles.loserThumbText}>{tone === "delete" ? formatMB(photo.sizeMB) : tone === "trim" ? `~${formatMB(estimateTrimSavingsForSettings(photo, settings))}` : "Save"}</Text>
-    </Pressable>
-  );
-}
-
-function ThisOrThatScreen({ settings, tokens, isPro, onBack, onConfirmOutcome }: {
-  settings: NativeSettings; tokens: number; isPro: boolean; onBack: () => void;
+function ThisOrThatScreen({ settings, tokens, isPro, avoidIds, onBack, onConfirmOutcome }: {
+  settings: NativeSettings; tokens: number; isPro: boolean; avoidIds: string[]; onBack: () => void;
   onConfirmOutcome: (kept: NativePhoto[], deleted: NativePhoto[], toTrim: NativePhoto[]) => Promise<number>;
 }) {
-  const [pairs, setPairs] = useState<[NativePhoto, NativePhoto][]>([]);
+  const [clusters, setClusters] = useState<DuplicateCluster[]>([]);
   const [index, setIndex] = useState(0);
-  const [kept, setKept] = useState<NativePhoto[]>([]);
-  const [deleted, setDeleted] = useState<NativePhoto[]>([]);
-  const [skippedPairs, setSkippedPairs] = useState(0);
-  const [loserModes, setLoserModes] = useState<Record<string, ThisOrThatLoserMode>>({});
-  const loserModesRef = useRef<Record<string, ThisOrThatLoserMode>>({});
-  const [loadingPairs, setLoadingPairs] = useState(true);
+  const [loadingClusters, setLoadingClusters] = useState(true);
   const [busy, setBusy] = useState(false);
   const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
   const [localAvoidIds, setLocalAvoidIds] = useState<string[]>([]);
 
-  async function loadPairs(extraAvoidIds: string[] = []) {
-    setLoadingPairs(true);
+  async function loadClusters(extraAvoidIds: string[] = []) {
+    setLoadingClusters(true);
     try {
       const permission = await requestPhotoPermission();
-      if (!permission.granted) { setPairs([]); return; }
-      const mergedAvoidIds = [...new Set([...localAvoidIds, ...extraAvoidIds])];
-      const pairSettings = roundSettings({
-        ...settings,
-        cardsPerRound: 12,
-        sessionMode: "classic",
-      });
-      let nextPairs = await loadRelatedPhotoPairs(6, pairSettings, { avoidIds: mergedAvoidIds });
-      if (nextPairs.length === 0) {
-        const fallbackPhotos = await loadPhotoRound(12, pairSettings, {
-          avoidIds: mergedAvoidIds,
-          includeTrimmed: true,
-        });
-        nextPairs = [];
-        for (let i = 0; i + 1 < fallbackPhotos.length; i += 2) {
-          nextPairs.push([fallbackPhotos[i], fallbackPhotos[i + 1]]);
-        }
-      }
-      setPairs(nextPairs);
-      loserModesRef.current = {};
-      setIndex(0); setKept([]); setDeleted([]); setSkippedPairs(0); setLoserModes({});
-    } finally { setLoadingPairs(false); }
+      if (!permission.granted) { setClusters([]); return; }
+      const mergedAvoidIds = [...new Set([...avoidIds, ...localAvoidIds, ...extraAvoidIds])];
+      const nextClusters = await loadDuplicatePhotoGroups(8, settings, { avoidIds: mergedAvoidIds });
+      setClusters(nextClusters);
+      setIndex(0);
+    } finally {
+      setLoadingClusters(false);
+    }
   }
 
-  useEffect(() => { void loadPairs(); }, []);
-  const pair = pairs[index];
-  const deleteLosers = deleted.filter((photo) => loserModes[photo.id] === "delete" || !loserModes[photo.id]);
-  const trimLosers = deleted.filter((photo) => loserModes[photo.id] === "trim");
-  const skipLosers = deleted.filter((photo) => loserModes[photo.id] === "skip");
-  const deleteFreed = deleteLosers.reduce((sum, photo) => sum + photo.sizeMB, 0);
-  const trimFreed = trimLosers.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0);
-  const totalFreed = deleteFreed + trimFreed;
+  // The initial scan deliberately uses the settings snapshot from when the mode opens.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void loadClusters(); }, []);
+  const cluster = clusters[index];
 
-  function pick(keepIndex: 0 | 1) {
-    if (!pair) return;
-    const keeper = pair[keepIndex];
-    const loser = pair[keepIndex === 0 ? 1 : 0];
-    setKept((current) => [...current, keeper]);
-    setDeleted((current) => [...current, loser]);
-    setLoserMode(loser, "delete");
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setIndex((current) => current + 1);
-  }
-
-  function skipPair() {
-    if (!pair) return;
-    void Haptics.selectionAsync();
-    setSkippedPairs((current) => current + 1);
-    setIndex((current) => current + 1);
-  }
-
-  function deleteBoth() {
-    if (!pair) return;
-    setDeleted((current) => [...current, pair[0], pair[1]]);
-    setLoserMode(pair[0], "delete");
-    setLoserMode(pair[1], "delete");
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    setIndex((current) => current + 1);
-  }
-
-  function setLoserMode(photo: NativePhoto, mode: ThisOrThatLoserMode) {
-    loserModesRef.current = { ...loserModesRef.current, [photo.id]: mode };
-    setLoserModes(loserModesRef.current);
-  }
-
-  function cycleLoserMode(photo: NativePhoto) {
-    const mode = loserModes[photo.id] ?? "delete";
-    const nextMode: ThisOrThatLoserMode =
-      mode === "delete" ? "trim" : mode === "trim" ? "skip" : "delete";
-    setLoserMode(photo, nextMode);
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }
-
-  async function confirmOutcome() {
+  async function confirmSelection(selection: { keeperId: string; removalIds: string[] }) {
+    if (!cluster || busy) return;
+    const keeper = cluster.photos.find((photo) => photo.id === selection.keeperId);
+    const removals = cluster.photos.filter((photo) => selection.removalIds.includes(photo.id));
+    if (!keeper || removals.length === 0) return;
     setBusy(true);
     try {
-      const currentModes = loserModesRef.current;
-      const currentDeleteLosers = deleted.filter((photo) => currentModes[photo.id] === "delete" || !currentModes[photo.id]);
-      const currentTrimLosers = deleted.filter((photo) => currentModes[photo.id] === "trim");
-      const count = await onConfirmOutcome(kept, currentDeleteLosers, currentTrimLosers);
-      if (count > 0 || deleted.length === 0) {
-        const roundIds = [...kept, ...deleted].map((photo) => photo.id);
-        setLocalAvoidIds((current) => [...new Set([...current, ...roundIds])].slice(-120));
-        void loadPairs(roundIds);
+      const applied = await onConfirmOutcome([keeper], removals, []);
+      if (applied > 0) {
+        const reviewedIds = cluster.photos.map((photo) => photo.id);
+        setLocalAvoidIds((current) => [...new Set([...current, ...reviewedIds])]);
+        if (index + 1 < clusters.length) setIndex((current) => current + 1);
+        else void loadClusters(reviewedIds);
       }
     } finally {
       setBusy(false);
     }
   }
 
-  if (loadingPairs) return <Centered><ActivityIndicator color="#f97316" size="large" /><Text style={styles.muted}>Building This or That pairs...</Text></Centered>;
+  if (loadingClusters) {
+    return <Centered><ActivityIndicator color="#334155" size="large" /><Text style={styles.muted}>Comparing photos privately on this iPhone...</Text></Centered>;
+  }
 
-  if (!pair) {
-    if (deleted.length === 0 && kept.length === 0 && skippedPairs === 0) {
-      return (
-        <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-          <MiniGameHeader title="This or That" detail="No pairs yet" tokens={tokens} isPro={isPro} onBack={onBack} />
-          <View style={styles.dashboardHero}>
-            <Text style={styles.heroTitle}>No photo pairs found</Text>
-            <Text style={styles.dashboardCopy}>
-              The current library selection did not return enough local photos for This or That.
-            </Text>
-            <PrimaryButton label="Reload photos" onPress={() => void loadPairs()} />
-          </View>
-        </ScrollView>
-      );
-    }
+  if (!cluster) {
     return (
       <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-        <MiniGameHeader title="This or That" detail="Round complete" tokens={tokens} isPro={isPro} onBack={onBack} />
+        <MiniGameHeader title="Compare Similar" detail="No groups ready" tokens={tokens} isPro={isPro} onBack={onBack} />
         <View style={styles.dashboardHero}>
-          <Text style={styles.heroTitle}>{deleted.length} losers ready</Text>
-          <Text style={styles.dashboardCopy}>Losers default to Delete. Tap a thumbnail to cycle Delete, Trim, Save.</Text>
-          <View style={styles.loserSummaryRow}>
-            <Text style={styles.deleteSummary}>Delete {deleteLosers.length}: {formatMB(deleteFreed)}</Text>
-            <Text style={styles.trimSummary}>Trim {trimLosers.length}: ~{formatMB(trimFreed)}</Text>
-            <Text style={styles.skipSummary}>Save {skipLosers.length}</Text>
-          </View>
-          <View style={styles.loserColumns}>
-            <LoserColumn title="Delete" tone="delete" photos={deleteLosers} settings={settings} onMove={cycleLoserMode} />
-            <LoserColumn title="Trim" tone="trim" photos={trimLosers} settings={settings} onMove={cycleLoserMode} />
-          </View>
-          <LoserColumn title="Save" tone="skip" photos={skipLosers} settings={settings} onMove={cycleLoserMode} />
-          <PrimaryButton label={busy ? "Applying..." : `Apply, save ~${formatMB(totalFreed)}`} disabled={busy || deleteLosers.length + trimLosers.length === 0} onPress={confirmOutcome} />
-          <SecondaryButton label="Play another round without deleting" onPress={() => void loadPairs()} />
+          <Text style={styles.heroTitle}>No similar-photo groups found</Text>
+          <Text style={styles.dashboardCopy}>Only confirmed groups are shown here. Unrelated photos are never used as substitutes.</Text>
+          <PrimaryButton label="Scan again" onPress={() => void loadClusters()} />
         </View>
       </ScrollView>
     );
@@ -3994,24 +3991,13 @@ function ThisOrThatScreen({ settings, tokens, isPro, onBack, onConfirmOutcome }:
 
   return (
     <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-      <MiniGameHeader title="This or That" detail={`${index + 1}/${pairs.length} pairs`} tokens={tokens} isPro={isPro} onBack={onBack} />
-      <View style={styles.dashboardHero}>
-        <Text style={styles.heroTitle}>Tap the photo to keep</Text>
-        <Text style={styles.dashboardCopy}>The unpicked photo waits for final delete confirmation.</Text>
-      </View>
-      <View style={styles.thisThatRow}>
-        <ChoicePhoto photo={pair[0]} label="A" onPress={() => pick(0)} onLongPress={() => setFullPhoto(pair[0])} />
-        <ChoicePhoto photo={pair[1]} label="B" onPress={() => pick(1)} onLongPress={() => setFullPhoto(pair[1])} />
-      </View>
-      <View style={styles.thisThatActionRow}>
-        <Pressable onPress={skipPair} style={styles.pairSecondaryButton}>
-          <Text style={styles.pairSecondaryText}>Skip</Text>
-        </Pressable>
-        <Pressable onPress={deleteBoth} style={styles.pairDangerButton}>
-          <Text style={styles.pairDangerText}>Delete both</Text>
-        </Pressable>
-      </View>
-      <Text style={styles.centerText}>Queued savings: {formatMB(deleteFreed)}</Text>
+      <MiniGameHeader title="Compare Similar" detail={`Group ${index + 1}/${clusters.length}`} tokens={tokens} isPro={isPro} onBack={onBack} />
+      <DuplicateClusterReview
+        cluster={cluster}
+        confirmLabel={busy ? "Applying..." : "Review suggested removals"}
+        onPreviewPhoto={setFullPhoto}
+        onConfirmRemovals={(selection) => void confirmSelection(selection)}
+      />
       <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </ScrollView>
   );
@@ -4138,16 +4124,16 @@ function StorageBudgetScreen({ settings, tokens, isPro, trimsRemaining, avoidIds
     }
   }
 
-  if (loadingPhotos) return <Centered><ActivityIndicator color="#f97316" size="large" /><Text style={styles.muted}>Building a Storage Budget board...</Text></Centered>;
+  if (loadingPhotos) return <Centered><ActivityIndicator color="#334155" size="large" /><Text style={styles.muted}>Building a Free Space Plan...</Text></Centered>;
 
   if (photos.length === 0) {
     return (
       <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-        <MiniGameHeader title="Storage Budget" detail="No board yet" tokens={tokens} isPro={isPro} onBack={onBack} />
+        <MiniGameHeader title="Free Space Plan" detail="No plan yet" tokens={tokens} isPro={isPro} onBack={onBack} />
         <View style={styles.dashboardHero}>
           <Text style={styles.heroTitle}>No budget photos found</Text>
           <Text style={styles.dashboardCopy}>
-            The current library selection did not return enough local photos for a Storage Budget board.
+            The current library selection did not return enough local photos for a Free Space Plan.
           </Text>
           <PrimaryButton label="Reload photos" onPress={() => void loadBoard(photos.map((photo) => photo.id))} />
         </View>
@@ -4162,7 +4148,7 @@ function StorageBudgetScreen({ settings, tokens, isPro, trimsRemaining, avoidIds
         onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
         scrollEventThrottle={16}
       >
-        <MiniGameHeader title="Storage Budget" detail="Keep what fits" tokens={tokens} isPro={isPro} onBack={onBack} />
+        <MiniGameHeader title="Free Space Plan" detail="Keep what fits" tokens={tokens} isPro={isPro} onBack={onBack} />
       <View style={styles.dashboardHero}>
         <View style={styles.dashboardHeroTop}>
           <View>
@@ -4335,7 +4321,7 @@ function MemoryLaneScreen({ settings, tokens, isPro, avoidIds, trimsRemaining, o
     }
   }
 
-  if (loadingPhotos) return <Centered><ActivityIndicator color="#f97316" size="large" /><Text style={styles.muted}>Finding older memories...</Text></Centered>;
+  if (loadingPhotos) return <Centered><ActivityIndicator color="#315f7d" size="large" /><Text style={styles.muted}>Finding older memories...</Text></Centered>;
 
   if (!photo) {
     const hasReviewedAny = kept.length + deleted.length + toTrim.length > 0;
@@ -4343,11 +4329,11 @@ function MemoryLaneScreen({ settings, tokens, isPro, avoidIds, trimsRemaining, o
     if (!hasReviewedAny) {
       return (
         <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-          <MiniGameHeader title="Memory Lane" detail="No memories loaded" tokens={tokens} isPro={isPro} onBack={onBack} />
+          <MiniGameHeader title="Past Moments" detail="No memories loaded" tokens={tokens} isPro={isPro} onBack={onBack} />
           <View style={styles.dashboardHero}>
             <Text style={styles.heroTitle}>No memories found</Text>
             <Text style={styles.dashboardCopy}>
-              The current photo access selection did not return older local photos for Memory Lane.
+              The current photo access selection did not return older local photos for Past Moments.
             </Text>
             <PrimaryButton label="Reload photos" disabled={busy} onPress={() => void loadMemories()} />
           </View>
@@ -4356,7 +4342,7 @@ function MemoryLaneScreen({ settings, tokens, isPro, avoidIds, trimsRemaining, o
     }
     return (
       <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-        <MiniGameHeader title="Memory Lane" detail="Round complete" tokens={tokens} isPro={isPro} onBack={onBack} />
+        <MiniGameHeader title="Past Moments" detail="Round complete" tokens={tokens} isPro={isPro} onBack={onBack} />
         <View style={styles.dashboardHero}>
           <View style={styles.memorySummaryList}>
             <MemorySummaryItem label="Kept" value={kept.length} tone="keep" />
@@ -4382,12 +4368,12 @@ function MemoryLaneScreen({ settings, tokens, isPro, avoidIds, trimsRemaining, o
   }
 
   // FIX 4: Border color based on correct/wrong answer
-  const cardBorderColor = !revealed ? "#fed7aa" : isCorrect ? "#22c55e" : "#ef4444";
+  const cardBorderColor = !revealed ? "#cbd8e0" : isCorrect ? "#22c55e" : "#ef4444";
   const memoryTrimLabel = trimmedPhotoLabel(photo, settings);
 
   return (
     <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-      <MiniGameHeader title="Memory Lane" detail={`${index + 1}/${photos.length} memories`} tokens={tokens} isPro={isPro} onBack={onBack} />
+      <MiniGameHeader title="Past Moments" detail={`${index + 1}/${photos.length} memories`} tokens={tokens} isPro={isPro} onBack={onBack} />
       <Pressable onLongPress={() => setFullPhoto(photo)} delayLongPress={350} style={[styles.memoryCard, { borderColor: cardBorderColor, borderWidth: revealed ? 3 : StyleSheet.hairlineWidth }]}>
         <Image source={{ uri: photo.uri }} style={styles.memoryImage} resizeMode="cover" />
         <View style={styles.photoShade} />
@@ -4437,7 +4423,7 @@ function MemoryLaneScreen({ settings, tokens, isPro, avoidIds, trimsRemaining, o
 // ─── Shared mini components ───────────────────────────────────────────────────
 
 function MemorySummaryItem({ label, value, tone }: { label: string; value: number; tone: "keep" | "trim" | "delete" }) {
-  const color = tone === "keep" ? "#16a34a" : tone === "trim" ? "#f97316" : "#dc2626";
+  const color = tone === "keep" ? "#16a34a" : tone === "trim" ? "#315f7d" : "#dc2626";
   return (
     <View style={styles.memorySummaryItem}>
       <View style={[styles.memorySummaryBullet, { backgroundColor: color }]} />
@@ -4463,7 +4449,7 @@ function MiniGameHeader({ title, detail, tokens, isPro, onBack }: { title: strin
 function TokenPill({ tokens, isPro = false }: { tokens: number; isPro?: boolean }) {
   return (
     <View style={styles.tokenPill}>
-      <Ionicons name="flash" size={14} color="#92400e" />
+      <Ionicons name="flash" size={14} color="#66552f" />
       <Text style={styles.tokenPillText}>{isPro ? "∞" : tokens}</Text>
     </View>
   );
@@ -4526,7 +4512,7 @@ function ConfirmSheet({ request, busy }: { request: ConfirmRequest | null; busy:
       <View style={styles.confirmBackdrop}>
         <View style={styles.confirmSheet}>
           <View style={styles.confirmIcon}>
-            <Ionicons name={request.danger ? "trash" : "checkmark"} size={24} color={request.danger ? "#dc2626" : "#c2410c"} />
+            <Ionicons name={request.danger ? "trash" : "checkmark"} size={24} color={request.danger ? "#dc2626" : "#315f7d"} />
           </View>
           <Text style={styles.confirmTitle}>{request.title}</Text>
           <Text style={styles.confirmDetail}>{request.detail}</Text>
@@ -4573,7 +4559,7 @@ function ReportDashboardModal({
                 <Text style={styles.dashboardCopy}>{data.rangeLabel} before/after progress</Text>
               </View>
               <View style={styles.reportIcon}>
-                <Ionicons name="document-text-outline" size={22} color="#c2410c" />
+                <Ionicons name="document-text-outline" size={22} color="#315f7d" />
               </View>
             </View>
 
@@ -4618,11 +4604,11 @@ function ReportDashboardModal({
             <SecondaryButton label="Close" disabled={busy !== null} onPress={onClose} />
             <View style={styles.reportButtonRow}>
               <Pressable disabled={busy !== null} style={[styles.reportButton, busy !== null && styles.secondaryButtonDisabled]} onPress={onExportImage}>
-                <Ionicons name="image-outline" size={18} color="#c2410c" />
+                <Ionicons name="image-outline" size={18} color="#315f7d" />
                 <Text style={styles.reportButtonText}>{busy === "image" ? "Exporting..." : "Image"}</Text>
               </Pressable>
               <Pressable disabled={busy !== null} style={[styles.reportButton, busy !== null && styles.secondaryButtonDisabled]} onPress={onExportPdf}>
-                <Ionicons name="document-outline" size={18} color="#c2410c" />
+                <Ionicons name="document-outline" size={18} color="#315f7d" />
                 <Text style={styles.reportButtonText}>{busy === "pdf" ? "Exporting..." : "PDF"}</Text>
               </Pressable>
             </View>
@@ -4653,22 +4639,6 @@ function Toast({ toast }: { toast: ToastMessage | null }) {
         </View>
       </View>
     </View>
-  );
-}
-
-function ChoicePhoto({ photo, label, onPress, onLongPress }: { photo: NativePhoto; label: string; onPress: () => void; onLongPress: () => void }) {
-  const trimLabel = trimmedPhotoLabel(photo);
-  return (
-    <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={350} style={styles.choicePhoto}>
-      <Image source={{ uri: photo.uri }} style={styles.choiceImage} resizeMode="cover" />
-      <View style={styles.choiceShade} />
-      <Text style={styles.choiceBadge}>{label}</Text>
-      {trimLabel ? <Text style={styles.trimmedChoiceBadge}>{trimLabel}</Text> : null}
-      <View style={styles.choiceFooter}>
-        <Text style={styles.choiceTitle} numberOfLines={2}>{photo.title}</Text>
-        <Text style={styles.choiceMeta}>{formatMB(photo.sizeMB)}</Text>
-      </View>
-    </Pressable>
   );
 }
 
@@ -4750,7 +4720,7 @@ const FOCUS_OPTIONS: [NativeTargetMode, string, string][] = [
   ["big-or-old", "Large or old", "Photos over either threshold"],
   ["big-only", "Large", "Photos over the size threshold"],
   ["old-only", "Old", "Older memories first"],
-  ["similar", "Uncategorized", "Photos without a stronger cleanup category"],
+  ["similar", "Similar Photos", "Visually related photos to compare together"],
   ["blurry", "Blurry", "Likely blurry, dark, or accidental shots"],
   ["multibursts", "Bursts", "Rapid-fire photo groups"],
   ["screenshots", "Screens", "Screenshots and screen grabs"],
@@ -4799,7 +4769,7 @@ function QualityPreview({ photo, currentQuality }: { photo?: NativePhoto; curren
   const baseSize = photo?.sizeMB ?? 4;
   const variants = [
     { label: "100%", quality: 1, color: "#94a3b8" },
-    { label: "75%", quality: 0.75, color: "#fb923c" },
+    { label: "75%", quality: 0.75, color: "#4f7892" },
     { label: "50%", quality: 0.5, color: "#ef4444" },
   ];
   return (
@@ -4840,7 +4810,7 @@ type QualityPreviewItem = {
 
 const BASE_QUALITY_PREVIEW_VARIANTS = [
   { label: "100%", quality: 1, color: "#94a3b8" },
-  { label: "75%", quality: 0.75, color: "#fb923c" },
+  { label: "75%", quality: 0.75, color: "#4f7892" },
   { label: "50%", quality: 0.5, color: "#ef4444" },
 ];
 
@@ -5038,7 +5008,7 @@ function TrimKindSettings({
               onPress={() => toggle(option.kind)}
               style={[styles.trimKindOption, active && styles.trimKindOptionActive, !isPro && styles.trimKindOptionLocked]}
             >
-              <Ionicons name={isPro ? option.icon : "lock-closed-outline"} size={17} color={active ? "#c2410c" : "#64748b"} />
+              <Ionicons name={isPro ? option.icon : "lock-closed-outline"} size={17} color={active ? "#315f7d" : "#64748b"} />
               <View style={styles.reviewCopy}>
                 <Text style={[styles.trimKindLabel, active && styles.trimKindLabelActive]}>{option.label}</Text>
                 {!compact ? <Text style={styles.mutedSmall}>{trimKindDetail(option, settings.trimQuality)}</Text> : null}
@@ -5079,7 +5049,7 @@ function ProAutomationScreen({
             <Text style={styles.heroTitle}>Scheduled cleanup checks</Text>
           </View>
           <View style={styles.reportIcon}>
-            <Ionicons name="alarm-outline" size={23} color="#c2410c" />
+            <Ionicons name="alarm-outline" size={23} color="#315f7d" />
           </View>
         </View>
         <Text style={styles.dashboardCopy}>
@@ -5179,11 +5149,11 @@ function AutomationScheduleCard({
         {schedule.times.map((time, index) => (
           <View key={`${time}-${index}`} style={styles.automationTimeRow}>
             <Pressable style={styles.timeAdjustButton} onPress={() => updateTime(index, shiftScheduleTime(time, -30))}>
-              <Ionicons name="remove" size={17} color="#c2410c" />
+              <Ionicons name="remove" size={17} color="#315f7d" />
             </Pressable>
             <Text style={styles.timeValue}>{time}</Text>
             <Pressable style={styles.timeAdjustButton} onPress={() => updateTime(index, shiftScheduleTime(time, 30))}>
-              <Ionicons name="add" size={17} color="#c2410c" />
+              <Ionicons name="add" size={17} color="#315f7d" />
             </Pressable>
             <Pressable disabled={schedule.times.length <= 1} style={styles.timeRemoveButton} onPress={() => removeTime(index)}>
               <Ionicons name="trash-outline" size={16} color={schedule.times.length <= 1 ? "#cbd5e1" : "#dc2626"} />
@@ -5192,7 +5162,7 @@ function AutomationScheduleCard({
         ))}
         {schedule.times.length < 5 ? (
           <Pressable style={styles.addTimeButton} onPress={addTime}>
-            <Ionicons name="add-circle-outline" size={17} color="#c2410c" />
+            <Ionicons name="add-circle-outline" size={17} color="#315f7d" />
             <Text style={styles.addTimeText}>Add time</Text>
           </Pressable>
         ) : null}
@@ -5232,25 +5202,41 @@ function AutomationScheduleCard({
   );
 }
 
+function purchaseName(productId: string): string {
+  if (productId === LIFETIME_PRODUCT_ID) return "Lifetime Pro connected";
+  if (productId === MONTHLY_PRODUCT_ID) return "Monthly Pro connected";
+  if (productId === YEARLY_PRODUCT_ID) return "Yearly Pro connected";
+  return "Purchase connected";
+}
+
 function SettingsScreen({
   settings,
   isPro,
+  accountSignedIn,
+  activeProductId,
   samplePhoto,
   onChange,
   onReload,
   onCreateReport,
   onRestorePurchases,
+  onSignOut,
+  onManagePurchases,
 }: {
   settings: NativeSettings;
   isPro: boolean;
+  accountSignedIn: boolean;
+  activeProductId: string | null;
   samplePhoto?: NativePhoto;
   onChange: (patch: Partial<NativeSettings>) => void;
   onReload: () => Promise<void> | void;
   onCreateReport: (period: (typeof REPORT_PERIODS)[number]) => void;
   onRestorePurchases: () => Promise<void> | void;
+  onSignOut: () => Promise<void> | void;
+  onManagePurchases: () => Promise<void> | void;
 }) {
   const [reloading, setReloading] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const showsThresholds =
     settings.targetMode === "big-or-old" ||
     settings.targetMode === "big-only" ||
@@ -5275,12 +5261,88 @@ function SettingsScreen({
     }
   }
 
+  async function handleSignOut() {
+    setSigningOut(true);
+    try {
+      await onSignOut();
+    } finally {
+      setSigningOut(false);
+    }
+  }
+
+  const purchaseStatus = !accountSignedIn
+    ? "Not signed in"
+    : activeProductId
+      ? purchaseName(activeProductId)
+      : "Connected - no Pro purchase";
+  const hasManageableSubscription =
+    activeProductId === MONTHLY_PRODUCT_ID || activeProductId === YEARLY_PRODUCT_ID;
+
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <View style={styles.settingsHero}>
-        <Text style={styles.eyebrow}>Settings</Text>
-        <Text style={styles.heroTitle}>Tune the cleanup feel</Text>
-        <Text style={styles.dashboardCopy}>Keep the defaults simple, then adjust focus and trim quality when you want a sharper pass.</Text>
+        <Text style={styles.settingsEyebrow}>Settings</Text>
+        <Text style={styles.settingsHeroTitle}>Your space, your pace</Text>
+        <Text style={styles.settingsHeroCopy}>Manage purchase access, then tune how TrimSwipe finds and cleans your photos.</Text>
+      </View>
+      <View style={styles.accountCard}>
+        <View style={styles.accountHeader}>
+          <View style={[styles.accountIcon, !accountSignedIn && styles.accountIconSignedOut]}>
+            <Ionicons
+              name={accountSignedIn ? "person-circle-outline" : "person-outline"}
+              size={24}
+              color={accountSignedIn ? colors.primary : colors.textMuted}
+            />
+          </View>
+          <View style={styles.accountCopy}>
+            <Text style={styles.settingLabel}>Account & purchases</Text>
+            <Text style={styles.accountStatus}>{purchaseStatus}</Text>
+          </View>
+          <View style={[styles.accountStatusDot, accountSignedIn && styles.accountStatusDotActive]} />
+        </View>
+        <Text style={styles.mutedSmall}>
+          {accountSignedIn
+            ? "Purchases are connected to the Apple Account currently used by the App Store."
+            : "Free mode is active. Ads and free limits apply until you reconnect your App Store purchases."}
+        </Text>
+        {accountSignedIn ? (
+          <View style={styles.accountActions}>
+            {hasManageableSubscription ? (
+              <Pressable style={styles.accountSecondaryButton} onPress={() => void onManagePurchases()}>
+                <Ionicons name="card-outline" size={17} color={colors.primary} />
+                <Text style={styles.accountSecondaryText}>Manage subscription</Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              disabled={restoring}
+              style={styles.accountSecondaryButton}
+              onPress={() => void handleRestorePurchases()}
+            >
+              {restoring ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Ionicons name="refresh-outline" size={17} color={colors.primary} />
+              )}
+              <Text style={styles.accountSecondaryText}>Restore</Text>
+            </Pressable>
+            <Pressable
+              disabled={signingOut}
+              style={styles.accountSignOutButton}
+              onPress={() => void handleSignOut()}
+            >
+              <Text style={styles.accountSignOutText}>{signingOut ? "Signing out..." : "Sign out"}</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable
+            disabled={restoring}
+            onPress={() => void handleRestorePurchases()}
+            style={styles.accountSignInButton}
+          >
+            {restoring ? <ActivityIndicator color={colors.white} /> : <Ionicons name="logo-apple" size={18} color={colors.white} />}
+            <Text style={styles.accountSignInText}>{restoring ? "Connecting..." : "Sign in & restore purchases"}</Text>
+          </Pressable>
+        )}
       </View>
       {isPro ? (
         <View style={styles.settingCardVertical}>
@@ -5290,16 +5352,16 @@ function SettingsScreen({
               <Text style={styles.mutedSmall}>Create before/after weekly or monthly summaries.</Text>
             </View>
             <View style={styles.reportIcon}>
-              <Ionicons name="document-text-outline" size={22} color="#c2410c" />
+              <Ionicons name="document-text-outline" size={22} color="#315f7d" />
             </View>
           </View>
           <View style={styles.reportButtonRow}>
             <Pressable style={styles.reportButton} onPress={() => onCreateReport("weekly")}>
-              <Ionicons name="document-text-outline" size={18} color="#c2410c" />
+              <Ionicons name="document-text-outline" size={18} color="#315f7d" />
               <Text style={styles.reportButtonText}>Weekly</Text>
             </Pressable>
             <Pressable style={styles.reportButton} onPress={() => onCreateReport("monthly")}>
-              <Ionicons name="document-text-outline" size={18} color="#c2410c" />
+              <Ionicons name="document-text-outline" size={18} color="#315f7d" />
               <Text style={styles.reportButtonText}>Monthly</Text>
             </Pressable>
           </View>
@@ -5312,6 +5374,12 @@ function SettingsScreen({
         value={settings.trimReviewMode}
         options={[["normal", "Untrimmed"], ["trimmed-only", "Trimmed only"], ["all", "All photos"]]}
         onChange={(trimReviewMode) => onChange({ trimReviewMode })}
+      />
+      <Segmented
+        label="Previously reviewed"
+        value={settings.includePreviouslyReviewed ? "include" : "hide"}
+        options={[["hide", "Hide by default"], ["include", "Include"]]}
+        onChange={(value) => onChange({ includePreviouslyReviewed: value === "include" })}
       />
       <SettingStepper label="Daily goal" value={settings.dailyGoalMB} suffix="MB" min={5} max={500} step={5} onChange={(dailyGoalMB) => onChange({ dailyGoalMB })} />
       <FocusDropdown value={settings.targetMode} onChange={(targetMode) => onChange({ targetMode })} />
@@ -5338,20 +5406,6 @@ function SettingsScreen({
       />
       <TrimKindSettings settings={settings} isPro={isPro} onChange={onChange} />
       <EnhancedQualityPreview photo={samplePhoto} currentQuality={settings.trimQuality} />
-      <Pressable disabled={restoring} onPress={() => void handleRestorePurchases()} style={styles.restorePurchaseCard}>
-        <View style={styles.restorePurchaseIcon}>
-          <Ionicons name="refresh-outline" size={19} color="#c2410c" />
-        </View>
-        <View style={styles.restorePurchaseCopy}>
-          <Text style={styles.settingLabel}>Restore purchases</Text>
-          <Text style={styles.mutedSmall}>Restore Lifetime Pro from your Apple ID.</Text>
-        </View>
-        {restoring ? (
-          <ActivityIndicator color="#f97316" />
-        ) : (
-          <Text style={styles.restorePurchaseAction}>Restore</Text>
-        )}
-      </Pressable>
       <View style={styles.settingsReloadWrap}>
         <PrimaryButton label={reloading ? "Reloading photos..." : "Reload with these settings"} disabled={reloading} onPress={() => void handleReload()} />
       </View>
@@ -5487,46 +5541,46 @@ function Centered({ children }: { children: ReactNode }) {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#fff7ed" },
-  shell: { flex: 1, backgroundColor: "#fff7ed" },
+  safe: { flex: 1, backgroundColor: colors.background },
+  shell: { flex: 1, backgroundColor: colors.background },
   shellHighContrast: { backgroundColor: "#fffbeb" },
   content: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 110 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", gap: 14, padding: 24 },
   recapContent: { flexGrow: 1, alignItems: "center", justifyContent: "center", gap: 14, paddingHorizontal: 24, paddingTop: 28, paddingBottom: 142 },
-  heroTitle: { color: "#1f2937", fontSize: 28, fontWeight: "800" },
-  muted: { color: "#64748b", fontSize: 14 },
-  mutedSmall: { color: "#64748b", fontSize: 12 },
-  centerText: { color: "#475569", fontSize: 15, lineHeight: 22, textAlign: "center" },
-  insightText: { color: "#c2410c", fontSize: 14, fontWeight: "800", lineHeight: 20, textAlign: "center" },
-  eyebrow: { color: "#f97316", fontSize: 11, fontWeight: "700", letterSpacing: 1.6, textTransform: "uppercase" },
-  warning: { marginTop: 12, borderRadius: 14, backgroundColor: "#fff7ed", color: "#9a3412", padding: 12, fontSize: 12 },
+  heroTitle: { color: colors.text, fontSize: 28, fontWeight: "800", letterSpacing: -0.45 },
+  muted: { color: colors.textMuted, fontSize: 14 },
+  mutedSmall: { color: colors.textMuted, fontSize: 12, lineHeight: 17 },
+  centerText: { color: colors.textMuted, fontSize: 15, lineHeight: 22, textAlign: "center" },
+  insightText: { color: colors.primary, fontSize: 14, fontWeight: "800", lineHeight: 20, textAlign: "center" },
+  eyebrow: { color: colors.primaryBright, fontSize: 11, fontWeight: "700", letterSpacing: 1.6, textTransform: "uppercase" },
+  warning: { marginTop: 12, borderRadius: 14, backgroundColor: "#f3f6f8", color: "#274b61", padding: 12, fontSize: 12 },
   toastWrap: { position: "absolute", top: 58, left: 18, right: 18, zIndex: 1000 },
-  toast: { flexDirection: "row", alignItems: "flex-start", gap: 10, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#fed7aa", padding: 14, shadowColor: "#1f2937", shadowOpacity: 0.12, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 4 },
+  toast: { flexDirection: "row", alignItems: "flex-start", gap: 10, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#cbd8e0", padding: 14, shadowColor: "#1f2937", shadowOpacity: 0.12, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 4 },
   toastSuccess: { borderColor: "#86efac", backgroundColor: "#f0fdf4" },
-  toastWarning: { borderColor: "#fdba74", backgroundColor: "#fff7ed" },
+  toastWarning: { borderColor: "#a7bdca", backgroundColor: "#f3f6f8" },
   toastError: { borderColor: "#fca5a5", backgroundColor: "#fef2f2" },
-  toastTitle: { color: "#1f2937", fontSize: 13, fontWeight: "900" },
+  toastTitle: { color: "#1f2937", fontSize: 13, fontWeight: "700" },
   toastDetail: { marginTop: 2, color: "#64748b", fontSize: 12, lineHeight: 16, fontWeight: "600" },
   confirmBackdrop: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20, backgroundColor: "rgba(31, 41, 55, 0.34)" },
-  confirmSheet: { width: "100%", maxWidth: 420, borderRadius: 26, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#fed7aa", padding: 20, gap: 12, shadowColor: "#1f2937", shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 16 }, elevation: 8 },
-  confirmIcon: { width: 52, height: 52, alignItems: "center", justifyContent: "center", borderRadius: 18, backgroundColor: "#ffedd5", borderWidth: 1, borderColor: "#fed7aa" },
-  confirmTitle: { color: "#111827", fontSize: 21, fontWeight: "900" },
+  confirmSheet: { width: "100%", maxWidth: 420, borderRadius: 26, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#cbd8e0", padding: 20, gap: 12, shadowColor: "#1f2937", shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 16 }, elevation: 8 },
+  confirmIcon: { width: 52, height: 52, alignItems: "center", justifyContent: "center", borderRadius: 18, backgroundColor: "#e5ebef", borderWidth: 1, borderColor: "#cbd8e0" },
+  confirmTitle: { color: "#111827", fontSize: 21, fontWeight: "700" },
   confirmDetail: { color: "#64748b", fontSize: 13, lineHeight: 19, fontWeight: "700" },
   confirmActions: { marginTop: 4, gap: 10 },
 
   // Swipe
-  swipeHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 14, borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16 },
+  swipeHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 14, borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 16 },
   swipeHeaderCopy: { flex: 1 },
-  swipeTitle: { marginTop: 5, color: "#1f2937", fontSize: 18, fontWeight: "900" },
+  swipeTitle: { marginTop: 5, color: "#1f2937", fontSize: 18, fontWeight: "700" },
   swipeTitleLarge: { fontSize: 22 },
   swipeSubtitle: { marginTop: 5, color: "#64748b", fontSize: 12, lineHeight: 17 },
   swipeStatusColumn: { alignItems: "flex-end", gap: 8 },
-  queuePill: { overflow: "hidden", borderRadius: 999, backgroundColor: "#ffedd5", color: "#c2410c", paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, fontWeight: "900" },
-  timerPill: { overflow: "hidden", borderRadius: 999, backgroundColor: "#fef3c7", color: "#b45309", paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, fontWeight: "900" },
-  trimBadge: { overflow: "hidden", borderRadius: 999, backgroundColor: "#fff7ed", color: "#c2410c", paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, fontWeight: "700" },
+  queuePill: { overflow: "hidden", borderRadius: 999, backgroundColor: "#e5ebef", color: "#315f7d", paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, fontWeight: "700" },
+  timerPill: { overflow: "hidden", borderRadius: 999, backgroundColor: "#f4efe3", color: "#806226", paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, fontWeight: "700" },
+  trimBadge: { overflow: "hidden", borderRadius: 999, backgroundColor: "#f3f6f8", color: "#315f7d", paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, fontWeight: "700" },
   deck: { marginTop: 18, height: 492 },
   animatedCard: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 },
-  photoCard: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, overflow: "hidden", borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa" },
+  photoCard: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, overflow: "hidden", borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0" },
   swipeTint: { ...StyleSheet.absoluteFillObject, borderRadius: 24 },
   keepTint: { backgroundColor: "rgba(34, 197, 94, 0.48)" },
   deleteTint: { backgroundColor: "rgba(239, 68, 68, 0.48)" },
@@ -5535,22 +5589,22 @@ const styles = StyleSheet.create({
   photoShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(31, 41, 55, 0.12)" },
   photoTop: { position: "absolute", top: 14, left: 14, right: 14, flexDirection: "row", flexWrap: "wrap", gap: 8 },
   pill: { overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(15, 23, 42, 0.72)", color: "#f8fafc", paddingHorizontal: 10, paddingVertical: 6, fontSize: 11, fontWeight: "800" },
-  pillSaving: { color: "#86efac", fontWeight: "900" },
-  trimmedLabel: { overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(34, 197, 94, 0.92)", color: "#ffffff", paddingHorizontal: 9, paddingVertical: 6, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
+  pillSaving: { color: "#86efac", fontWeight: "700" },
+  trimmedLabel: { overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(34, 197, 94, 0.92)", color: "#ffffff", paddingHorizontal: 9, paddingVertical: 6, fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
   photoBottom: { position: "absolute", left: 18, right: 18, bottom: 18 },
-  photoTitle: { color: "#f8fafc", fontSize: 25, fontWeight: "900" },
+  photoTitle: { color: "#f8fafc", fontSize: 25, fontWeight: "700" },
   photoMeta: { marginTop: 4, color: "#cbd5e1", fontSize: 13, fontWeight: "600" },
   reasonRow: { marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 6 },
   reason: { overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(248, 250, 252, 0.18)", color: "#f8fafc", paddingHorizontal: 8, paddingVertical: 4, fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
-  reasonTrimmed: { overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(251, 146, 60, 0.9)", color: "#fff7ed", paddingHorizontal: 8, paddingVertical: 4, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
+  reasonTrimmed: { overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(79, 120, 146, 0.9)", color: "#f3f6f8", paddingHorizontal: 8, paddingVertical: 4, fontSize: 10, fontWeight: "700", textTransform: "uppercase" },
   actions: { marginTop: 20, flexDirection: "row", gap: 10 },
   actionButton: { flex: 1, minHeight: 76, alignItems: "center", justifyContent: "center", borderRadius: 17, paddingVertical: 15, paddingHorizontal: 8, borderWidth: 1 },
   actionButtonLarge: { paddingVertical: 19 },
   actionButtonDisabled: { backgroundColor: "#f1f5f9", borderColor: "#cbd5e1", opacity: 0.75 },
   actionKeep: { backgroundColor: "#dcfce7", borderColor: "#22c55e" },
-  actionTrim: { backgroundColor: "#ffedd5", borderColor: "#fb923c" },
+  actionTrim: { backgroundColor: "#e5ebef", borderColor: "#4f7892" },
   actionDelete: { backgroundColor: "#fee2e2", borderColor: "#ef4444" },
-  actionText: { color: "#1f2937", fontSize: 14, lineHeight: 17, fontWeight: "900", textAlign: "center" },
+  actionText: { color: "#1f2937", fontSize: 14, lineHeight: 17, fontWeight: "700", textAlign: "center" },
   actionTextLarge: { fontSize: 17 },
   actionTextDisabled: { color: "#94a3b8" },
 
@@ -5561,410 +5615,428 @@ const styles = StyleSheet.create({
   reviewActionFooter: { gap: 10 },
   applyProgressCard: {
     borderRadius: 18,
-    backgroundColor: "#fff7ed",
+    backgroundColor: "#f3f6f8",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#fed7aa",
+    borderColor: "#cbd8e0",
     padding: 13,
     gap: 10,
   },
   applyProgressHeader: { gap: 2 },
-  applyProgressTitle: { color: "#1f2937", fontSize: 13, fontWeight: "900" },
+  applyProgressTitle: { color: "#1f2937", fontSize: 13, fontWeight: "700" },
   applyProgressDetail: { color: "#64748b", fontSize: 11, fontWeight: "700" },
   applyProgressTrack: {
     height: 8,
     overflow: "hidden",
     borderRadius: 999,
-    backgroundColor: "#ffedd5",
+    backgroundColor: "#e5ebef",
   },
   applyProgressFill: {
     width: "68%",
     height: "100%",
     borderRadius: 999,
-    backgroundColor: "#f97316",
+    backgroundColor: "#315f7d",
   },
   reviewRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: "#ffffff", padding: 10, marginBottom: 8 },
   reviewThumb: { width: 58, height: 58, borderRadius: 14 },
-  reviewMoveButton: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa" },
+  reviewMoveButton: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: "#f3f6f8", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0" },
   reviewMoveButtonDisabled: { backgroundColor: "#f1f5f9", borderColor: "#cbd5e1" },
   checkbox: {
     width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: "#d1d5db",
     alignItems: "center", justifyContent: "center", backgroundColor: "#fff",
   },
   checkboxOn: { backgroundColor: "#22c55e", borderColor: "#22c55e" },
-  checkboxMark: { color: "#fff", fontWeight: "900", fontSize: 14 },
+  checkboxMark: { color: "#fff", fontWeight: "700", fontSize: 14 },
   reviewCopy: { flex: 1 },
   reviewTitle: { color: "#1f2937", fontSize: 14, fontWeight: "800" },
-  reviewTrimmedLabel: { alignSelf: "flex-start", marginTop: 3, marginBottom: 3, overflow: "hidden", borderRadius: 999, backgroundColor: "#dcfce7", color: "#15803d", paddingHorizontal: 7, paddingVertical: 3, fontSize: 9, fontWeight: "900", textTransform: "uppercase" },
-  actionLogRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 12 },
+  reviewTrimmedLabel: { alignSelf: "flex-start", marginTop: 3, marginBottom: 3, overflow: "hidden", borderRadius: 999, backgroundColor: "#dcfce7", color: "#15803d", paddingHorizontal: 7, paddingVertical: 3, fontSize: 9, fontWeight: "700", textTransform: "uppercase" },
+  actionLogRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 12 },
   actionLogRowCompact: { padding: 8, marginBottom: 4, borderRadius: 14 },
   compactActionList: { gap: 4 },
-  actionLogDot: { width: 10, height: 10, borderRadius: 999, backgroundColor: "#fb923c" },
-  emptyPanel: { borderRadius: 20, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 18, gap: 10 },
+  actionLogDot: { width: 10, height: 10, borderRadius: 999, backgroundColor: "#4f7892" },
+  emptyPanel: { borderRadius: 20, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 18, gap: 10 },
   statGrid: { width: "100%", flexDirection: "row", flexWrap: "wrap", gap: 10 },
   miniStat: { minWidth: "30%", flexGrow: 1, borderRadius: 18, backgroundColor: "#ffffff", padding: 16 },
-  miniStatValue: { color: "#1f2937", fontSize: 24, fontWeight: "900" },
+  miniStatValue: { color: "#1f2937", fontSize: 24, fontWeight: "700" },
   recapTop: { alignItems: "center", gap: 12 },
   recapBadgeWrap: { width: 118, height: 96, alignItems: "center", justifyContent: "center" },
   recapBadge: { width: 74, height: 74, alignItems: "center", justifyContent: "center", borderRadius: 24, backgroundColor: "#22c55e", borderWidth: 2, borderColor: "#86efac", shadowColor: "#22c55e", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.22, shadowRadius: 20, elevation: 5 },
-  recapBadgeIcon: { color: "#ffffff", fontSize: 38, fontWeight: "900" },
+  recapBadgeIcon: { color: "#ffffff", fontSize: 38, fontWeight: "700" },
   recapImpactCard: { width: "100%", overflow: "hidden", position: "relative", borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#bbf7d0", padding: 16, gap: 12, shadowColor: "#22c55e", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 18, elevation: 3 },
   recapImpactShine: { position: "absolute", top: -28, bottom: -28, left: 0, width: 72, backgroundColor: "rgba(255,255,255,0.62)" },
   recapImpactHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14 },
   recapCleanBadge: { width: 42, height: 42, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "#dcfce7", borderWidth: 1, borderColor: "#86efac" },
-  recapImpactValue: { color: "#f97316", fontSize: 34, fontWeight: "900" },
+  recapImpactValue: { color: "#315f7d", fontSize: 34, fontWeight: "700" },
   recapSuccessStrip: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 14, backgroundColor: "#f0fdf4", borderWidth: StyleSheet.hairlineWidth, borderColor: "#bbf7d0", paddingHorizontal: 12, paddingVertical: 10 },
-  recapSuccessText: { color: "#15803d", fontSize: 12, fontWeight: "900" },
+  recapSuccessText: { color: "#15803d", fontSize: 12, fontWeight: "700" },
 
   // Stats redesign
   statsContent: { gap: 14, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 120 },
-  statsHero: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 18, gap: 12 },
+  statsHero: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 18, gap: 12 },
   statsHeroLeft: { flex: 1, gap: 6 },
-  statsHeroTitle: { color: "#1f2937", fontSize: 24, fontWeight: "900" },
+  statsHeroTitle: { color: "#1f2937", fontSize: 24, fontWeight: "700" },
   statsHeroCopy: { color: "#64748b", fontSize: 12, lineHeight: 18 },
   levelRowInline: { marginTop: 4 },
-  levelLabel: { color: "#f97316", fontSize: 12, fontWeight: "800" },
-  levelBarTrack: { height: 6, borderRadius: 999, backgroundColor: "#ffedd5", marginTop: 4 },
-  levelBarFill: { height: "100%", borderRadius: 999, backgroundColor: "#f97316" },
+  levelLabel: { color: "#315f7d", fontSize: 12, fontWeight: "800" },
+  levelBarTrack: { height: 6, borderRadius: 999, backgroundColor: "#e5ebef", marginTop: 4 },
+  levelBarFill: { height: "100%", borderRadius: 999, backgroundColor: "#315f7d" },
   statsActionStrip: { flexDirection: "row", gap: 10 },
-  statsActionBtn: { flex: 1, alignItems: "center", borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", paddingVertical: 14, gap: 4 },
-  statsActionIcon: { color: "#f97316", fontSize: 18, fontWeight: "900" },
+  statsActionBtn: { flex: 1, alignItems: "center", borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", paddingVertical: 14, gap: 4 },
+  statsActionIcon: { color: "#315f7d", fontSize: 18, fontWeight: "700" },
   statsActionLabel: { color: "#1f2937", fontSize: 12, fontWeight: "800" },
   impactSummaryRow: { flexDirection: "row", gap: 8 },
   impactPill: { flex: 1, alignItems: "center", borderRadius: 18, backgroundColor: "#ffffff", borderWidth: 1, paddingVertical: 12, paddingHorizontal: 4 },
-  impactPillValue: { fontSize: 16, fontWeight: "900" },
+  impactPillValue: { fontSize: 16, fontWeight: "700" },
   impactPillLabel: { color: "#64748b", fontSize: 10, fontWeight: "700", marginTop: 2 },
-  streakRow: { flexDirection: "row", borderRadius: 20, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", overflow: "hidden" },
+  streakRow: { flexDirection: "row", borderRadius: 20, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", overflow: "hidden" },
   streakHalf: { flex: 1, alignItems: "center", padding: 16, gap: 4 },
-  streakBigNum: { color: "#f97316", fontSize: 40, fontWeight: "900", lineHeight: 44 },
+  streakBigNum: { color: "#315f7d", fontSize: 40, fontWeight: "700", lineHeight: 44 },
   sectionHeader: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", marginTop: 6 },
-  sectionBadge: { color: "#f97316", fontSize: 12, fontWeight: "700" },
+  sectionBadge: { color: "#315f7d", fontSize: 12, fontWeight: "700" },
 
   // Common section / dashboard
   dashboardContent: { gap: 14 },
-  dashboardHero: { borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 18, gap: 16 },
+  dashboardHero: { borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 18, gap: 16 },
   dashboardHeroTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 16 },
   dashboardCopy: { color: "#475569", fontSize: 14, lineHeight: 21 },
-  healthScore: { minWidth: 74, alignItems: "center", borderRadius: 20, backgroundColor: "#ffedd5", paddingVertical: 10, paddingHorizontal: 12 },
-  healthValue: { color: "#c2410c", fontSize: 27, fontWeight: "900" },
+  healthScore: { minWidth: 74, alignItems: "center", borderRadius: 20, backgroundColor: "#e5ebef", paddingVertical: 10, paddingHorizontal: 12 },
+  healthValue: { color: "#315f7d", fontSize: 27, fontWeight: "700" },
   healthLabel: { color: "#ea580c", fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
   quickActions: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  quickAction: { flex: 1, minWidth: "30%", borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 14, gap: 5 },
-  quickActionLabel: { color: "#1f2937", fontSize: 14, fontWeight: "900" },
+  quickAction: { flex: 1, minWidth: "30%", borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 14, gap: 5 },
+  quickActionLabel: { color: "#1f2937", fontSize: 14, fontWeight: "700" },
   quickActionDetail: { color: "#64748b", fontSize: 11, fontWeight: "700" },
   sectionTitleRow: { marginTop: 5, flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 12 },
-  sectionTitle: { color: "#1f2937", fontSize: 18, fontWeight: "900" },
-  sectionDetail: { color: "#f97316", fontSize: 12, fontWeight: "700" },
-  progressTrack: { height: 8, overflow: "hidden", borderRadius: 999, backgroundColor: "#ffedd5" },
-  progressFill: { height: "100%", borderRadius: 999, backgroundColor: "#f97316" },
-  progressTrim: { backgroundColor: "#fb923c" },
+  sectionTitle: { color: "#1f2937", fontSize: 18, fontWeight: "700" },
+  sectionDetail: { color: "#315f7d", fontSize: 12, fontWeight: "700" },
+  progressTrack: { height: 8, overflow: "hidden", borderRadius: 999, backgroundColor: "#e5ebef" },
+  progressFill: { height: "100%", borderRadius: 999, backgroundColor: "#315f7d" },
+  progressTrim: { backgroundColor: "#4f7892" },
   progressDelete: { backgroundColor: "#f87171" },
-  challengeCard: { borderRadius: 20, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16, gap: 11 },
-  streakCard: { flexDirection: "row", alignItems: "center", borderRadius: 20, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16, gap: 14 },
-  streakValue: { color: "#f97316", fontSize: 44, fontWeight: "900", lineHeight: 48 },
-  streakDivider: { alignSelf: "stretch", width: StyleSheet.hairlineWidth, backgroundColor: "#fed7aa" },
+  challengeCard: { borderRadius: 20, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 16, gap: 11 },
+  streakCard: { flexDirection: "row", alignItems: "center", borderRadius: 20, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 16, gap: 14 },
+  streakValue: { color: "#315f7d", fontSize: 44, fontWeight: "700", lineHeight: 48 },
+  streakDivider: { alignSelf: "stretch", width: StyleSheet.hairlineWidth, backgroundColor: "#cbd8e0" },
   streakCopy: { flex: 1, gap: 5 },
   challengeHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  challengeTitle: { flex: 1, color: "#1f2937", fontSize: 14, fontWeight: "900" },
-  challengeValue: { color: "#ea580c", fontSize: 16, fontWeight: "900" },
-  impactPanel: { borderRadius: 20, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16, gap: 15 },
+  challengeTitle: { flex: 1, color: "#1f2937", fontSize: 14, fontWeight: "700" },
+  challengeValue: { color: "#ea580c", fontSize: 16, fontWeight: "700" },
+  impactPanel: { borderRadius: 20, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 16, gap: 15 },
   impactHeader: { gap: 3 },
-  impactValue: { color: "#1f2937", fontSize: 30, fontWeight: "900" },
+  impactValue: { color: "#1f2937", fontSize: 30, fontWeight: "700" },
   impactRow: { gap: 8 },
   impactLabelRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
   impactLabel: { color: "#475569", fontSize: 13, fontWeight: "800" },
-  impactAmount: { color: "#1f2937", fontSize: 13, fontWeight: "900" },
+  impactAmount: { color: "#1f2937", fontSize: 13, fontWeight: "700" },
   metricGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  metricCard: { minWidth: "47%", flexGrow: 1, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 15 },
-  metricValue: { color: "#1f2937", fontSize: 23, fontWeight: "900" },
-  activityPanel: { height: 148, flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: 8, borderRadius: 20, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 14 },
+  metricCard: { minWidth: "47%", flexGrow: 1, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 15 },
+  metricValue: { color: "#1f2937", fontSize: 23, fontWeight: "700" },
+  activityPanel: { height: 148, flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: 8, borderRadius: 20, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 14 },
   activityDay: { flex: 1, alignItems: "center", gap: 7 },
-  activityBarTrack: { width: "100%", height: 78, justifyContent: "flex-end", overflow: "hidden", borderRadius: 999, backgroundColor: "#ffedd5" },
-  activityBar: { width: "100%", borderRadius: 999, backgroundColor: "#fb923c" },
+  activityBarTrack: { width: "100%", height: 78, justifyContent: "flex-end", overflow: "hidden", borderRadius: 999, backgroundColor: "#e5ebef" },
+  activityBar: { width: "100%", borderRadius: 999, backgroundColor: "#4f7892" },
   activityLabel: { color: "#64748b", fontSize: 10, fontWeight: "800" },
-  activityValue: { color: "#1f2937", fontSize: 11, fontWeight: "900" },
+  activityValue: { color: "#1f2937", fontSize: 11, fontWeight: "700" },
   achievementGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  achievementCard: { minWidth: "47%", flexGrow: 1, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 14, gap: 9 },
+  achievementCard: { minWidth: "47%", flexGrow: 1, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 14, gap: 9 },
   achievementUnlocked: { backgroundColor: "#ecfdf5", borderColor: "#86efac" },
-  achievementStatus: { alignSelf: "flex-start", borderRadius: 999, backgroundColor: "#ffedd5", paddingHorizontal: 8, paddingVertical: 4 },
-  achievementStatusText: { color: "#c2410c", fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
-  achievementTitle: { color: "#1f2937", fontSize: 14, fontWeight: "900" },
+  achievementStatus: { alignSelf: "flex-start", borderRadius: 999, backgroundColor: "#e5ebef", paddingHorizontal: 8, paddingVertical: 4 },
+  achievementStatusText: { color: "#315f7d", fontSize: 10, fontWeight: "700", textTransform: "uppercase" },
+  achievementTitle: { color: "#1f2937", fontSize: 14, fontWeight: "700" },
 
   // Games
-  gamesHero: { borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 18, gap: 8 },
-  gamesVisualHero: { overflow: "hidden", borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 18, gap: 14 },
+  gamesHero: { borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 18, gap: 8 },
+  gamesVisualHero: { overflow: "hidden", borderRadius: 26, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, padding: 18, gap: 14, shadowColor: colors.ink, shadowOpacity: 0.07, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 2 },
   gamesHeroCopy: { flex: 1, gap: 4 },
   gameTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
   heroPhotoStrip: { height: 118, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
-  heroPhoto: { width: "31%", height: 104, borderRadius: 18, backgroundColor: "#ffedd5", borderWidth: 3, borderColor: "#ffffff" },
+  heroPhoto: { width: "31%", height: 104, borderRadius: 18, backgroundColor: "#e5ebef", borderWidth: 3, borderColor: "#ffffff" },
   heroPhotoRaised: { height: 118, transform: [{ translateY: -4 }] },
-  heroPhotoFallback: { flex: 1, height: 112, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: "#fb923c" },
-  focusPanel: { borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16, gap: 14 },
+  heroPhotoFallback: { flex: 1, height: 112, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: "#4f7892" },
+  focusPanel: { borderRadius: 24, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, padding: 16, gap: 14 },
   focusHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  focusTitle: { color: "#1f2937", fontSize: 18, fontWeight: "900", marginTop: 4 },
+  focusTitle: { color: "#1f2937", fontSize: 18, fontWeight: "700", marginTop: 4 },
   focusSlider: { gap: 8 },
   focusSliderHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  focusSliderLabel: { color: "#1f2937", fontSize: 12, fontWeight: "900" },
-  focusSliderValue: { color: "#f97316", fontSize: 12, fontWeight: "900" },
+  focusSliderLabel: { color: "#1f2937", fontSize: 12, fontWeight: "700" },
+  focusSliderValue: { color: "#315f7d", fontSize: 12, fontWeight: "700" },
   focusTrack: { height: 24, justifyContent: "center" },
-  focusRail: { position: "absolute", left: 0, right: 0, height: 7, borderRadius: 999, backgroundColor: "#ffedd5" },
-  focusMarker: { position: "absolute", top: 6, width: 2, height: 12, marginLeft: -1, borderRadius: 999, backgroundColor: "#fdba74" },
-  focusFill: { position: "absolute", left: 0, height: 7, borderRadius: 999, backgroundColor: "#f97316" },
-  focusThumb: { position: "absolute", width: 22, height: 22, marginLeft: -11, borderRadius: 11, backgroundColor: "#ffffff", borderWidth: 3, borderColor: "#f97316" },
+  focusRail: { position: "absolute", left: 0, right: 0, height: 7, borderRadius: 999, backgroundColor: "#e5ebef" },
+  focusMarker: { position: "absolute", top: 6, width: 2, height: 12, marginLeft: -1, borderRadius: 999, backgroundColor: "#a7bdca" },
+  focusFill: { position: "absolute", left: 0, height: 7, borderRadius: 999, backgroundColor: "#315f7d" },
+  focusThumb: { position: "absolute", width: 22, height: 22, marginLeft: -11, borderRadius: 11, backgroundColor: "#ffffff", borderWidth: 3, borderColor: "#315f7d" },
   focusRangeRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
   focusRangeText: { color: "#64748b", fontSize: 10, fontWeight: "800", flexShrink: 1 },
   focusFolderScroll: { gap: 10, paddingRight: 4 },
-  focusFolderCard: { width: 118, borderRadius: 16, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 9 },
+  focusFolderCard: { width: 118, borderRadius: 16, backgroundColor: "#f3f6f8", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 9 },
   focusFolderThumbWrap: { position: "relative" },
-  focusFolderThumb: { width: "100%", height: 74, borderRadius: 12, backgroundColor: "#ffedd5" },
+  focusFolderThumb: { width: "100%", height: 74, borderRadius: 12, backgroundColor: "#e5ebef" },
   focusFolderThumbEmpty: { alignItems: "center", justifyContent: "center" },
   focusFolderIcon: { position: "absolute", right: 6, top: 6, width: 24, height: 24, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.92)", alignItems: "center", justifyContent: "center" },
-  focusFolderLabel: { marginTop: 8, color: "#1f2937", fontSize: 13, fontWeight: "900" },
+  focusFolderLabel: { marginTop: 8, color: "#1f2937", fontSize: 13, fontWeight: "700" },
   focusFolderMeta: { marginTop: 2, color: "#64748b", fontSize: 10, fontWeight: "700" },
   homeStatRow: { flexDirection: "row", gap: 8 },
-  homeStat: { flex: 1, borderRadius: 16, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 12 },
-  homeStatValue: { color: "#c2410c", fontSize: 22, fontWeight: "900" },
-  scanQuickCard: { borderRadius: 20, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16 },
+  homeStat: { flex: 1, borderRadius: 16, backgroundColor: "#f3f6f8", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 12 },
+  homeStatValue: { color: "#315f7d", fontSize: 22, fontWeight: "700" },
+  scanQuickCard: { borderRadius: 20, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 16 },
   scanQuickCopy: { flex: 1, gap: 3 },
-  scanMiniButton: { alignSelf: "center", borderRadius: 16, backgroundColor: "#f97316", paddingHorizontal: 16, paddingVertical: 11 },
-  scanMiniButtonText: { color: "#ffffff", fontSize: 13, fontWeight: "900" },
+  scanMiniButton: { alignSelf: "center", borderRadius: 16, backgroundColor: "#315f7d", paddingHorizontal: 16, paddingVertical: 11 },
+  scanMiniButtonText: { color: "#ffffff", fontSize: 13, fontWeight: "700" },
   gameGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  primaryGameCard: { width: "100%", borderRadius: 24, backgroundColor: "#f97316", padding: 20, gap: 8, shadowColor: "#fb923c", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 18, elevation: 6 },
-  primaryGameVisualCard: { width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 24, backgroundColor: "#f97316", padding: 20, gap: 14, shadowColor: "#fb923c", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 18, elevation: 6 },
+  primaryGameCard: { width: "100%", borderRadius: 24, backgroundColor: "#315f7d", padding: 20, gap: 8, shadowColor: "#4f7892", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 18, elevation: 6 },
+  primaryGameVisualCard: { width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 26, backgroundColor: colors.primary, padding: 20, gap: 14, shadowColor: colors.ink, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 18, elevation: 6 },
   primaryGameArt: { width: 92, height: 82, borderRadius: 20, borderWidth: 2, borderColor: "rgba(255,255,255,0.75)" },
   primaryGamePhotoStrip: { flexDirection: "row", alignItems: "center", width: 92 },
-  primaryGamePhoto: { width: 38, height: 54, marginRight: -18, borderRadius: 12, borderWidth: 2, borderColor: "rgba(255,255,255,0.75)", backgroundColor: "#fed7aa" },
+  primaryGamePhoto: { width: 38, height: 54, marginRight: -18, borderRadius: 12, borderWidth: 2, borderColor: "rgba(255,255,255,0.75)", backgroundColor: "#cbd8e0" },
   primaryGamePhotoRaised: { transform: [{ translateY: -5 }] },
   primaryGamePhotoPlaceholder: { width: 80, height: 58, borderRadius: 16 },
   primaryGameText: { flex: 1, gap: 8 },
   primaryGameIcons: { flexDirection: "row", gap: 7 },
   primaryGameBadge: { alignSelf: "flex-start", borderRadius: 999, backgroundColor: "rgba(255, 255, 255, 0.22)", paddingHorizontal: 10, paddingVertical: 5 },
-  primaryGameBadgeText: { color: "#ffffff", fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
-  primaryGameTitle: { color: "#ffffff", fontSize: 32, fontWeight: "900" },
-  primaryGameDetail: { color: "#ffedd5", fontSize: 14, fontWeight: "800" },
-  gameCard: { width: "48%", minHeight: 134, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#fed7aa", padding: 14, gap: 10 },
-  gameCardActive: { backgroundColor: "#ffedd5", borderColor: "#fb923c" },
-  gameIcon: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa" },
-  gameIconActive: { backgroundColor: "#fb923c", borderColor: "#fb923c" },
-  gameIconText: { color: "#c2410c", fontSize: 13, fontWeight: "900" },
+  primaryGameBadgeText: { color: "#ffffff", fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
+  primaryGameTitle: { color: "#ffffff", fontSize: 32, fontWeight: "700" },
+  primaryGameDetail: { color: "#e5ebef", fontSize: 14, fontWeight: "800" },
+  gameCard: { width: "48%", minHeight: 134, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#cbd8e0", padding: 14, gap: 10 },
+  gameCardActive: { backgroundColor: "#e5ebef", borderColor: "#4f7892" },
+  gameIcon: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: "#f3f6f8", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0" },
+  gameIconActive: { backgroundColor: "#4f7892", borderColor: "#4f7892" },
+  gameIconText: { color: "#315f7d", fontSize: 13, fontWeight: "700" },
   gameIconTextActive: { color: "#ffffff" },
   gameCopy: { gap: 4 },
-  gameTitle: { color: "#1f2937", fontSize: 15, fontWeight: "900" },
-  gameTitleActive: { color: "#9a3412" },
+  gameTitle: { color: "#1f2937", fontSize: 15, fontWeight: "700" },
+  gameTitleActive: { color: "#274b61" },
   gameDetail: { color: "#64748b", fontSize: 12, lineHeight: 17, fontWeight: "700" },
-  gameDetailActive: { color: "#9a3412" },
-  visualGameCard: { width: "48%", overflow: "hidden", borderRadius: 20, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#fed7aa", padding: 9, gap: 9 },
-  visualGameCardActive: { backgroundColor: "#ffedd5", borderColor: "#fb923c" },
-  visualGameImageWrap: { position: "relative", height: 94, overflow: "hidden", borderRadius: 16, backgroundColor: "#fff7ed" },
+  gameDetailActive: { color: "#274b61" },
+  visualGameCard: { width: "48%", overflow: "hidden", borderRadius: 22, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 9, gap: 9 },
+  visualGameCardActive: { backgroundColor: "#e5ebef", borderColor: "#4f7892" },
+  visualGameImageWrap: { position: "relative", height: 94, overflow: "hidden", borderRadius: 16, backgroundColor: "#f3f6f8" },
   visualGameImage: { width: "100%", height: "100%" },
-  visualGameFallback: { width: "100%", height: "100%", alignItems: "center", justifyContent: "center", backgroundColor: "#fff7ed" },
+  visualGameFallback: { width: "100%", height: "100%", alignItems: "center", justifyContent: "center", backgroundColor: "#f3f6f8" },
   placeholderPhoto: { width: "100%", height: "100%", overflow: "hidden", borderRadius: 12 },
   placeholderSun: { position: "absolute", right: 14, top: 12, width: 24, height: 24, borderRadius: 12, opacity: 0.9 },
   placeholderHillBack: { position: "absolute", left: -18, right: 34, bottom: -16, height: 58, borderTopRightRadius: 58, opacity: 0.55 },
   placeholderHillFront: { position: "absolute", left: 24, right: -20, bottom: -18, height: 70, borderTopLeftRadius: 68, opacity: 0.78 },
   visualGameIcon: { position: "absolute", right: 8, top: 8, width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: "rgba(249, 115, 22, 0.92)" },
-  photoAccessCard: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 14 },
-  photoAccessIcon: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: "#fff7ed" },
+  photoAccessCard: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 20, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, padding: 14 },
+  photoAccessIcon: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: "#f3f6f8" },
   photoAccessCopy: { flex: 1, gap: 2 },
-  photoAccessLabel: { color: "#64748b", fontSize: 10, fontWeight: "900", letterSpacing: 1.2, textTransform: "uppercase" },
-  photoAccessValue: { color: "#1f2937", fontSize: 16, fontWeight: "900" },
-  photoAccessButton: { overflow: "hidden", borderRadius: 999, backgroundColor: "#f97316", color: "#ffffff", paddingHorizontal: 12, paddingVertical: 7, fontSize: 12, fontWeight: "900" },
+  photoAccessLabel: { color: "#64748b", fontSize: 10, fontWeight: "700", letterSpacing: 1.2, textTransform: "uppercase" },
+  photoAccessValue: { color: "#1f2937", fontSize: 16, fontWeight: "700" },
+  photoAccessButton: { overflow: "hidden", borderRadius: 999, backgroundColor: "#315f7d", color: "#ffffff", paddingHorizontal: 12, paddingVertical: 7, fontSize: 12, fontWeight: "700" },
 
   // Mini game shared
   miniGameHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
   miniGameHeaderCopy: { flex: 1 },
-  tokenPill: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 999, backgroundColor: "#fef3c7", borderWidth: StyleSheet.hairlineWidth, borderColor: "#f59e0b", paddingHorizontal: 10, paddingVertical: 7 },
-  tokenPillText: { color: "#92400e", fontSize: 13, fontWeight: "900" },
-  backButton: { borderRadius: 999, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", paddingHorizontal: 14, paddingVertical: 10 },
-  backButtonText: { color: "#c2410c", fontSize: 13, fontWeight: "900" },
+  tokenPill: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 999, backgroundColor: "#f4efe3", borderWidth: StyleSheet.hairlineWidth, borderColor: "#3f6f8d", paddingHorizontal: 10, paddingVertical: 7 },
+  tokenPillText: { color: "#66552f", fontSize: 13, fontWeight: "700" },
+  backButton: { borderRadius: 999, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", paddingHorizontal: 14, paddingVertical: 10 },
+  backButtonText: { color: "#315f7d", fontSize: 13, fontWeight: "700" },
 
   // This or That
   thisThatRow: { flexDirection: "row", gap: 10 },
   thisThatActionRow: { flexDirection: "row", gap: 10 },
-  pairSecondaryButton: { flex: 1, alignItems: "center", borderRadius: 18, borderWidth: 1, borderColor: "#fed7aa", backgroundColor: "#ffffff", paddingVertical: 14, paddingHorizontal: 12 },
-  pairSecondaryText: { color: "#c2410c", fontSize: 14, fontWeight: "900" },
+  pairSecondaryButton: { flex: 1, alignItems: "center", borderRadius: 18, borderWidth: 1, borderColor: "#cbd8e0", backgroundColor: "#ffffff", paddingVertical: 14, paddingHorizontal: 12 },
+  pairSecondaryText: { color: "#315f7d", fontSize: 14, fontWeight: "700" },
   pairDangerButton: { flex: 1, alignItems: "center", borderRadius: 18, backgroundColor: "#dc2626", paddingVertical: 14, paddingHorizontal: 12 },
-  pairDangerText: { color: "#ffffff", fontSize: 14, fontWeight: "900" },
-  choicePhoto: { flex: 1, aspectRatio: 0.72, overflow: "hidden", borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa" },
+  pairDangerText: { color: "#ffffff", fontSize: 14, fontWeight: "700" },
+  choicePhoto: { flex: 1, aspectRatio: 0.72, overflow: "hidden", borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0" },
   choiceImage: { width: "100%", height: "100%" },
   choiceShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(31, 41, 55, 0.18)" },
-  choiceBadge: { position: "absolute", top: 10, right: 10, overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(255, 255, 255, 0.88)", color: "#c2410c", paddingHorizontal: 9, paddingVertical: 4, fontSize: 12, fontWeight: "900" },
-  trimmedChoiceBadge: { position: "absolute", top: 10, left: 10, overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(34, 197, 94, 0.92)", color: "#ffffff", paddingHorizontal: 8, paddingVertical: 4, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
+  choiceBadge: { position: "absolute", top: 10, right: 10, overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(255, 255, 255, 0.88)", color: "#315f7d", paddingHorizontal: 9, paddingVertical: 4, fontSize: 12, fontWeight: "700" },
+  trimmedChoiceBadge: { position: "absolute", top: 10, left: 10, overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(34, 197, 94, 0.92)", color: "#ffffff", paddingHorizontal: 8, paddingVertical: 4, fontSize: 10, fontWeight: "700", textTransform: "uppercase" },
   choiceFooter: { position: "absolute", left: 10, right: 10, bottom: 10 },
-  choiceTitle: { color: "#ffffff", fontSize: 14, fontWeight: "900" },
-  choiceMeta: { marginTop: 3, color: "#ffedd5", fontSize: 12, fontWeight: "800" },
+  choiceTitle: { color: "#ffffff", fontSize: 14, fontWeight: "700" },
+  choiceMeta: { marginTop: 3, color: "#e5ebef", fontSize: 12, fontWeight: "800" },
   loserSummaryRow: { flexDirection: "row", gap: 8 },
-  deleteSummary: { color: "#dc2626", fontSize: 13, fontWeight: "900" },
-  trimSummary: { color: "#c2410c", fontSize: 13, fontWeight: "900" },
-  skipSummary: { color: "#64748b", fontSize: 13, fontWeight: "900" },
+  deleteSummary: { color: "#dc2626", fontSize: 13, fontWeight: "700" },
+  trimSummary: { color: "#315f7d", fontSize: 13, fontWeight: "700" },
+  skipSummary: { color: "#64748b", fontSize: 13, fontWeight: "700" },
   loserColumns: { flexDirection: "row", gap: 10 },
   loserColumn: { flex: 1, minHeight: 170, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: 2, padding: 10, gap: 8 },
   loserColumnDelete: { borderColor: "#ef4444" },
-  loserColumnTrim: { borderColor: "#fb923c" },
+  loserColumnTrim: { borderColor: "#4f7892" },
   loserColumnSkip: { borderColor: "#cbd5e1", minHeight: 112 },
   loserThumbGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   loserThumb: { width: 56, height: 66, overflow: "hidden", borderRadius: 12, backgroundColor: "#111827" },
   loserThumbImage: { width: "100%", height: "100%" },
-  trimmedLoserBadge: { position: "absolute", top: 3, left: 3, right: 3, overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(34, 197, 94, 0.92)", color: "#ffffff", paddingHorizontal: 4, paddingVertical: 2, fontSize: 7, fontWeight: "900", textAlign: "center", textTransform: "uppercase" },
-  loserThumbText: { position: "absolute", left: 3, right: 3, bottom: 3, overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(15,23,42,0.72)", color: "#ffffff", fontSize: 8, fontWeight: "900", textAlign: "center" },
+  trimmedLoserBadge: { position: "absolute", top: 3, left: 3, right: 3, overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(34, 197, 94, 0.92)", color: "#ffffff", paddingHorizontal: 4, paddingVertical: 2, fontSize: 7, fontWeight: "700", textAlign: "center", textTransform: "uppercase" },
+  loserThumbText: { position: "absolute", left: 3, right: 3, bottom: 3, overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(15,23,42,0.72)", color: "#ffffff", fontSize: 8, fontWeight: "700", textAlign: "center" },
 
   // Storage budget
   budgetShell: { flex: 1 },
   budgetContentWithFloating: { paddingTop: 118 },
-  floatingBudget: { position: "absolute", top: 22, left: 20, right: 20, zIndex: 10, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.96)", borderWidth: 1, borderColor: "#fed7aa", padding: 12, shadowColor: "#fb923c", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.16, shadowRadius: 16, elevation: 5 },
-  floatingBudgetLabel: { color: "#f97316", fontSize: 10, fontWeight: "900", letterSpacing: 1.2, textTransform: "uppercase" },
-  floatingBudgetValue: { marginTop: 2, color: "#1f2937", fontSize: 18, fontWeight: "900" },
+  floatingBudget: { position: "absolute", top: 22, left: 20, right: 20, zIndex: 10, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.96)", borderWidth: 1, borderColor: "#cbd8e0", padding: 12, shadowColor: "#4f7892", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.16, shadowRadius: 16, elevation: 5 },
+  floatingBudgetLabel: { color: "#315f7d", fontSize: 10, fontWeight: "700", letterSpacing: 1.2, textTransform: "uppercase" },
+  floatingBudgetValue: { marginTop: 2, color: "#1f2937", fontSize: 18, fontWeight: "700" },
   floatingBudgetOver: { color: "#dc2626" },
-  floatingBudgetTrack: { marginTop: 7, height: 7, overflow: "hidden", borderRadius: 999, backgroundColor: "#ffedd5" },
+  floatingBudgetTrack: { marginTop: 7, height: 7, overflow: "hidden", borderRadius: 999, backgroundColor: "#e5ebef" },
   floatingBudgetFill: { height: "100%", borderRadius: 999 },
   budgetGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  budgetTile: { width: "31.8%", aspectRatio: 1, overflow: "hidden", borderRadius: 16, backgroundColor: "#ffffff", borderWidth: 2, borderColor: "#fed7aa", opacity: 0.72 },
+  budgetTile: { width: "31.8%", aspectRatio: 1, overflow: "hidden", borderRadius: 16, backgroundColor: "#ffffff", borderWidth: 2, borderColor: "#cbd8e0", opacity: 0.72 },
   budgetTileKept: { borderColor: "#22c55e", opacity: 1 },
   budgetImage: { width: "100%", height: "100%" },
-  budgetStatus: { position: "absolute", top: 6, left: 6, overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(254, 226, 226, 0.92)", color: "#b91c1c", paddingHorizontal: 7, paddingVertical: 3, fontSize: 10, fontWeight: "900" },
+  budgetStatus: { position: "absolute", top: 6, left: 6, overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(254, 226, 226, 0.92)", color: "#b91c1c", paddingHorizontal: 7, paddingVertical: 3, fontSize: 10, fontWeight: "700" },
   budgetStatusKept: { backgroundColor: "rgba(220, 252, 231, 0.92)", color: "#15803d" },
-  trimmedTileBadge: { position: "absolute", top: 6, right: 6, maxWidth: "58%", overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(34, 197, 94, 0.92)", color: "#ffffff", paddingHorizontal: 6, paddingVertical: 3, fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
-  budgetSize: { position: "absolute", left: 6, right: 6, bottom: 6, color: "#ffffff", fontSize: 11, fontWeight: "900" },
-  budgetDecisionCard: { gap: 14, borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16 },
-  budgetDecisionTitle: { color: "#1f2937", fontSize: 21, fontWeight: "900" },
+  trimmedTileBadge: { position: "absolute", top: 6, right: 6, maxWidth: "58%", overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(34, 197, 94, 0.92)", color: "#ffffff", paddingHorizontal: 6, paddingVertical: 3, fontSize: 8, fontWeight: "700", textTransform: "uppercase" },
+  budgetSize: { position: "absolute", left: 6, right: 6, bottom: 6, color: "#ffffff", fontSize: 11, fontWeight: "700" },
+  budgetDecisionCard: { gap: 14, borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 16 },
+  budgetDecisionTitle: { color: "#1f2937", fontSize: 21, fontWeight: "700" },
   budgetChoiceRow: { gap: 10 },
-  budgetChoice: { borderRadius: 18, borderWidth: 1, borderColor: "#fed7aa", backgroundColor: "#fff7ed", padding: 14 },
-  budgetChoiceSelected: { borderColor: "#f97316", backgroundColor: "#ffedd5" },
-  budgetChoiceTitle: { color: "#1f2937", fontSize: 15, fontWeight: "900" },
-  budgetChoiceTitleSelected: { color: "#c2410c" },
+  budgetChoice: { borderRadius: 18, borderWidth: 1, borderColor: "#cbd8e0", backgroundColor: "#f3f6f8", padding: 14 },
+  budgetChoiceSelected: { borderColor: "#315f7d", backgroundColor: "#e5ebef" },
+  budgetChoiceTitle: { color: "#1f2937", fontSize: 15, fontWeight: "700" },
+  budgetChoiceTitleSelected: { color: "#315f7d" },
   budgetChoiceDetail: { marginTop: 3, color: "#64748b", fontSize: 12, fontWeight: "700" },
   budgetDecisionActions: { gap: 10 },
   beforeAfterRow: { flexDirection: "row", gap: 10, marginTop: 14 },
-  beforeAfterCard: { flex: 1, borderRadius: 16, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 12 },
-  beforeAfterLabel: { color: "#64748b", fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
-  beforeAfterValueRed: { marginTop: 5, color: "#dc2626", fontSize: 15, fontWeight: "900" },
-  beforeAfterValueGreen: { marginTop: 5, color: "#15803d", fontSize: 15, fontWeight: "900" },
+  beforeAfterCard: { flex: 1, borderRadius: 16, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 12 },
+  beforeAfterLabel: { color: "#64748b", fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
+  beforeAfterValueRed: { marginTop: 5, color: "#dc2626", fontSize: 15, fontWeight: "700" },
+  beforeAfterValueGreen: { marginTop: 5, color: "#15803d", fontSize: 15, fontWeight: "700" },
 
   fullPhotoOverlay: { flex: 1, backgroundColor: "rgba(15, 23, 42, 0.96)", alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
   fullPhotoClose: { position: "absolute", top: 54, right: 22, zIndex: 2, width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.14)" },
   fullPhotoImage: { width: "100%", height: "78%" },
   fullPhotoCaption: { position: "absolute", left: 20, right: 20, bottom: 38, borderRadius: 18, backgroundColor: "rgba(15, 23, 42, 0.72)", padding: 14 },
-  fullPhotoTitle: { color: "#ffffff", fontSize: 16, fontWeight: "900" },
-  fullPhotoTrimmed: { alignSelf: "flex-start", marginTop: 7, overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(34, 197, 94, 0.92)", color: "#ffffff", paddingHorizontal: 8, paddingVertical: 4, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
+  fullPhotoTitle: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
+  fullPhotoTrimmed: { alignSelf: "flex-start", marginTop: 7, overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(34, 197, 94, 0.92)", color: "#ffffff", paddingHorizontal: 8, paddingVertical: 4, fontSize: 10, fontWeight: "700", textTransform: "uppercase" },
   fullPhotoMeta: { marginTop: 3, color: "#cbd5e1", fontSize: 12, fontWeight: "700" },
 
   // Memory Lane
   memoryCard: { height: 420, overflow: "hidden", borderRadius: 24, backgroundColor: "#ffffff" },
   memoryImage: { width: "100%", height: "100%" },
   memorySummaryList: { gap: 10 },
-  memorySummaryItem: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 16, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", paddingHorizontal: 14, paddingVertical: 12 },
+  memorySummaryItem: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 16, backgroundColor: "#f3f6f8", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", paddingHorizontal: 14, paddingVertical: 12 },
   memorySummaryBullet: { width: 8, height: 8, borderRadius: 4 },
-  memorySummaryText: { flex: 1, color: "#1f2937", fontSize: 16, fontWeight: "900" },
-  memorySummaryValue: { fontSize: 18, fontWeight: "900" },
+  memorySummaryText: { flex: 1, color: "#1f2937", fontSize: 16, fontWeight: "700" },
+  memorySummaryValue: { fontSize: 18, fontWeight: "700" },
   yearGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  yearButton: { minWidth: "47%", flexGrow: 1, alignItems: "center", borderRadius: 18, backgroundColor: "#ffedd5", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", paddingVertical: 16 },
-  yearButtonText: { color: "#9a3412", fontSize: 22, fontWeight: "900" },
+  yearButton: { minWidth: "47%", flexGrow: 1, alignItems: "center", borderRadius: 18, backgroundColor: "#e5ebef", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", paddingVertical: 16 },
+  yearButtonText: { color: "#274b61", fontSize: 22, fontWeight: "700" },
 
   // Onboarding
   onboardingContent: { justifyContent: "center", gap: 14 },
   onboardingSteps: { gap: 10 },
-  onboardingStep: { borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16, gap: 6 },
+  onboardingStep: { borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 16, gap: 6 },
 
   // Scan
-  scanPanel: { borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 18, gap: 16 },
+  scanPanel: { borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 18, gap: 16 },
   scanHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 16 },
-  scanTotal: { marginTop: 3, color: "#1f2937", fontSize: 34, fontWeight: "900" },
-  scanCapacity: { flexShrink: 1, color: "#9a3412", fontSize: 12, fontWeight: "800", lineHeight: 18, textAlign: "right" },
+  scanTotal: { marginTop: 3, color: "#1f2937", fontSize: 34, fontWeight: "700" },
+  scanCapacity: { flexShrink: 1, color: "#274b61", fontSize: 12, fontWeight: "800", lineHeight: 18, textAlign: "right" },
   scanMetricGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  scanMetric: { minWidth: "47%", flexGrow: 1, borderRadius: 16, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 13 },
-  scanMetricValue: { color: "#1f2937", fontSize: 20, fontWeight: "900" },
+  scanMetric: { minWidth: "47%", flexGrow: 1, borderRadius: 16, backgroundColor: "#f3f6f8", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 13 },
+  scanMetricValue: { color: "#1f2937", fontSize: 20, fontWeight: "700" },
   storageBars: { gap: 13 },
   storageBarBlock: { gap: 7 },
-  storageTrack: { height: 13, overflow: "hidden", borderRadius: 999, backgroundColor: "#ffedd5" },
+  storageTrack: { height: 13, overflow: "hidden", borderRadius: 999, backgroundColor: "#e5ebef" },
   storageFill: { minWidth: 4, height: "100%", borderRadius: 999 },
-  storageFillNow: { backgroundColor: "#fb923c" },
+  storageFillNow: { backgroundColor: "#4f7892" },
   storageFillTrim: { backgroundColor: "#22c55e" },
   storageFillDelete: { backgroundColor: "#ef4444" },
   scanFootnote: { color: "#64748b", fontSize: 12, lineHeight: 18 },
 
   // Pro reports and automation
-  reportIcon: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa" },
+  reportIcon: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: "#f3f6f8", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0" },
   reportButtonRow: { flexDirection: "row", gap: 10 },
-  reportButton: { flex: 1, minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 16, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", paddingHorizontal: 12 },
-  reportButtonActive: { backgroundColor: "#fb923c", borderColor: "#fb923c" },
-  reportButtonText: { color: "#c2410c", fontSize: 13, fontWeight: "900" },
+  reportButton: { flex: 1, minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 16, backgroundColor: "#f3f6f8", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", paddingHorizontal: 12 },
+  reportButtonActive: { backgroundColor: "#4f7892", borderColor: "#4f7892" },
+  reportButtonText: { color: "#315f7d", fontSize: 13, fontWeight: "700" },
   reportButtonTextActive: { color: "#ffffff" },
   reportModalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(15, 23, 42, 0.38)" },
-  reportModalSheet: { maxHeight: "92%", borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: "#fff7ed", padding: 16, paddingBottom: 28, gap: 12 },
-  reportDashboardCard: { borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 18, gap: 16 },
-  reportModalTitle: { color: "#1f2937", fontSize: 25, fontWeight: "900" },
+  reportModalSheet: { maxHeight: "92%", borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: "#f3f6f8", padding: 16, paddingBottom: 28, gap: 12 },
+  reportDashboardCard: { borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 18, gap: 16 },
+  reportModalTitle: { color: "#1f2937", fontSize: 25, fontWeight: "700" },
   reportBeforeAfterRow: { flexDirection: "row", gap: 10 },
-  reportBeforeAfterCard: { flex: 1, borderRadius: 18, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 14, gap: 4 },
-  reportBeforeAfterValue: { color: "#1f2937", fontSize: 20, fontWeight: "900" },
+  reportBeforeAfterCard: { flex: 1, borderRadius: 18, backgroundColor: "#f3f6f8", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 14, gap: 4 },
+  reportBeforeAfterValue: { color: "#1f2937", fontSize: 20, fontWeight: "700" },
   reportProgressPanel: { borderRadius: 20, backgroundColor: "#f0fdf4", borderWidth: StyleSheet.hairlineWidth, borderColor: "#bbf7d0", padding: 16, gap: 8 },
-  reportProgressValue: { color: "#16a34a", fontSize: 36, fontWeight: "900" },
+  reportProgressValue: { color: "#16a34a", fontSize: 36, fontWeight: "700" },
   reportStackedTrack: { height: 12, flexDirection: "row", overflow: "hidden", borderRadius: 999, backgroundColor: "#dcfce7" },
-  reportStackedTrim: { height: "100%", backgroundColor: "#fb923c" },
+  reportStackedTrim: { height: "100%", backgroundColor: "#4f7892" },
   reportStackedDelete: { height: "100%", backgroundColor: "#ef4444" },
   reportLegendRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
-  reportLegendTrim: { color: "#c2410c", fontSize: 11, fontWeight: "900" },
-  reportLegendDelete: { color: "#b91c1c", fontSize: 11, fontWeight: "900" },
+  reportLegendTrim: { color: "#315f7d", fontSize: 11, fontWeight: "700" },
+  reportLegendDelete: { color: "#b91c1c", fontSize: 11, fontWeight: "700" },
   reportModalActions: { gap: 10 },
-  automationCard: { borderRadius: 20, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16, gap: 14 },
+  automationCard: { borderRadius: 20, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 16, gap: 14 },
   automationTitleBlock: { flex: 1, gap: 2 },
   dayToggleRow: { flexDirection: "row", gap: 7 },
-  dayToggle: { flex: 1, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa" },
-  dayToggleActive: { backgroundColor: "#fb923c", borderColor: "#fb923c" },
-  dayToggleText: { color: "#9a3412", fontSize: 12, fontWeight: "900" },
+  dayToggle: { flex: 1, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: "#f3f6f8", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0" },
+  dayToggleActive: { backgroundColor: "#4f7892", borderColor: "#4f7892" },
+  dayToggleText: { color: "#274b61", fontSize: 12, fontWeight: "700" },
   dayToggleTextActive: { color: "#ffffff" },
   automationTimes: { gap: 8 },
   automationTimeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  timeAdjustButton: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: "#ffedd5" },
-  timeValue: { flex: 1, textAlign: "center", color: "#1f2937", fontSize: 18, fontWeight: "900" },
-  timeRemoveButton: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa" },
-  addTimeButton: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 14, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa" },
-  addTimeText: { color: "#c2410c", fontSize: 13, fontWeight: "900" },
-  automationTargetRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14, borderRadius: 16, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 13 },
+  timeAdjustButton: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: "#e5ebef" },
+  timeValue: { flex: 1, textAlign: "center", color: "#1f2937", fontSize: 18, fontWeight: "700" },
+  timeRemoveButton: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: "#f3f6f8", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0" },
+  addTimeButton: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 14, backgroundColor: "#f3f6f8", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0" },
+  addTimeText: { color: "#315f7d", fontSize: 13, fontWeight: "700" },
+  automationTargetRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14, borderRadius: 16, backgroundColor: "#f3f6f8", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 13 },
 
   // Level progress
   levelRow: { flexDirection: "row", alignItems: "center", gap: 14 },
   levelCopy: { minWidth: 92 },
-  levelTitle: { color: "#1f2937", fontSize: 18, fontWeight: "900" },
+  levelTitle: { color: "#1f2937", fontSize: 18, fontWeight: "700" },
   levelProgress: { flex: 1, gap: 7 },
 
   // Settings
-  settingCard: { marginTop: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14 },
-  settingsHero: { borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 18, gap: 8 },
+  settingCard: { marginTop: 12, borderRadius: 20, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, padding: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14 },
+  settingsHero: { borderRadius: 26, backgroundColor: colors.primary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.primary, padding: 20, gap: 8 },
+  settingsEyebrow: { color: colors.primaryGlow, fontSize: 11, fontWeight: "800", letterSpacing: 1.6, textTransform: "uppercase" },
+  settingsHeroTitle: { color: colors.white, fontSize: 29, fontWeight: "800", letterSpacing: -0.5 },
+  settingsHeroCopy: { color: "#dce8e4", fontSize: 13, lineHeight: 19, fontWeight: "600" },
   settingsReloadWrap: { marginTop: 24 },
-  restorePurchaseCard: { marginTop: 12, flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16 },
-  restorePurchaseIcon: { width: 38, height: 38, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#fff7ed" },
+  accountCard: { marginTop: 12, borderRadius: 24, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, padding: 18, gap: 14, shadowColor: colors.ink, shadowOpacity: 0.07, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 2 },
+  accountHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  accountIcon: { width: 46, height: 46, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: colors.primarySoft },
+  accountIconSignedOut: { backgroundColor: colors.cardSoft },
+  accountCopy: { flex: 1, gap: 3 },
+  accountStatus: { color: colors.text, fontSize: 15, fontWeight: "800" },
+  accountStatusDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.textSubtle },
+  accountStatusDotActive: { backgroundColor: colors.sage },
+  accountActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  accountSecondaryButton: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.cardSoft, paddingHorizontal: 12 },
+  accountSecondaryText: { color: colors.primary, fontSize: 12, fontWeight: "800" },
+  accountSignOutButton: { minHeight: 42, alignItems: "center", justifyContent: "center", borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.danger, backgroundColor: colors.dangerSoft, paddingHorizontal: 14 },
+  accountSignOutText: { color: colors.danger, fontSize: 12, fontWeight: "800" },
+  accountSignInButton: { minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, borderRadius: 16, backgroundColor: colors.primary, paddingHorizontal: 16 },
+  accountSignInText: { color: colors.white, fontSize: 14, fontWeight: "800" },
+  restorePurchaseCard: { marginTop: 12, flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 16 },
+  restorePurchaseIcon: { width: 38, height: 38, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#f3f6f8" },
   restorePurchaseCopy: { flex: 1, gap: 3 },
-  restorePurchaseAction: { color: "#f97316", fontSize: 13, fontWeight: "900" },
+  restorePurchaseAction: { color: "#315f7d", fontSize: 13, fontWeight: "700" },
   booleanCopy: { flex: 1, gap: 4 },
-  toggleTrack: { width: 54, height: 32, justifyContent: "center", borderRadius: 999, backgroundColor: "#fed7aa", padding: 4 },
-  toggleTrackActive: { backgroundColor: "#fb923c" },
-  toggleKnob: { width: 24, height: 24, borderRadius: 999, backgroundColor: "#fff7ed" },
+  toggleTrack: { width: 54, height: 32, justifyContent: "center", borderRadius: 999, backgroundColor: "#cbd8e0", padding: 4 },
+  toggleTrackActive: { backgroundColor: "#4f7892" },
+  toggleKnob: { width: 24, height: 24, borderRadius: 999, backgroundColor: "#f3f6f8" },
   toggleKnobActive: { transform: [{ translateX: 22 }], backgroundColor: "#ffffff" },
-  settingCardVertical: { marginTop: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16, gap: 12 },
+  settingCardVertical: { marginTop: 12, borderRadius: 20, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, padding: 16, gap: 12 },
   trimKindCompact: { width: "100%", marginTop: 0 },
   trimKindGrid: { gap: 8 },
-  trimKindOption: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 15, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 12 },
-  trimKindOptionActive: { backgroundColor: "#ffedd5", borderColor: "#fb923c" },
+  trimKindOption: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 15, backgroundColor: "#f3f6f8", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 12 },
+  trimKindOptionActive: { backgroundColor: "#e5ebef", borderColor: "#4f7892" },
   trimKindOptionLocked: { opacity: 0.62 },
-  trimKindLabel: { color: "#334155", fontSize: 13, fontWeight: "900" },
-  trimKindLabelActive: { color: "#c2410c" },
-  proPill: { overflow: "hidden", borderRadius: 999, backgroundColor: "#1f2937", color: "#ffffff", paddingHorizontal: 10, paddingVertical: 5, fontSize: 11, fontWeight: "900" },
-  dropdownButton: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 16, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 14, gap: 12 },
-  dropdownTitle: { color: "#1f2937", fontSize: 17, fontWeight: "900" },
-  dropdownChevron: { color: "#c2410c", fontSize: 14, fontWeight: "900" },
+  trimKindLabel: { color: "#334155", fontSize: 13, fontWeight: "700" },
+  trimKindLabelActive: { color: "#315f7d" },
+  proPill: { overflow: "hidden", borderRadius: 999, backgroundColor: "#1f2937", color: "#ffffff", paddingHorizontal: 10, paddingVertical: 5, fontSize: 11, fontWeight: "700" },
+  dropdownButton: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 16, backgroundColor: "#f3f6f8", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 14, gap: 12 },
+  dropdownTitle: { color: "#1f2937", fontSize: 17, fontWeight: "700" },
+  dropdownChevron: { color: "#315f7d", fontSize: 14, fontWeight: "700" },
   dropdownList: { gap: 7 },
-  dropdownOption: { borderRadius: 14, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 12, gap: 3 },
-  dropdownOptionActive: { backgroundColor: "#ffedd5", borderColor: "#fb923c" },
-  dropdownOptionTitle: { color: "#1f2937", fontSize: 14, fontWeight: "900" },
-  dropdownOptionTitleActive: { color: "#9a3412" },
+  dropdownOption: { borderRadius: 14, backgroundColor: "#f3f6f8", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 12, gap: 3 },
+  dropdownOptionActive: { backgroundColor: "#e5ebef", borderColor: "#4f7892" },
+  dropdownOptionTitle: { color: "#1f2937", fontSize: 14, fontWeight: "700" },
+  dropdownOptionTitleActive: { color: "#274b61" },
   radioRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  radioOuter: { width: 20, height: 20, alignItems: "center", justifyContent: "center", borderRadius: 10, borderWidth: 2, borderColor: "#fed7aa", backgroundColor: "#ffffff" },
-  radioOuterActive: { borderColor: "#f97316" },
-  radioInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#f97316" },
-  qualityPreview: { marginTop: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", padding: 16, gap: 12 },
+  radioOuter: { width: 20, height: 20, alignItems: "center", justifyContent: "center", borderRadius: 10, borderWidth: 2, borderColor: "#cbd8e0", backgroundColor: "#ffffff" },
+  radioOuterActive: { borderColor: "#315f7d" },
+  radioInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#315f7d" },
+  qualityPreview: { marginTop: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 16, gap: 12 },
   qualityThumbButton: { borderRadius: 14, overflow: "hidden" },
   qualityThumb: { width: 58, height: 58, borderRadius: 14 },
   qualityRow: { gap: 6 },
-  qualityLabel: { color: "#1f2937", fontSize: 13, fontWeight: "900" },
+  qualityLabel: { color: "#1f2937", fontSize: 13, fontWeight: "700" },
   qualityTrack: { height: 8, overflow: "hidden", borderRadius: 999, backgroundColor: "#f1f5f9" },
   qualityFill: { height: "100%", borderRadius: 999 },
   qualityModalOverlay: { flex: 1, backgroundColor: "rgba(15, 23, 42, 0.96)", paddingHorizontal: 12, paddingTop: 84, paddingBottom: 34 },
@@ -5972,36 +6044,36 @@ const styles = StyleSheet.create({
   qualityModalImage: { width: "100%", height: "68%" },
   qualityCompareStrip: { flexDirection: "row", gap: 8 },
   qualityCompareItem: { flex: 1, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.12)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)", padding: 8, gap: 6 },
-  qualityCompareItemActive: { borderColor: "#fb923c", backgroundColor: "rgba(251, 146, 60, 0.16)" },
+  qualityCompareItemActive: { borderColor: "#4f7892", backgroundColor: "rgba(79, 120, 146, 0.16)" },
   qualityCompareThumb: { width: "100%", height: 76, borderRadius: 12, backgroundColor: "#111827" },
-  qualityCompareLabel: { color: "#ffffff", fontSize: 13, fontWeight: "900" },
+  qualityCompareLabel: { color: "#ffffff", fontSize: 13, fontWeight: "700" },
   qualityCompareSize: { color: "#cbd5e1", fontSize: 11, fontWeight: "800" },
-  settingLabel: { color: "#9a3412", fontSize: 13, fontWeight: "700" },
-  settingValue: { marginTop: 4, color: "#1f2937", fontSize: 20, fontWeight: "900" },
+  settingLabel: { color: colors.primary, fontSize: 13, fontWeight: "700" },
+  settingValue: { marginTop: 4, color: colors.text, fontSize: 20, fontWeight: "700" },
   stepper: { flexDirection: "row", gap: 8 },
-  stepperButton: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: "#ffedd5" },
-  stepperText: { color: "#c2410c", fontSize: 22, fontWeight: "900" },
+  stepperButton: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: "#e5ebef" },
+  stepperText: { color: "#315f7d", fontSize: 22, fontWeight: "700" },
   segmented: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  segment: { flex: 1, minWidth: "30%", alignItems: "center", borderRadius: 14, backgroundColor: "#fff7ed", borderWidth: StyleSheet.hairlineWidth, borderColor: "#fed7aa", paddingVertical: 10, paddingHorizontal: 8 },
-  segmentActive: { backgroundColor: "#fb923c", borderColor: "#fb923c" },
-  segmentText: { color: "#9a3412", fontSize: 12, fontWeight: "800" },
+  segment: { flex: 1, minWidth: "30%", alignItems: "center", borderRadius: 14, backgroundColor: "#f3f6f8", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", paddingVertical: 10, paddingHorizontal: 8 },
+  segmentActive: { backgroundColor: "#4f7892", borderColor: "#4f7892" },
+  segmentText: { color: "#274b61", fontSize: 12, fontWeight: "800" },
   segmentTextActive: { color: "#ffffff" },
 
   // Buttons
-  primaryButton: { width: "100%", alignItems: "center", borderRadius: 18, backgroundColor: "#f97316", paddingVertical: 15, paddingHorizontal: 18 },
+  primaryButton: { width: "100%", alignItems: "center", borderRadius: 18, backgroundColor: colors.primary, paddingVertical: 15, paddingHorizontal: 18 },
   primaryButtonPressed: { transform: [{ scale: 0.985 }], opacity: 0.86 },
-  primaryButtonDisabled: { backgroundColor: "#fdba74", opacity: 0.72 },
+  primaryButtonDisabled: { backgroundColor: "#a7bdca", opacity: 0.72 },
   dangerButton: { backgroundColor: "#dc2626" },
-  primaryButtonText: { color: "#ffffff", fontSize: 15, fontWeight: "900" },
-  secondaryButton: { width: "100%", alignItems: "center", borderRadius: 18, borderWidth: 1, borderColor: "#fed7aa", backgroundColor: "#ffffff", paddingVertical: 14, paddingHorizontal: 18 },
+  primaryButtonText: { color: "#ffffff", fontSize: 15, fontWeight: "700" },
+  secondaryButton: { width: "100%", alignItems: "center", borderRadius: 18, borderWidth: 1, borderColor: "#cbd8e0", backgroundColor: "#ffffff", paddingVertical: 14, paddingHorizontal: 18 },
   secondaryButtonDisabled: { opacity: 0.55 },
-  secondaryButtonText: { color: "#c2410c", fontSize: 14, fontWeight: "800" },
+  secondaryButtonText: { color: "#315f7d", fontSize: 14, fontWeight: "800" },
   secondaryButtonTextDisabled: { color: "#9ca3af" },
 
   // Nav
-  bottomNav: { position: "absolute", left: 14, right: 14, bottom: 14, flexDirection: "row", gap: 8, borderRadius: 30, backgroundColor: "rgba(255, 255, 255, 0.98)", borderWidth: 1, borderColor: "#f59e0b", padding: 8, shadowColor: "#fb923c", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 22, elevation: 8 },
+  bottomNav: { position: "absolute", left: 14, right: 14, bottom: 14, flexDirection: "row", gap: 8, borderRadius: 30, backgroundColor: "rgba(255, 253, 248, 0.98)", borderWidth: 1, borderColor: colors.border, padding: 8, shadowColor: colors.ink, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.16, shadowRadius: 22, elevation: 8 },
   navButton: { flex: 1, alignItems: "center", borderRadius: 16, paddingVertical: 11 },
-  navButtonActive: { backgroundColor: "#fb923c" },
-  navText: { color: "#9a3412", fontSize: 12, fontWeight: "900" },
+  navButtonActive: { backgroundColor: colors.primary },
+  navText: { color: colors.primary, fontSize: 12, fontWeight: "700" },
   navTextActive: { color: "#ffffff" },
 });

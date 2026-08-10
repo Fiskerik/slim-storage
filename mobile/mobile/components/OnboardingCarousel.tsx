@@ -252,8 +252,8 @@ const styles = StyleSheet.create({
     ...shadow.soft,
   },
   miniIcon: { width: 54, height: 54, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  miniLabel: { fontSize: 14, fontWeight: "900" },
-  bigGB: { fontSize: 30, fontWeight: "900", color: colors.sageDeep },
+  miniLabel: { fontSize: 14, fontWeight: "700" },
+  bigGB: { fontSize: 30, fontWeight: "700", color: colors.sageDeep },
   bigGBLabel: { fontSize: 11, fontWeight: "800", color: colors.textMuted, letterSpacing: 1.2 },
   bottomBar: {
     paddingHorizontal: spacing.xl,
@@ -281,5 +281,5 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     ...shadow.press,
   },
-  nextText: { color: colors.white, fontWeight: "900", letterSpacing: 0.3 },
+  nextText: { color: colors.white, fontWeight: "700", letterSpacing: 0.3 },
 });

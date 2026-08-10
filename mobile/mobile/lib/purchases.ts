@@ -12,6 +12,7 @@ import Purchases, {
   type PurchasesStoreProduct,
 } from "react-native-purchases";
 import { addTokens, TOKEN_PACKS } from "./tokens";
+import { loadAccountSession, setAccountSignedIn } from "./account-session";
 
 const REVENUECAT_API_KEY = process.env.EXPO_PUBLIC_RC_KEY ?? "";
 export const LIFETIME_PRODUCT_ID =
@@ -779,6 +780,8 @@ export type ShopProduct = {
 
 export async function checkProStatus(): Promise<boolean> {
   if (FORCE_PRO_FOR_TESTING) return true;
+  const session = await loadAccountSession();
+  if (!session.signedIn) return false;
   const ok = await initializePurchases();
   if (!ok) return false;
   try {
@@ -797,6 +800,10 @@ export async function getPurchaseAccessStatus(): Promise<{
 }> {
   if (FORCE_PRO_FOR_TESTING) {
     return { isPro: true, hasUnlimitedTrims: true, activeProductId: LIFETIME_PRODUCT_ID };
+  }
+  const session = await loadAccountSession();
+  if (!session.signedIn) {
+    return { isPro: false, hasUnlimitedTrims: false, activeProductId: null };
   }
   const ok = await initializePurchases();
   if (!ok) return { isPro: false, hasUnlimitedTrims: false, activeProductId: null };
@@ -873,6 +880,7 @@ export async function purchaseLifetime(): Promise<{
   }
 
   const result = await purchase(LIFETIME_PRODUCT_ID);
+  if (result.success && result.isPro) await setAccountSignedIn(true);
   return {
     success: result.success === true,
     isPro: result.isPro === true,
@@ -914,6 +922,7 @@ export async function purchaseSubscription(productId: string): Promise<{
   }
 
   const result = await purchase(productId);
+  if (result.success && result.isPro) await setAccountSignedIn(true);
   return {
     success: result.success === true,
     isPro: result.isPro === true,
@@ -928,6 +937,7 @@ export async function restorePurchasesPublic(): Promise<boolean> {
   const ok = await initializePurchases();
   if (!ok) return false;
   const result = await restore();
+  await setAccountSignedIn(true);
   return result.isPro === true;
 }
 

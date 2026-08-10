@@ -383,17 +383,17 @@ const styles = StyleSheet.create({
   },
   presetActive: {
     borderColor: colors.primary,
-    backgroundColor: "#fff1e3",
+    backgroundColor: "#eaf0f4",
   },
   presetIcon: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   presetLabel: { fontSize: 14, fontWeight: "800", color: colors.text },
   presetHint: { fontSize: 11, color: colors.textMuted, marginTop: 2, fontWeight: "600" },
-  presetSave: { fontSize: 13, fontWeight: "900", color: colors.primary },
+  presetSave: { fontSize: 13, fontWeight: "700", color: colors.primary },
 
   meterCard: { marginTop: spacing.lg },
   meterRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   meterLabel: { fontSize: 12, fontWeight: "700", color: colors.textMuted, flex: 1 },
-  meterValue: { fontSize: 13, fontWeight: "900", color: colors.primary },
+  meterValue: { fontSize: 13, fontWeight: "700", color: colors.primary },
   meterTrack: {
     marginTop: spacing.sm,
     height: 6,
@@ -441,7 +441,7 @@ const styles = StyleSheet.create({
     ...shadow.press,
   },
   primaryDisabled: { backgroundColor: colors.textSubtle, shadowOpacity: 0 },
-  primaryText: { color: colors.white, fontWeight: "900", fontSize: 14, letterSpacing: 0.3, textAlign: "center" },
+  primaryText: { color: colors.white, fontWeight: "700", fontSize: 14, letterSpacing: 0.3, textAlign: "center" },
 
   retryBtn: {
     marginTop: spacing.md,

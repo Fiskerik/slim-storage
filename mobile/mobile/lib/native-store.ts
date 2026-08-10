@@ -47,6 +47,7 @@ export type NativeSettings = {
   trimOutputMode: NativeTrimOutputMode;
   trimKinds: NativeTrimKind[];
   trimReviewMode: NativeTrimReviewMode;
+  includePreviouslyReviewed: boolean;
   dailyGoalMB: number;
   largeText: boolean;
   highContrast: boolean;
@@ -123,6 +124,7 @@ export const DEFAULT_NATIVE_SETTINGS: NativeSettings = {
   trimOutputMode: "replace",
   trimKinds: ["metadata", "location", "compression"],
   trimReviewMode: "normal",
+  includePreviouslyReviewed: false,
   dailyGoalMB: 50,
   largeText: false,
   highContrast: false,
@@ -355,6 +357,7 @@ function normalizeStats(value: unknown): NativeStats {
       trimOutputMode: normalizeTrimOutputMode(rawSettings.trimOutputMode),
       trimKinds: normalizeTrimKinds(rawSettings.trimKinds),
       trimReviewMode: normalizeTrimReviewMode(rawSettings.trimReviewMode),
+      includePreviouslyReviewed: Boolean(rawSettings.includePreviouslyReviewed),
       dailyGoalMB: Math.min(1000, Math.max(5, safeNumber(rawSettings.dailyGoalMB, DEFAULT_NATIVE_SETTINGS.dailyGoalMB))),
       largeText: Boolean(rawSettings.largeText),
       highContrast: Boolean(rawSettings.highContrast),
