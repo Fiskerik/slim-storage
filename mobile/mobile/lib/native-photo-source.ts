@@ -55,11 +55,20 @@ export type NativeLibraryScanProgress = {
   total?: number;
 };
 
+export type NativePhotoStorageBreakdown = {
+  screenshotsMB: number;
+  livePhotosMB: number;
+  similarPhotosMB: number;
+  otherPhotosMB: number;
+};
+
 export type NativeLibraryScan = {
   assetCount: number;
   localAssetCount: number;
   unknownSizeCount: number;
   totalSizeMB: number;
+  localSizeMB: number;
+  storageByType: NativePhotoStorageBreakdown;
   deviceCapacityMB: number | null;
   freeSpaceMB: number | null;
   trimSavingsMB: number;
@@ -1128,6 +1137,19 @@ export async function scanPhotoLibrary(
   });
 
   const totalSizeMB = summaries.reduce((sum, item) => sum + item.sizeMB, 0);
+  const localSizeMB = summaries
+    .filter((item) => item.measured)
+    .reduce((sum, item) => sum + item.sizeMB, 0);
+  const storageByType = summaries.reduce<NativePhotoStorageBreakdown>(
+    (breakdown, item) => {
+      if (item.screenshot) breakdown.screenshotsMB += item.sizeMB;
+      else if (item.live) breakdown.livePhotosMB += item.sizeMB;
+      else if (item.duplicate) breakdown.similarPhotosMB += item.sizeMB;
+      else breakdown.otherPhotosMB += item.sizeMB;
+      return breakdown;
+    },
+    { screenshotsMB: 0, livePhotosMB: 0, similarPhotosMB: 0, otherPhotosMB: 0 },
+  );
   const trimSavingsMB = summaries.reduce(
     (sum, item) => sum + estimateTrimSavings({ sizeMB: item.sizeMB, hasGPS: false }),
     0,
@@ -1154,6 +1176,13 @@ export async function scanPhotoLibrary(
     localAssetCount: summaries.filter((item) => item.measured).length,
     unknownSizeCount: summaries.filter((item) => !item.measured).length,
     totalSizeMB: +totalSizeMB.toFixed(2),
+    localSizeMB: +localSizeMB.toFixed(2),
+    storageByType: {
+      screenshotsMB: +storageByType.screenshotsMB.toFixed(2),
+      livePhotosMB: +storageByType.livePhotosMB.toFixed(2),
+      similarPhotosMB: +storageByType.similarPhotosMB.toFixed(2),
+      otherPhotosMB: +storageByType.otherPhotosMB.toFixed(2),
+    },
     deviceCapacityMB: storage.total,
     freeSpaceMB: storage.free,
     trimSavingsMB: +trimSavingsMB.toFixed(2),

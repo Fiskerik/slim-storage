@@ -18,6 +18,10 @@ import {
   ProgressRing,
   SectionHeader,
 } from "./ui/primitives";
+import {
+  StorageBreakdownBar,
+  type StorageBreakdownSegment,
+} from "./ui/StorageBreakdownBar";
 import type {
   NativeActionLogEntry,
   NativeDailyStats,
@@ -73,6 +77,8 @@ export function StatsDashboard({
   const removableMB = scan
     ? scan.screenshotSavingsMB + scan.mistakeDeleteSavingsMB + scan.duplicateDeleteSavingsMB
     : 0;
+  const deviceStorage = scan ? buildDeviceStorageSegments(scan) : null;
+  const photoStorage = scan ? buildPhotoStorageSegments(scan) : [];
 
   const topHogs = useMemo(
     () =>
@@ -154,6 +160,26 @@ export function StatsDashboard({
               <ScanMetric label="Photo size" value={formatMB(scan.totalSizeMB)} />
               <ScanMetric label="Trimmable" value={formatMB(scan.trimSavingsMB)} accent={colors.sage} />
               <ScanMetric label="Removable" value={formatMB(removableMB)} accent={colors.danger} />
+            </View>
+            <View style={styles.storageOverview}>
+              {deviceStorage ? (
+                <StorageBreakdownBar
+                  title="Device storage"
+                  totalLabel={`${formatMB(deviceStorage.capacityMB)} total`}
+                  segments={deviceStorage.segments}
+                  formatValue={formatMB}
+                />
+              ) : null}
+              <StorageBreakdownBar
+                title="Photo library by type"
+                totalLabel={`${formatMB(scan.totalSizeMB)} total`}
+                segments={photoStorage}
+                formatValue={formatMB}
+              />
+              <Text style={styles.storageNote}>
+                Device categories are limited to photo storage, other used space, and available
+                space by iOS.
+              </Text>
             </View>
             <View style={styles.scanBreakdown}>
               <ScanBreakdownRow
@@ -350,6 +376,52 @@ function ScanBreakdownRow({
       <Text style={styles.scanBreakdownValue}>{formatMB(value)}</Text>
     </View>
   );
+}
+
+function buildDeviceStorageSegments(scan: NativeLibraryScan): {
+  capacityMB: number;
+  segments: StorageBreakdownSegment[];
+} | null {
+  if (!scan.deviceCapacityMB || scan.deviceCapacityMB <= 0 || scan.freeSpaceMB == null) return null;
+
+  const capacityMB = scan.deviceCapacityMB;
+  const availableMB = Math.min(capacityMB, Math.max(0, scan.freeSpaceMB));
+  const usedMB = Math.max(0, capacityMB - availableMB);
+  const photosMB = Math.min(usedMB, Math.max(0, scan.localSizeMB));
+  const otherUsedMB = Math.max(0, usedMB - photosMB);
+
+  return {
+    capacityMB,
+    segments: [
+      { key: "photos", label: "Photos", valueMB: photosMB, color: colors.honey },
+      { key: "other-used", label: "Other used", valueMB: otherUsedMB, color: colors.primaryBright },
+      { key: "available", label: "Available", valueMB: availableMB, color: colors.cardSoft },
+    ],
+  };
+}
+
+function buildPhotoStorageSegments(scan: NativeLibraryScan): StorageBreakdownSegment[] {
+  return [
+    {
+      key: "screenshots",
+      label: "Screenshots",
+      valueMB: scan.storageByType.screenshotsMB,
+      color: colors.primaryBright,
+    },
+    { key: "live", label: "Live Photos", valueMB: scan.storageByType.livePhotosMB, color: colors.sage },
+    {
+      key: "similar",
+      label: "Similar",
+      valueMB: scan.storageByType.similarPhotosMB,
+      color: colors.honey,
+    },
+    {
+      key: "other",
+      label: "Other photos",
+      valueMB: scan.storageByType.otherPhotosMB,
+      color: colors.textSubtle,
+    },
+  ];
 }
 
 function SplitRow({
@@ -754,6 +826,13 @@ const styles = StyleSheet.create({
   },
   scanMetricLabel: { fontSize: 10, fontWeight: "700", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.8 },
   scanMetricValue: { marginTop: 5, fontSize: 17, fontWeight: "700" },
+  storageOverview: {
+    gap: spacing.lg,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.borderSoft,
+    paddingTop: spacing.lg,
+  },
+  storageNote: { fontSize: 10, lineHeight: 15, fontWeight: "600", color: colors.textSubtle },
   scanBreakdown: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.borderSoft,
