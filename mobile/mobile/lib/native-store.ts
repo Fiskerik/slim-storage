@@ -1,4 +1,5 @@
 import * as FileSystem from "expo-file-system/legacy";
+import type { NativeThemeId } from "../constants/themes";
 
 export type NativeTargetMode =
   | "big-only"
@@ -38,6 +39,7 @@ export type NativeBackgroundScanSchedule = {
 };
 
 export type NativeSettings = {
+  theme: NativeThemeId;
   cardsPerRound: number;
   targetMode: NativeTargetMode;
   sessionMode: NativeSessionMode;
@@ -115,6 +117,7 @@ const DEFAULT_BACKGROUND_SCAN_SCHEDULES: NativeBackgroundScanSchedule[] = [
 ];
 
 export const DEFAULT_NATIVE_SETTINGS: NativeSettings = {
+  theme: "soft",
   cardsPerRound: 10,
   targetMode: "old-and-large",
   sessionMode: "classic",
@@ -288,6 +291,10 @@ function normalizeSessionMode(value: unknown): NativeSessionMode {
   return modes.includes(value as NativeSessionMode) ? (value as NativeSessionMode) : "classic";
 }
 
+function normalizeTheme(value: unknown): NativeThemeId {
+  return value === "pink" || value === "orange" || value === "dark" || value === "green" ? value : "soft";
+}
+
 function normalizeActionLog(value: unknown): NativeActionLogEntry[] {
   if (!Array.isArray(value)) return [];
 
@@ -348,6 +355,7 @@ function normalizeStats(value: unknown): NativeStats {
     settings: {
       ...DEFAULT_NATIVE_SETTINGS,
       ...rawSettings,
+      theme: normalizeTheme(rawSettings.theme),
       targetMode: normalizeTargetMode(rawSettings.targetMode),
       sessionMode: normalizeSessionMode(rawSettings.sessionMode),
       cardsPerRound: Math.min(30, Math.max(5, safeNumber(rawSettings.cardsPerRound, 10))),

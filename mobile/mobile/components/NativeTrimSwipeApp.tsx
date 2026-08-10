@@ -91,6 +91,7 @@ import {
 import { loadAccountSession, setAccountSignedIn } from "../lib/account-session";
 import { showRewardedAd, showInterstitialAd, initAds } from "../lib/ads";
 import { colors } from "../constants/design";
+import { getNativeTheme, NATIVE_THEME_OPTIONS, type NativeThemePalette } from "../constants/themes";
 import {
   ensureCleanupNotifications,
   notifyCleanupProgress,
@@ -783,6 +784,7 @@ export function NativeTrimSwipeApp() {
   const reportCardRef = useRef<View>(null);
 
   const settings = roundSettings(stats.settings);
+  const activeTheme = getNativeTheme(settings.theme);
   const top = queue[0];
   const next = queue[1];
   const trimCurrencyAvailable = hasUnlimitedTrims ? Number.MAX_SAFE_INTEGER : Math.max(0, tokenBalance);
@@ -2193,12 +2195,12 @@ export function NativeTrimSwipeApp() {
       : undefined;
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <StatusBar style="dark" />
+    <SafeAreaView style={[styles.safe, { backgroundColor: activeTheme.background }]}>
+      <StatusBar style={settings.theme === "dark" ? "light" : "dark"} />
       <View
         ref={shareShotRef}
         collapsable={false}
-        style={styles.shell}
+        style={[styles.shell, { backgroundColor: activeTheme.background }]}
       >
         {!statsLoaded ? (
           <Centered>
@@ -2424,7 +2426,7 @@ export function NativeTrimSwipeApp() {
           />
         )}
 
-        {statsLoaded && !onboardingDue ? <BottomNav screen={screen} isPro={isPro} onChange={changeScreen} /> : null}
+        {statsLoaded && !onboardingDue ? <BottomNav screen={screen} isPro={isPro} theme={activeTheme} onChange={changeScreen} /> : null}
         <ReportDashboardModal
           visible={reportPeriod !== null}
           period={reportPeriod ?? "weekly"}
@@ -5277,17 +5279,43 @@ function SettingsScreen({
       : "Connected - no Pro purchase";
   const hasManageableSubscription =
     activeProductId === MONTHLY_PRODUCT_ID || activeProductId === YEARLY_PRODUCT_ID;
+  const theme = getNativeTheme(settings.theme);
+  const themed = useMemo(() => createSettingsThemeStyles(theme), [theme]);
 
   return (
-    <ScrollView contentContainerStyle={styles.content}>
-      <View style={styles.settingsHero}>
-        <Text style={styles.settingsEyebrow}>Settings</Text>
-        <Text style={styles.settingsHeroTitle}>Your space, your pace</Text>
-        <Text style={styles.settingsHeroCopy}>Manage purchase access, then tune how TrimSwipe finds and cleans your photos.</Text>
+    <ScrollView style={themed.screen} contentContainerStyle={styles.content}>
+      <View style={[styles.settingsHero, themed.hero]}>
+        <Text style={[styles.settingsEyebrow, themed.heroEyebrow]}>Settings</Text>
+        <Text style={[styles.settingsHeroTitle, themed.heroTitle]}>Your space, your pace</Text>
+        <Text style={[styles.settingsHeroCopy, themed.heroCopy]}>Manage purchase access, then tune how TrimSwipe finds and cleans your photos.</Text>
       </View>
-      <View style={styles.accountCard}>
+      <View style={[styles.settingCardVertical, themed.card]}>
+        <Text style={[styles.settingLabel, themed.label]}>Color theme</Text>
+        <Text style={[styles.mutedSmall, themed.muted]}>Choose a pastel palette for your space.</Text>
+        <View style={styles.themeOptionRow}>
+          {NATIVE_THEME_OPTIONS.map((option) => {
+            const optionTheme = getNativeTheme(option.id);
+            const selected = settings.theme === option.id;
+            return (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                key={option.id}
+                onPress={() => onChange({ theme: option.id })}
+                style={[styles.themeOption, { borderColor: selected ? theme.primaryBright : theme.border }, selected && { backgroundColor: theme.cardSoft }]}
+              >
+                <View style={[styles.themeSwatch, { backgroundColor: optionTheme.background, borderColor: optionTheme.border }]}>
+                  <View style={[styles.themeSwatchAccent, { backgroundColor: optionTheme.primaryBright }]} />
+                </View>
+                <Text style={[styles.themeOptionText, { color: theme.text }, selected && { color: theme.primary, fontWeight: "900" }]}>{option.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+      <View style={[styles.accountCard, themed.card]}>
         <View style={styles.accountHeader}>
-          <View style={[styles.accountIcon, !accountSignedIn && styles.accountIconSignedOut]}>
+          <View style={[styles.accountIcon, { backgroundColor: accountSignedIn ? theme.primarySoft : theme.cardSoft }]}>
             <Ionicons
               name={accountSignedIn ? "person-circle-outline" : "person-outline"}
               size={24}
@@ -5295,12 +5323,12 @@ function SettingsScreen({
             />
           </View>
           <View style={styles.accountCopy}>
-            <Text style={styles.settingLabel}>Account & purchases</Text>
-            <Text style={styles.accountStatus}>{purchaseStatus}</Text>
+            <Text style={[styles.settingLabel, themed.label]}>Account & purchases</Text>
+            <Text style={[styles.accountStatus, themed.text]}>{purchaseStatus}</Text>
           </View>
-          <View style={[styles.accountStatusDot, accountSignedIn && styles.accountStatusDotActive]} />
+          <View style={[styles.accountStatusDot, { backgroundColor: accountSignedIn ? theme.sage : theme.textSubtle }]} />
         </View>
-        <Text style={styles.mutedSmall}>
+        <Text style={[styles.mutedSmall, themed.muted]}>
           {accountSignedIn
             ? "Purchases are connected to the Apple Account currently used by the App Store."
             : "Free mode is active. Ads and free limits apply until you reconnect your App Store purchases."}
@@ -5308,14 +5336,14 @@ function SettingsScreen({
         {accountSignedIn ? (
           <View style={styles.accountActions}>
             {hasManageableSubscription ? (
-              <Pressable style={styles.accountSecondaryButton} onPress={() => void onManagePurchases()}>
+              <Pressable style={[styles.accountSecondaryButton, styles.accountManageButton, themed.secondaryButton]} onPress={() => void onManagePurchases()}>
                 <Ionicons name="card-outline" size={17} color={colors.primary} />
-                <Text style={styles.accountSecondaryText}>Manage subscription</Text>
+                <Text style={[styles.accountSecondaryText, { color: theme.primary }]}>Manage subscription</Text>
               </Pressable>
             ) : null}
             <Pressable
               disabled={restoring}
-              style={styles.accountSecondaryButton}
+              style={[styles.accountSecondaryButton, themed.secondaryButton]}
               onPress={() => void handleRestorePurchases()}
             >
               {restoring ? (
@@ -5323,21 +5351,21 @@ function SettingsScreen({
               ) : (
                 <Ionicons name="refresh-outline" size={17} color={colors.primary} />
               )}
-              <Text style={styles.accountSecondaryText}>Restore</Text>
+              <Text style={[styles.accountSecondaryText, { color: theme.primary }]}>Restore</Text>
             </Pressable>
             <Pressable
               disabled={signingOut}
-              style={styles.accountSignOutButton}
+              style={[styles.accountSignOutButton, themed.signOutButton]}
               onPress={() => void handleSignOut()}
             >
-              <Text style={styles.accountSignOutText}>{signingOut ? "Signing out..." : "Sign out"}</Text>
+              <Text style={[styles.accountSignOutText, { color: theme.danger }]}>{signingOut ? "Signing out..." : "Sign out"}</Text>
             </Pressable>
           </View>
         ) : (
           <Pressable
             disabled={restoring}
             onPress={() => void handleRestorePurchases()}
-            style={styles.accountSignInButton}
+            style={[styles.accountSignInButton, { backgroundColor: theme.primary }]}
           >
             {restoring ? <ActivityIndicator color={colors.white} /> : <Ionicons name="logo-apple" size={18} color={colors.white} />}
             <Text style={styles.accountSignInText}>{restoring ? "Connecting..." : "Sign in & restore purchases"}</Text>
@@ -5415,28 +5443,28 @@ function SettingsScreen({
 
 // ─── Navigation ───────────────────────────────────────────────────────────────
 
-function BottomNav({ screen, isPro, onChange }: { screen: Screen; isPro: boolean; onChange: (screen: Screen) => void }) {
+function BottomNav({ screen, isPro, theme, onChange }: { screen: Screen; isPro: boolean; theme: NativeThemePalette; onChange: (screen: Screen) => void }) {
   const gamesActive = screen === "games" || screen === "swipe" || screen === "this-or-that" || screen === "storage-budget" || screen === "memory-lane";
   return (
-    <View style={styles.bottomNav}>
-      <NavButton label="Home" active={screen === "home"} onPress={() => onChange("home")} />
-      <NavButton label="Games" active={gamesActive} onPress={() => onChange("games")} />
+    <View style={[styles.bottomNav, { backgroundColor: theme.card, borderColor: theme.border, shadowColor: theme.ink }]}>
+      <NavButton label="Home" active={screen === "home"} theme={theme} onPress={() => onChange("home")} />
+      <NavButton label="Games" active={gamesActive} theme={theme} onPress={() => onChange("games")} />
       {isPro ? (
-        <NavButton label="Auto" active={screen === "automation"} onPress={() => onChange("automation")} />
+        <NavButton label="Auto" active={screen === "automation"} theme={theme} onPress={() => onChange("automation")} />
       ) : (
-        <NavButton label="Shop" active={screen === "shop"} onPress={() => onChange("shop")} />
+        <NavButton label="Shop" active={screen === "shop"} theme={theme} onPress={() => onChange("shop")} />
       )}
-      <NavButton label="Stats" active={screen === "stats"} onPress={() => onChange("stats")} />
-      <NavButton label="Settings" active={screen === "settings"} onPress={() => onChange("settings")} />
+      <NavButton label="Stats" active={screen === "stats"} theme={theme} onPress={() => onChange("stats")} />
+      <NavButton label="Settings" active={screen === "settings"} theme={theme} onPress={() => onChange("settings")} />
     </View>
   );
 }
 
 
-function NavButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+function NavButton({ label, active, theme, onPress }: { label: string; active: boolean; theme: NativeThemePalette; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={[styles.navButton, active && styles.navButtonActive]}>
-      <Text style={[styles.navText, active && styles.navTextActive]}>{label}</Text>
+    <Pressable onPress={onPress} style={[styles.navButton, active && styles.navButtonActive, active && { backgroundColor: theme.primary }]}>
+      <Text style={[styles.navText, { color: theme.primary }, active && styles.navTextActive, active && { color: theme.white }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -5536,6 +5564,22 @@ function Segmented<T extends string>({ label, value, options, onChange }: { labe
 
 function Centered({ children }: { children: ReactNode }) {
   return <View style={styles.centered}>{children}</View>;
+}
+
+function createSettingsThemeStyles(theme: NativeThemePalette) {
+  return StyleSheet.create({
+    screen: { backgroundColor: theme.background },
+    hero: { backgroundColor: theme.primary, borderColor: theme.primary },
+    heroEyebrow: { color: theme.primaryGlow },
+    heroTitle: { color: theme.white },
+    heroCopy: { color: theme.primaryGlow },
+    card: { backgroundColor: theme.card, borderColor: theme.border, shadowColor: theme.ink },
+    label: { color: theme.primary },
+    text: { color: theme.text },
+    muted: { color: theme.textMuted },
+    secondaryButton: { backgroundColor: theme.cardSoft, borderColor: theme.border },
+    signOutButton: { backgroundColor: theme.dangerSoft, borderColor: theme.danger },
+  });
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -5995,8 +6039,9 @@ const styles = StyleSheet.create({
   accountStatus: { color: colors.text, fontSize: 15, fontWeight: "800" },
   accountStatusDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.textSubtle },
   accountStatusDotActive: { backgroundColor: colors.sage },
-  accountActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  accountSecondaryButton: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.cardSoft, paddingHorizontal: 12 },
+  accountActions: { flexDirection: "row", flexWrap: "nowrap", gap: 7 },
+  accountSecondaryButton: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.cardSoft, paddingHorizontal: 9 },
+  accountManageButton: { flex: 1, minWidth: 0 },
   accountSecondaryText: { color: colors.primary, fontSize: 12, fontWeight: "800" },
   accountSignOutButton: { minHeight: 42, alignItems: "center", justifyContent: "center", borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.danger, backgroundColor: colors.dangerSoft, paddingHorizontal: 14 },
   accountSignOutText: { color: colors.danger, fontSize: 12, fontWeight: "800" },
@@ -6058,6 +6103,11 @@ const styles = StyleSheet.create({
   segmentActive: { backgroundColor: "#4f7892", borderColor: "#4f7892" },
   segmentText: { color: "#274b61", fontSize: 12, fontWeight: "800" },
   segmentTextActive: { color: "#ffffff" },
+  themeOptionRow: { flexDirection: "row", gap: 6 },
+  themeOption: { flex: 1, minWidth: 0, alignItems: "center", gap: 6, borderRadius: 13, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 3, paddingVertical: 8 },
+  themeSwatch: { width: 28, height: 28, overflow: "hidden", alignItems: "flex-end", justifyContent: "flex-end", borderRadius: 14, borderWidth: StyleSheet.hairlineWidth },
+  themeSwatchAccent: { width: 14, height: 14, borderTopLeftRadius: 10 },
+  themeOptionText: { fontSize: 10, fontWeight: "700" },
 
   // Buttons
   primaryButton: { width: "100%", alignItems: "center", borderRadius: 18, backgroundColor: colors.primary, paddingVertical: 15, paddingHorizontal: 18 },

@@ -1,0 +1,118 @@
+import { colors as softColors } from "./design";
+
+export type NativeThemeId = "soft" | "pink" | "orange" | "dark" | "green";
+
+export type NativeThemePalette = { [Key in keyof typeof softColors]: string };
+
+export const NATIVE_THEME_OPTIONS: ReadonlyArray<{
+  id: NativeThemeId;
+  label: string;
+}> = [
+  { id: "soft", label: "Soft" },
+  { id: "pink", label: "Pink" },
+  { id: "orange", label: "Orange" },
+  { id: "dark", label: "Dark" },
+  { id: "green", label: "Green" },
+];
+
+export const nativeThemes: Record<NativeThemeId, NativeThemePalette> = {
+  soft: softColors,
+  pink: {
+    ...softColors,
+    background: "#f8eef2",
+    backgroundAlt: "#fff9fb",
+    card: "#fff9fb",
+    cardSoft: "#f4e3ea",
+    border: "#e5ccd6",
+    borderSoft: "#f0dfe6",
+    primary: "#6f4054",
+    primaryBright: "#a66782",
+    primarySoft: "#f1dce5",
+    primaryGlow: "#e6adc4",
+    sage: "#a77b8d",
+    sageSoft: "#f3e4ea",
+    sageDeep: "#70485a",
+    honey: "#c9829d",
+    honeySoft: "#f7e1e9",
+    info: "#9a7088",
+    infoSoft: "#f0e0e8",
+    ink: "#35212a",
+    inkOverlay: "rgba(53, 33, 42, 0.58)",
+  },
+  orange: {
+    ...softColors,
+    background: "#faf0e5",
+    backgroundAlt: "#fffaf4",
+    card: "#fffaf4",
+    cardSoft: "#f5e3cf",
+    border: "#e8ceb2",
+    borderSoft: "#f1dfcc",
+    primary: "#68422f",
+    primaryBright: "#b56f43",
+    primarySoft: "#f3dfce",
+    primaryGlow: "#eab88e",
+    sage: "#aa7959",
+    sageSoft: "#f2e4d8",
+    sageDeep: "#6c4934",
+    honey: "#c97945",
+    honeySoft: "#f7dfca",
+    info: "#a46e4c",
+    infoSoft: "#f1e1d4",
+    ink: "#38261c",
+    inkOverlay: "rgba(56, 38, 28, 0.58)",
+  },
+  dark: {
+    ...softColors,
+    background: "#20292b",
+    backgroundAlt: "#293437",
+    card: "#2b3739",
+    cardSoft: "#354346",
+    border: "#536366",
+    borderSoft: "#435255",
+    text: "#f4eee6",
+    textMuted: "#c5cfca",
+    textSubtle: "#96a39f",
+    primary: "#182123",
+    primaryBright: "#9bc4b9",
+    primarySoft: "#3c504d",
+    primaryGlow: "#b7d8cf",
+    sage: "#9fb59a",
+    sageSoft: "#3b4b43",
+    sageDeep: "#d0dfcb",
+    honey: "#d9a47e",
+    honeySoft: "#4c4037",
+    danger: "#f1a59d",
+    dangerSoft: "#553b3a",
+    info: "#9bbec3",
+    infoSoft: "#384b4f",
+    white: "#fffaf4",
+    ink: "#101617",
+    inkOverlay: "rgba(8, 12, 13, 0.7)",
+  },
+  green: {
+    ...softColors,
+    background: "#eef5ec",
+    backgroundAlt: "#fbfdf8",
+    card: "#fbfdf8",
+    cardSoft: "#e2eddd",
+    border: "#c9dbc3",
+    borderSoft: "#dce9d7",
+    primary: "#294c3a",
+    primaryBright: "#5e8d70",
+    primarySoft: "#d8e9dc",
+    primaryGlow: "#9fc5aa",
+    sage: "#6e9471",
+    sageSoft: "#deebdc",
+    sageDeep: "#395e43",
+    honey: "#9b8b57",
+    honeySoft: "#eee9d5",
+    info: "#668f7b",
+    infoSoft: "#dcebe3",
+    ink: "#172b20",
+    inkOverlay: "rgba(23, 43, 32, 0.58)",
+  },
+};
+
+export function getNativeTheme(theme: NativeThemeId | undefined): NativeThemePalette {
+  return nativeThemes[theme ?? "soft"] ?? nativeThemes.soft;
+}
