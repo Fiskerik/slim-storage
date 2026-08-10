@@ -1,50 +1,49 @@
 /**
  * TrimSwipe native design tokens.
- * Professional slate / graphite / sage palette for the native app.
+ * Warm editorial palette shared with the game artwork.
  */
 
 export const colors = {
-  // Lightweight boxed theme with cool neutral surfaces and slate-blue accents.
-  background: "#f5f7f9",
-  backgroundAlt: "#ffffff",
-  card: "#ffffff",
-  cardSoft: "#f8fafb",
-  border: "#dce3e8",
-  borderSoft: "#e9eef2",
+  background: "#f5f0e7",
+  backgroundAlt: "#fffdf8",
+  card: "#fffdf8",
+  cardSoft: "#eee8dc",
+  border: "#d7cfc1",
+  borderSoft: "#e8e0d4",
 
-  text: "#18212b",
-  textMuted: "#5f6b76",
-  textSubtle: "#8a97a3",
+  text: "#142b3a",
+  textMuted: "#65706d",
+  textSubtle: "#92958b",
 
-  primary: "#315f7d", // restrained slate-blue accent
-  primaryBright: "#4f7892",
-  primarySoft: "#eaf0f4",
-  primaryGlow: "#a7bdca",
+  primary: "#173142",
+  primaryBright: "#3f7f7a",
+  primarySoft: "#dce8e4",
+  primaryGlow: "#8fb8b0",
 
-  sage: "#4f7a68",
-  sageSoft: "#e8f0ec",
-  sageDeep: "#365b4a",
+  sage: "#778b72",
+  sageSoft: "#e3e8dc",
+  sageDeep: "#435d45",
 
-  honey: "#9a742f",
-  honeySoft: "#f4efe3",
+  honey: "#c77a45",
+  honeySoft: "#f4e4d2",
 
-  danger: "#ef4444",
-  dangerSoft: "#fee2e2",
+  danger: "#c94f43",
+  dangerSoft: "#f5d9d4",
 
-  info: "#39789a",
-  infoSoft: "#e7f0f5",
+  info: "#4b7d87",
+  infoSoft: "#dce8e8",
 
   white: "#ffffff",
-  ink: "#0f172a",
-  inkOverlay: "rgba(15, 23, 42, 0.55)",
+  ink: "#0f2533",
+  inkOverlay: "rgba(15, 37, 51, 0.58)",
 } as const;
 
 export const radius = {
-  xs: 8,
-  sm: 12,
-  md: 16,
-  lg: 22,
-  xl: 28,
+  xs: 9,
+  sm: 13,
+  md: 17,
+  lg: 24,
+  xl: 30,
   pill: 999,
 } as const;
 
@@ -76,22 +75,22 @@ export const type = {
 
 export const shadow = {
   card: {
-    shadowColor: "#18212b",
-    shadowOpacity: 0.05,
-    shadowRadius: 18,
+    shadowColor: "#142b3a",
+    shadowOpacity: 0.09,
+    shadowRadius: 20,
     shadowOffset: { width: 0, height: 8 },
     elevation: 2,
   },
   soft: {
-    shadowColor: "#18212b",
-    shadowOpacity: 0.03,
-    shadowRadius: 10,
+    shadowColor: "#142b3a",
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     elevation: 1,
   },
   press: {
-    shadowColor: "#315f7d",
-    shadowOpacity: 0.16,
+    shadowColor: "#173142",
+    shadowOpacity: 0.2,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },
     elevation: 4,
@@ -106,8 +105,8 @@ export const motion = {
 } as const;
 
 export const tiles = {
-  scan: { bg: "#eaf0f4", icon: colors.primary, accent: colors.primaryBright },
+  scan: { bg: colors.primarySoft, icon: colors.primary, accent: colors.primaryBright },
   swipe: { bg: colors.sageSoft, icon: colors.sageDeep, accent: colors.sage },
-  trim: { bg: colors.honeySoft, icon: "#66552f", accent: colors.honey },
-  games: { bg: colors.infoSoft, icon: "#294f67", accent: colors.info },
+  trim: { bg: colors.honeySoft, icon: "#704526", accent: colors.honey },
+  games: { bg: colors.infoSoft, icon: colors.primary, accent: colors.info },
 } as const;

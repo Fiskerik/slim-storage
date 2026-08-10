@@ -81,7 +81,15 @@ import { TrimScreen } from "./TrimScreen";
 import { ShopScreen } from "./ShopScreen";
 import { DuplicateClusterReview, type DuplicateCluster } from "./DuplicateClusterReview";
 import { addTokens, subscribeTokens, spendTokens, DAILY_CLAIM_TOKENS } from "../lib/tokens";
-import { getPurchaseAccessStatus, restorePurchasesPublic } from "../lib/purchases";
+import {
+  getPurchaseAccessStatus,
+  LIFETIME_PRODUCT_ID,
+  MONTHLY_PRODUCT_ID,
+  presentCustomerCenterPublic,
+  restorePurchasesPublic,
+  YEARLY_PRODUCT_ID,
+} from "../lib/purchases";
+import { loadAccountSession, setAccountSignedIn } from "../lib/account-session";
 import { showRewardedAd, showInterstitialAd, initAds } from "../lib/ads";
 import { colors } from "../constants/design";
 import {
@@ -757,6 +765,8 @@ export function NativeTrimSwipeApp() {
   const [tokenBalance, setTokenBalance] = useState<number>(10);
   const [isPro, setIsPro] = useState(false);
   const [hasUnlimitedTrims, setHasUnlimitedTrims] = useState(false);
+  const [accountSignedIn, setAccountSignedInState] = useState(true);
+  const [activeProductId, setActiveProductId] = useState<string | null>(null);
   const [adBusy, setAdBusy] = useState(false);
   const cleanupCompletionsRef = useRef(0);
   const shareShotRef = useRef<View>(null);
@@ -846,14 +856,17 @@ export function NativeTrimSwipeApp() {
 
   useEffect(() => {
     const unsub = subscribeTokens((s) => setTokenBalance(s.tokens));
-    void getPurchaseAccessStatus()
-      .then((access) => {
+    void Promise.all([loadAccountSession(), getPurchaseAccessStatus()])
+      .then(([session, access]) => {
+        setAccountSignedInState(session.signedIn);
         setIsPro(access.isPro);
         setHasUnlimitedTrims(access.hasUnlimitedTrims);
+        setActiveProductId(access.activeProductId);
       })
       .catch(() => {
         setIsPro(false);
         setHasUnlimitedTrims(false);
+        setActiveProductId(null);
       });
     void initAds().catch(() => {});
     void registerCleanupBackgroundTask();
@@ -2313,6 +2326,10 @@ export function NativeTrimSwipeApp() {
               if (nextHasUnlimitedTrims !== undefined) {
                 setHasUnlimitedTrims(nextHasUnlimitedTrims);
               }
+              if (nextIsPro) setAccountSignedInState(true);
+              void getPurchaseAccessStatus().then((access) => {
+                setActiveProductId(access.activeProductId);
+              });
             }}
           />
         ) : screen === "games" ? (
@@ -2364,15 +2381,20 @@ export function NativeTrimSwipeApp() {
           <SettingsScreen
             settings={settings}
             isPro={isPro}
+            accountSignedIn={accountSignedIn}
+            activeProductId={activeProductId}
             samplePhoto={top ?? queue[0]}
             onChange={updateSettings}
             onReload={reloadSettingsRound}
             onCreateReport={openCleanupReport}
             onRestorePurchases={async () => {
+              await setAccountSignedIn(true);
               await restorePurchasesPublic();
               const access = await getPurchaseAccessStatus();
+              setAccountSignedInState(true);
               setIsPro(access.isPro);
               setHasUnlimitedTrims(access.hasUnlimitedTrims);
+              setActiveProductId(access.activeProductId);
               showToast(
                 access.isPro ? "Restored" : "Nothing to restore",
                 access.isPro
@@ -2380,6 +2402,24 @@ export function NativeTrimSwipeApp() {
                   : "No active purchases were found for this Apple ID.",
                 access.isPro ? "success" : "warning",
               );
+            }}
+            onSignOut={async () => {
+              await setAccountSignedIn(false);
+              setAccountSignedInState(false);
+              setIsPro(false);
+              setHasUnlimitedTrims(false);
+              setActiveProductId(null);
+              showToast(
+                "Signed out",
+                "Premium benefits are disconnected on this device. Your App Store purchases are unchanged.",
+                "success",
+              );
+            }}
+            onManagePurchases={async () => {
+              const opened = await presentCustomerCenterPublic();
+              if (!opened) {
+                showToast("Could not open purchases", "Please try again in a moment.", "warning");
+              }
             }}
           />
         )}
@@ -5162,25 +5202,41 @@ function AutomationScheduleCard({
   );
 }
 
+function purchaseName(productId: string): string {
+  if (productId === LIFETIME_PRODUCT_ID) return "Lifetime Pro connected";
+  if (productId === MONTHLY_PRODUCT_ID) return "Monthly Pro connected";
+  if (productId === YEARLY_PRODUCT_ID) return "Yearly Pro connected";
+  return "Purchase connected";
+}
+
 function SettingsScreen({
   settings,
   isPro,
+  accountSignedIn,
+  activeProductId,
   samplePhoto,
   onChange,
   onReload,
   onCreateReport,
   onRestorePurchases,
+  onSignOut,
+  onManagePurchases,
 }: {
   settings: NativeSettings;
   isPro: boolean;
+  accountSignedIn: boolean;
+  activeProductId: string | null;
   samplePhoto?: NativePhoto;
   onChange: (patch: Partial<NativeSettings>) => void;
   onReload: () => Promise<void> | void;
   onCreateReport: (period: (typeof REPORT_PERIODS)[number]) => void;
   onRestorePurchases: () => Promise<void> | void;
+  onSignOut: () => Promise<void> | void;
+  onManagePurchases: () => Promise<void> | void;
 }) {
   const [reloading, setReloading] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const showsThresholds =
     settings.targetMode === "big-or-old" ||
     settings.targetMode === "big-only" ||
@@ -5205,12 +5261,84 @@ function SettingsScreen({
     }
   }
 
+  async function handleSignOut() {
+    setSigningOut(true);
+    try {
+      await onSignOut();
+    } finally {
+      setSigningOut(false);
+    }
+  }
+
+  const purchaseStatus = !accountSignedIn
+    ? "Not signed in"
+    : activeProductId
+      ? purchaseName(activeProductId)
+      : "Connected - no Pro purchase";
+
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <View style={styles.settingsHero}>
-        <Text style={styles.eyebrow}>Settings</Text>
-        <Text style={styles.heroTitle}>Tune the cleanup feel</Text>
-        <Text style={styles.dashboardCopy}>Keep the defaults simple, then adjust focus and trim quality when you want a sharper pass.</Text>
+        <Text style={styles.settingsEyebrow}>Settings</Text>
+        <Text style={styles.settingsHeroTitle}>Your space, your pace</Text>
+        <Text style={styles.settingsHeroCopy}>Manage purchase access, then tune how TrimSwipe finds and cleans your photos.</Text>
+      </View>
+      <View style={styles.accountCard}>
+        <View style={styles.accountHeader}>
+          <View style={[styles.accountIcon, !accountSignedIn && styles.accountIconSignedOut]}>
+            <Ionicons
+              name={accountSignedIn ? "person-circle-outline" : "person-outline"}
+              size={24}
+              color={accountSignedIn ? colors.primary : colors.textMuted}
+            />
+          </View>
+          <View style={styles.accountCopy}>
+            <Text style={styles.settingLabel}>Account & purchases</Text>
+            <Text style={styles.accountStatus}>{purchaseStatus}</Text>
+          </View>
+          <View style={[styles.accountStatusDot, accountSignedIn && styles.accountStatusDotActive]} />
+        </View>
+        <Text style={styles.mutedSmall}>
+          {accountSignedIn
+            ? "Purchases are connected to the Apple Account currently used by the App Store."
+            : "Free mode is active. Ads and free limits apply until you reconnect your App Store purchases."}
+        </Text>
+        {accountSignedIn ? (
+          <View style={styles.accountActions}>
+            <Pressable style={styles.accountSecondaryButton} onPress={() => void onManagePurchases()}>
+              <Ionicons name="receipt-outline" size={17} color={colors.primary} />
+              <Text style={styles.accountSecondaryText}>View purchases</Text>
+            </Pressable>
+            <Pressable
+              disabled={restoring}
+              style={styles.accountSecondaryButton}
+              onPress={() => void handleRestorePurchases()}
+            >
+              {restoring ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Ionicons name="refresh-outline" size={17} color={colors.primary} />
+              )}
+              <Text style={styles.accountSecondaryText}>Restore</Text>
+            </Pressable>
+            <Pressable
+              disabled={signingOut}
+              style={styles.accountSignOutButton}
+              onPress={() => void handleSignOut()}
+            >
+              <Text style={styles.accountSignOutText}>{signingOut ? "Signing out..." : "Sign out"}</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable
+            disabled={restoring}
+            onPress={() => void handleRestorePurchases()}
+            style={styles.accountSignInButton}
+          >
+            {restoring ? <ActivityIndicator color={colors.white} /> : <Ionicons name="logo-apple" size={18} color={colors.white} />}
+            <Text style={styles.accountSignInText}>{restoring ? "Connecting..." : "Sign in & restore purchases"}</Text>
+          </Pressable>
+        )}
       </View>
       {isPro ? (
         <View style={styles.settingCardVertical}>
@@ -5274,20 +5402,6 @@ function SettingsScreen({
       />
       <TrimKindSettings settings={settings} isPro={isPro} onChange={onChange} />
       <EnhancedQualityPreview photo={samplePhoto} currentQuality={settings.trimQuality} />
-      <Pressable disabled={restoring} onPress={() => void handleRestorePurchases()} style={styles.restorePurchaseCard}>
-        <View style={styles.restorePurchaseIcon}>
-          <Ionicons name="refresh-outline" size={19} color="#315f7d" />
-        </View>
-        <View style={styles.restorePurchaseCopy}>
-          <Text style={styles.settingLabel}>Restore purchases</Text>
-          <Text style={styles.mutedSmall}>Restore Lifetime Pro from your Apple ID.</Text>
-        </View>
-        {restoring ? (
-          <ActivityIndicator color="#315f7d" />
-        ) : (
-          <Text style={styles.restorePurchaseAction}>Restore</Text>
-        )}
-      </Pressable>
       <View style={styles.settingsReloadWrap}>
         <PrimaryButton label={reloading ? "Reloading photos..." : "Reload with these settings"} disabled={reloading} onPress={() => void handleReload()} />
       </View>
@@ -5423,18 +5537,18 @@ function Centered({ children }: { children: ReactNode }) {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#f3f6f8" },
-  shell: { flex: 1, backgroundColor: "#f3f6f8" },
+  safe: { flex: 1, backgroundColor: colors.background },
+  shell: { flex: 1, backgroundColor: colors.background },
   shellHighContrast: { backgroundColor: "#fffbeb" },
   content: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 110 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", gap: 14, padding: 24 },
   recapContent: { flexGrow: 1, alignItems: "center", justifyContent: "center", gap: 14, paddingHorizontal: 24, paddingTop: 28, paddingBottom: 142 },
-  heroTitle: { color: "#1f2937", fontSize: 28, fontWeight: "800" },
-  muted: { color: "#64748b", fontSize: 14 },
-  mutedSmall: { color: "#64748b", fontSize: 12 },
-  centerText: { color: "#475569", fontSize: 15, lineHeight: 22, textAlign: "center" },
-  insightText: { color: "#315f7d", fontSize: 14, fontWeight: "800", lineHeight: 20, textAlign: "center" },
-  eyebrow: { color: "#315f7d", fontSize: 11, fontWeight: "700", letterSpacing: 1.6, textTransform: "uppercase" },
+  heroTitle: { color: colors.text, fontSize: 28, fontWeight: "800", letterSpacing: -0.45 },
+  muted: { color: colors.textMuted, fontSize: 14 },
+  mutedSmall: { color: colors.textMuted, fontSize: 12, lineHeight: 17 },
+  centerText: { color: colors.textMuted, fontSize: 15, lineHeight: 22, textAlign: "center" },
+  insightText: { color: colors.primary, fontSize: 14, fontWeight: "800", lineHeight: 20, textAlign: "center" },
+  eyebrow: { color: colors.primaryBright, fontSize: 11, fontWeight: "700", letterSpacing: 1.6, textTransform: "uppercase" },
   warning: { marginTop: 12, borderRadius: 14, backgroundColor: "#f3f6f8", color: "#274b61", padding: 12, fontSize: 12 },
   toastWrap: { position: "absolute", top: 58, left: 18, right: 18, zIndex: 1000 },
   toast: { flexDirection: "row", alignItems: "flex-start", gap: 10, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#cbd8e0", padding: 14, shadowColor: "#1f2937", shadowOpacity: 0.12, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 4 },
@@ -5627,14 +5741,14 @@ const styles = StyleSheet.create({
 
   // Games
   gamesHero: { borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 18, gap: 8 },
-  gamesVisualHero: { overflow: "hidden", borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 18, gap: 14 },
+  gamesVisualHero: { overflow: "hidden", borderRadius: 26, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, padding: 18, gap: 14, shadowColor: colors.ink, shadowOpacity: 0.07, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 2 },
   gamesHeroCopy: { flex: 1, gap: 4 },
   gameTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
   heroPhotoStrip: { height: 118, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   heroPhoto: { width: "31%", height: 104, borderRadius: 18, backgroundColor: "#e5ebef", borderWidth: 3, borderColor: "#ffffff" },
   heroPhotoRaised: { height: 118, transform: [{ translateY: -4 }] },
   heroPhotoFallback: { flex: 1, height: 112, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: "#4f7892" },
-  focusPanel: { borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 16, gap: 14 },
+  focusPanel: { borderRadius: 24, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, padding: 16, gap: 14 },
   focusHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   focusTitle: { color: "#1f2937", fontSize: 18, fontWeight: "700", marginTop: 4 },
   focusSlider: { gap: 8 },
@@ -5665,7 +5779,7 @@ const styles = StyleSheet.create({
   scanMiniButtonText: { color: "#ffffff", fontSize: 13, fontWeight: "700" },
   gameGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   primaryGameCard: { width: "100%", borderRadius: 24, backgroundColor: "#315f7d", padding: 20, gap: 8, shadowColor: "#4f7892", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 18, elevation: 6 },
-  primaryGameVisualCard: { width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 24, backgroundColor: "#315f7d", padding: 20, gap: 14, shadowColor: "#4f7892", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 18, elevation: 6 },
+  primaryGameVisualCard: { width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 26, backgroundColor: colors.primary, padding: 20, gap: 14, shadowColor: colors.ink, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 18, elevation: 6 },
   primaryGameArt: { width: 92, height: 82, borderRadius: 20, borderWidth: 2, borderColor: "rgba(255,255,255,0.75)" },
   primaryGamePhotoStrip: { flexDirection: "row", alignItems: "center", width: 92 },
   primaryGamePhoto: { width: 38, height: 54, marginRight: -18, borderRadius: 12, borderWidth: 2, borderColor: "rgba(255,255,255,0.75)", backgroundColor: "#cbd8e0" },
@@ -5688,7 +5802,7 @@ const styles = StyleSheet.create({
   gameTitleActive: { color: "#274b61" },
   gameDetail: { color: "#64748b", fontSize: 12, lineHeight: 17, fontWeight: "700" },
   gameDetailActive: { color: "#274b61" },
-  visualGameCard: { width: "48%", overflow: "hidden", borderRadius: 20, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#cbd8e0", padding: 9, gap: 9 },
+  visualGameCard: { width: "48%", overflow: "hidden", borderRadius: 22, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 9, gap: 9 },
   visualGameCardActive: { backgroundColor: "#e5ebef", borderColor: "#4f7892" },
   visualGameImageWrap: { position: "relative", height: 94, overflow: "hidden", borderRadius: 16, backgroundColor: "#f3f6f8" },
   visualGameImage: { width: "100%", height: "100%" },
@@ -5698,7 +5812,7 @@ const styles = StyleSheet.create({
   placeholderHillBack: { position: "absolute", left: -18, right: 34, bottom: -16, height: 58, borderTopRightRadius: 58, opacity: 0.55 },
   placeholderHillFront: { position: "absolute", left: 24, right: -20, bottom: -18, height: 70, borderTopLeftRadius: 68, opacity: 0.78 },
   visualGameIcon: { position: "absolute", right: 8, top: 8, width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: "rgba(249, 115, 22, 0.92)" },
-  photoAccessCard: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 14 },
+  photoAccessCard: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 20, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, padding: 14 },
   photoAccessIcon: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: "#f3f6f8" },
   photoAccessCopy: { flex: 1, gap: 2 },
   photoAccessLabel: { color: "#64748b", fontSize: 10, fontWeight: "700", letterSpacing: 1.2, textTransform: "uppercase" },
@@ -5863,9 +5977,27 @@ const styles = StyleSheet.create({
   levelProgress: { flex: 1, gap: 7 },
 
   // Settings
-  settingCard: { marginTop: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14 },
-  settingsHero: { borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 18, gap: 8 },
+  settingCard: { marginTop: 12, borderRadius: 20, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, padding: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14 },
+  settingsHero: { borderRadius: 26, backgroundColor: colors.primary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.primary, padding: 20, gap: 8 },
+  settingsEyebrow: { color: colors.primaryGlow, fontSize: 11, fontWeight: "800", letterSpacing: 1.6, textTransform: "uppercase" },
+  settingsHeroTitle: { color: colors.white, fontSize: 29, fontWeight: "800", letterSpacing: -0.5 },
+  settingsHeroCopy: { color: "#dce8e4", fontSize: 13, lineHeight: 19, fontWeight: "600" },
   settingsReloadWrap: { marginTop: 24 },
+  accountCard: { marginTop: 12, borderRadius: 24, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, padding: 18, gap: 14, shadowColor: colors.ink, shadowOpacity: 0.07, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 2 },
+  accountHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  accountIcon: { width: 46, height: 46, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: colors.primarySoft },
+  accountIconSignedOut: { backgroundColor: colors.cardSoft },
+  accountCopy: { flex: 1, gap: 3 },
+  accountStatus: { color: colors.text, fontSize: 15, fontWeight: "800" },
+  accountStatusDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.textSubtle },
+  accountStatusDotActive: { backgroundColor: colors.sage },
+  accountActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  accountSecondaryButton: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.cardSoft, paddingHorizontal: 12 },
+  accountSecondaryText: { color: colors.primary, fontSize: 12, fontWeight: "800" },
+  accountSignOutButton: { minHeight: 42, alignItems: "center", justifyContent: "center", borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.danger, backgroundColor: colors.dangerSoft, paddingHorizontal: 14 },
+  accountSignOutText: { color: colors.danger, fontSize: 12, fontWeight: "800" },
+  accountSignInButton: { minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, borderRadius: 16, backgroundColor: colors.primary, paddingHorizontal: 16 },
+  accountSignInText: { color: colors.white, fontSize: 14, fontWeight: "800" },
   restorePurchaseCard: { marginTop: 12, flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 16 },
   restorePurchaseIcon: { width: 38, height: 38, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#f3f6f8" },
   restorePurchaseCopy: { flex: 1, gap: 3 },
@@ -5875,7 +6007,7 @@ const styles = StyleSheet.create({
   toggleTrackActive: { backgroundColor: "#4f7892" },
   toggleKnob: { width: 24, height: 24, borderRadius: 999, backgroundColor: "#f3f6f8" },
   toggleKnobActive: { transform: [{ translateX: 22 }], backgroundColor: "#ffffff" },
-  settingCardVertical: { marginTop: 12, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 16, gap: 12 },
+  settingCardVertical: { marginTop: 12, borderRadius: 20, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, padding: 16, gap: 12 },
   trimKindCompact: { width: "100%", marginTop: 0 },
   trimKindGrid: { gap: 8 },
   trimKindOption: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 15, backgroundColor: "#f3f6f8", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 12 },
@@ -5912,8 +6044,8 @@ const styles = StyleSheet.create({
   qualityCompareThumb: { width: "100%", height: 76, borderRadius: 12, backgroundColor: "#111827" },
   qualityCompareLabel: { color: "#ffffff", fontSize: 13, fontWeight: "700" },
   qualityCompareSize: { color: "#cbd5e1", fontSize: 11, fontWeight: "800" },
-  settingLabel: { color: "#274b61", fontSize: 13, fontWeight: "700" },
-  settingValue: { marginTop: 4, color: "#1f2937", fontSize: 20, fontWeight: "700" },
+  settingLabel: { color: colors.primary, fontSize: 13, fontWeight: "700" },
+  settingValue: { marginTop: 4, color: colors.text, fontSize: 20, fontWeight: "700" },
   stepper: { flexDirection: "row", gap: 8 },
   stepperButton: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: "#e5ebef" },
   stepperText: { color: "#315f7d", fontSize: 22, fontWeight: "700" },
@@ -5924,7 +6056,7 @@ const styles = StyleSheet.create({
   segmentTextActive: { color: "#ffffff" },
 
   // Buttons
-  primaryButton: { width: "100%", alignItems: "center", borderRadius: 18, backgroundColor: "#315f7d", paddingVertical: 15, paddingHorizontal: 18 },
+  primaryButton: { width: "100%", alignItems: "center", borderRadius: 18, backgroundColor: colors.primary, paddingVertical: 15, paddingHorizontal: 18 },
   primaryButtonPressed: { transform: [{ scale: 0.985 }], opacity: 0.86 },
   primaryButtonDisabled: { backgroundColor: "#a7bdca", opacity: 0.72 },
   dangerButton: { backgroundColor: "#dc2626" },
@@ -5935,9 +6067,9 @@ const styles = StyleSheet.create({
   secondaryButtonTextDisabled: { color: "#9ca3af" },
 
   // Nav
-  bottomNav: { position: "absolute", left: 14, right: 14, bottom: 14, flexDirection: "row", gap: 8, borderRadius: 30, backgroundColor: "rgba(255, 255, 255, 0.98)", borderWidth: 1, borderColor: "#3f6f8d", padding: 8, shadowColor: "#4f7892", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 22, elevation: 8 },
+  bottomNav: { position: "absolute", left: 14, right: 14, bottom: 14, flexDirection: "row", gap: 8, borderRadius: 30, backgroundColor: "rgba(255, 253, 248, 0.98)", borderWidth: 1, borderColor: colors.border, padding: 8, shadowColor: colors.ink, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.16, shadowRadius: 22, elevation: 8 },
   navButton: { flex: 1, alignItems: "center", borderRadius: 16, paddingVertical: 11 },
-  navButtonActive: { backgroundColor: "#4f7892" },
-  navText: { color: "#274b61", fontSize: 12, fontWeight: "700" },
+  navButtonActive: { backgroundColor: colors.primary },
+  navText: { color: colors.primary, fontSize: 12, fontWeight: "700" },
   navTextActive: { color: "#ffffff" },
 });
