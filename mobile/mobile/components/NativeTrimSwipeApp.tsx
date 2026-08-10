@@ -85,7 +85,6 @@ import {
   getPurchaseAccessStatus,
   LIFETIME_PRODUCT_ID,
   MONTHLY_PRODUCT_ID,
-  presentCustomerCenterPublic,
   restorePurchasesPublic,
   YEARLY_PRODUCT_ID,
 } from "../lib/purchases";
@@ -2416,9 +2415,10 @@ export function NativeTrimSwipeApp() {
               );
             }}
             onManagePurchases={async () => {
-              const opened = await presentCustomerCenterPublic();
-              if (!opened) {
-                showToast("Could not open purchases", "Please try again in a moment.", "warning");
+              try {
+                await Linking.openURL("https://apps.apple.com/account/subscriptions");
+              } catch {
+                showToast("Could not open subscriptions", "Open Settings > Apple Account > Subscriptions.", "warning");
               }
             }}
           />
@@ -5275,6 +5275,8 @@ function SettingsScreen({
     : activeProductId
       ? purchaseName(activeProductId)
       : "Connected - no Pro purchase";
+  const hasManageableSubscription =
+    activeProductId === MONTHLY_PRODUCT_ID || activeProductId === YEARLY_PRODUCT_ID;
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
@@ -5305,10 +5307,12 @@ function SettingsScreen({
         </Text>
         {accountSignedIn ? (
           <View style={styles.accountActions}>
-            <Pressable style={styles.accountSecondaryButton} onPress={() => void onManagePurchases()}>
-              <Ionicons name="receipt-outline" size={17} color={colors.primary} />
-              <Text style={styles.accountSecondaryText}>View purchases</Text>
-            </Pressable>
+            {hasManageableSubscription ? (
+              <Pressable style={styles.accountSecondaryButton} onPress={() => void onManagePurchases()}>
+                <Ionicons name="card-outline" size={17} color={colors.primary} />
+                <Text style={styles.accountSecondaryText}>Manage subscription</Text>
+              </Pressable>
+            ) : null}
             <Pressable
               disabled={restoring}
               style={styles.accountSecondaryButton}

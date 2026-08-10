@@ -164,6 +164,16 @@ export function ShopScreen({
     tokens,
     product: products.find((p) => p.id === productId) ?? fallbackPremiumProduct(key, productId),
   }));
+  const monthlyPremium = premiumProducts.find((plan) => plan.key === "monthly")?.product;
+  const yearlyPremium = premiumProducts.find((plan) => plan.key === "yearly")?.product;
+  const yearlySavingsPercent =
+    monthlyPremium &&
+    yearlyPremium &&
+    monthlyPremium.currency === yearlyPremium.currency &&
+    monthlyPremium.priceAmount > 0 &&
+    yearlyPremium.priceAmount < monthlyPremium.priceAmount * 12
+      ? Math.round((1 - yearlyPremium.priceAmount / (monthlyPremium.priceAmount * 12)) * 100)
+      : 0;
   const selectedPremium =
     premiumProducts.find((plan) => plan.key === selectedPlan) ?? premiumProducts[2];
   const selectedProduct = selectedPremium.product;
@@ -344,6 +354,13 @@ export function ShopScreen({
             <View style={styles.planTabs}>
               {premiumProducts.map((plan) => {
                 const selected = plan.key === selectedPlan;
+                const hasTrial = plan.product.introEligible && plan.product.introPrice?.price === 0;
+                const offerBadge =
+                  plan.key === "yearly" && yearlySavingsPercent > 0
+                    ? `Save ${yearlySavingsPercent}%`
+                    : plan.key === "lifetime"
+                      ? "(Best offer)"
+                      : null;
                 return (
                   <Pressable
                     key={plan.key}
@@ -356,8 +373,20 @@ export function ShopScreen({
                     <Text style={[styles.planTabPrice, selected && styles.planTabPriceActive]}>
                       {plan.product.price}
                     </Text>
-                    {plan.product.introEligible && plan.product.introPrice?.price === 0 ? (
-                      <Text style={styles.planTabTrial}>FREE TRIAL</Text>
+                    {hasTrial || offerBadge ? (
+                      <View style={styles.planTabMetaRow}>
+                        {hasTrial ? <Text style={styles.planTabTrial}>FREE TRIAL</Text> : null}
+                        {offerBadge ? (
+                          <View
+                            style={[
+                              styles.planTabOfferPill,
+                              plan.key === "lifetime" && styles.planTabBestOfferPill,
+                            ]}
+                          >
+                            <Text style={styles.planTabOfferText}>{offerBadge}</Text>
+                          </View>
+                        ) : null}
+                      </View>
                     ) : null}
                   </Pressable>
                 );
@@ -713,6 +742,8 @@ const styles = StyleSheet.create({
   planTab: {
     flex: 1,
     alignItems: "center",
+    justifyContent: "center",
+    minHeight: 76,
     borderRadius: 12,
     paddingVertical: 9,
     paddingHorizontal: 4,
@@ -722,7 +753,11 @@ const styles = StyleSheet.create({
   planTabLabelActive: { color: colors.primary },
   planTabPrice: { marginTop: 3, color: "#ffffff", fontSize: 13, fontWeight: "700" },
   planTabPriceActive: { color: colors.text },
-  planTabTrial: { marginTop: 2, color: "#cbd8e0", fontSize: 8, fontWeight: "700" },
+  planTabMetaRow: { marginTop: 4, minHeight: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3, flexWrap: "wrap" },
+  planTabTrial: { color: "#cbd8e0", fontSize: 7, fontWeight: "800" },
+  planTabOfferPill: { borderRadius: radius.pill, backgroundColor: colors.honey, paddingHorizontal: 6, paddingVertical: 3 },
+  planTabBestOfferPill: { backgroundColor: colors.primaryBright },
+  planTabOfferText: { color: colors.white, fontSize: 7, fontWeight: "800" },
   lifetimeHeaderRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
   lifetimeBigTitle: { fontSize: 26, fontWeight: "700", color: colors.white, letterSpacing: -0.5 },
   lifetimeBigSub: { fontSize: 13, color: "#cbd5e1", marginTop: 4, fontWeight: "600" },

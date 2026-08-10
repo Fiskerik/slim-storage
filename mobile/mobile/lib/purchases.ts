@@ -941,13 +941,6 @@ export async function restorePurchasesPublic(): Promise<boolean> {
   return result.isPro === true;
 }
 
-export async function presentCustomerCenterPublic(): Promise<boolean> {
-  const ok = await initializePurchases();
-  if (!ok) return false;
-  const result = await presentCustomerCenter();
-  return result.success === true;
-}
-
 export async function presentPaywallPublic(): Promise<boolean> {
   const ok = await initializePurchases();
   if (!ok) return false;
