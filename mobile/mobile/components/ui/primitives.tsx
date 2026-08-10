@@ -33,7 +33,7 @@ export function Card({
       style={[
         styles.card,
         tone === "soft" && { backgroundColor: colors.cardSoft, borderColor: colors.borderSoft },
-        tone === "warm" && { backgroundColor: "#fff1e3", borderColor: colors.border },
+        tone === "warm" && { backgroundColor: "#eaf0f4", borderColor: colors.border },
         padded && { padding: spacing.lg },
         style,
       ]}
@@ -59,7 +59,7 @@ export function Pill({
   const palette = {
     primary: { bg: colors.primarySoft, fg: colors.primary },
     sage: { bg: colors.sageSoft, fg: colors.sageDeep },
-    honey: { bg: colors.honeySoft, fg: "#92400e" },
+    honey: { bg: colors.honeySoft, fg: "#66552f" },
     danger: { bg: colors.dangerSoft, fg: colors.danger },
     neutral: { bg: "#f1f5f9", fg: "#334155" },
   }[tone];
@@ -345,10 +345,10 @@ export function DonutSplit({
       trackColor={colors.danger + "55"}
       fillColor={colors.sage}
     >
-      <Text style={{ fontSize: 14, fontWeight: "900", color: colors.sage }}>
+      <Text style={{ fontSize: 14, fontWeight: "700", color: colors.sage }}>
         {Math.round(trimShare * 100)}% trim
       </Text>
-      <Text style={{ fontSize: 11, color: colors.danger, fontWeight: "900", marginTop: 2 }}>
+      <Text style={{ fontSize: 11, color: colors.danger, fontWeight: "700", marginTop: 2 }}>
         {Math.round(deleteShare * 100)}% delete
       </Text>
     </ProgressRing>
@@ -574,7 +574,7 @@ const styles = StyleSheet.create({
   chartValueSelected: { color: colors.text },
   chartTrack: {
     width: "100%",
-    backgroundColor: "#fff7ed",
+    backgroundColor: "#f3f6f8",
     borderRadius: radius.sm,
     justifyContent: "flex-end",
     overflow: "hidden",

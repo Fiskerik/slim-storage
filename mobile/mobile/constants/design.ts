@@ -1,38 +1,38 @@
 /**
  * TrimSwipe native design tokens.
- * Warm sandstone / terracotta / sage palette mirroring the web app.
+ * Professional slate / graphite / sage palette for the native app.
  */
 
 export const colors = {
-  // Lightweight "boxed" theme — airy white canvas with orange accents.
-  background: "#fbfaf9",
+  // Lightweight boxed theme with cool neutral surfaces and slate-blue accents.
+  background: "#f5f7f9",
   backgroundAlt: "#ffffff",
   card: "#ffffff",
-  cardSoft: "#fffaf4",
-  border: "#f1ece6",
-  borderSoft: "#f6f1ea",
+  cardSoft: "#f8fafb",
+  border: "#dce3e8",
+  borderSoft: "#e9eef2",
 
-  text: "#1c1917",
-  textMuted: "#78716c",
-  textSubtle: "#a8a29e",
+  text: "#18212b",
+  textMuted: "#5f6b76",
+  textSubtle: "#8a97a3",
 
-  primary: "#f97316", // bright orange accent
-  primaryBright: "#fb923c",
-  primarySoft: "#fff4e8",
-  primaryGlow: "#fdba74",
+  primary: "#315f7d", // restrained slate-blue accent
+  primaryBright: "#4f7892",
+  primarySoft: "#eaf0f4",
+  primaryGlow: "#a7bdca",
 
-  sage: "#65a30d",
-  sageSoft: "#ecfccb",
-  sageDeep: "#3f6212",
+  sage: "#4f7a68",
+  sageSoft: "#e8f0ec",
+  sageDeep: "#365b4a",
 
-  honey: "#d97706",
-  honeySoft: "#fef3c7",
+  honey: "#9a742f",
+  honeySoft: "#f4efe3",
 
   danger: "#ef4444",
   dangerSoft: "#fee2e2",
 
-  info: "#0ea5e9",
-  infoSoft: "#e0f2fe",
+  info: "#39789a",
+  infoSoft: "#e7f0f5",
 
   white: "#ffffff",
   ink: "#0f172a",
@@ -59,15 +59,15 @@ export const spacing = {
 } as const;
 
 export const type = {
-  display: { fontSize: 30, fontWeight: "900" as const, letterSpacing: -0.5 },
-  title: { fontSize: 22, fontWeight: "800" as const, letterSpacing: -0.2 },
+  display: { fontSize: 30, fontWeight: "700" as const, letterSpacing: -0.4 },
+  title: { fontSize: 22, fontWeight: "700" as const, letterSpacing: -0.15 },
   subtitle: { fontSize: 17, fontWeight: "700" as const },
   body: { fontSize: 14, fontWeight: "500" as const, lineHeight: 20 },
   caption: { fontSize: 12, fontWeight: "600" as const, color: colors.textMuted },
   eyebrow: {
     fontSize: 10,
-    fontWeight: "800" as const,
-    letterSpacing: 1.6,
+    fontWeight: "700" as const,
+    letterSpacing: 1.2,
     textTransform: "uppercase" as const,
     color: colors.primaryBright,
   },
@@ -76,25 +76,25 @@ export const type = {
 
 export const shadow = {
   card: {
-    shadowColor: "#1c1917",
+    shadowColor: "#18212b",
     shadowOpacity: 0.05,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 8 },
     elevation: 2,
   },
   soft: {
-    shadowColor: "#1c1917",
+    shadowColor: "#18212b",
     shadowOpacity: 0.03,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
     elevation: 1,
   },
   press: {
-    shadowColor: "#f97316",
-    shadowOpacity: 0.22,
-    shadowRadius: 22,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 6,
+    shadowColor: "#315f7d",
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
   },
 } as const;
 
@@ -106,8 +106,8 @@ export const motion = {
 } as const;
 
 export const tiles = {
-  scan: { bg: "#fff1e3", icon: colors.primary, accent: colors.primaryBright },
-  swipe: { bg: "#ecfccb", icon: colors.sageDeep, accent: colors.sage },
-  trim: { bg: "#fef3c7", icon: "#92400e", accent: colors.honey },
-  games: { bg: "#e0f2fe", icon: "#075985", accent: colors.info },
+  scan: { bg: "#eaf0f4", icon: colors.primary, accent: colors.primaryBright },
+  swipe: { bg: colors.sageSoft, icon: colors.sageDeep, accent: colors.sage },
+  trim: { bg: colors.honeySoft, icon: "#66552f", accent: colors.honey },
+  games: { bg: colors.infoSoft, icon: "#294f67", accent: colors.info },
 } as const;

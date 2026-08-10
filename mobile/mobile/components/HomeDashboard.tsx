@@ -169,7 +169,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
     : scanComplete
       ? "Scanning completed"
       : "Find savings";
-  const scanBg = scanComplete ? colors.sageSoft : "#ffe6cc";
+  const scanBg = scanComplete ? colors.sageSoft : "#e3ebf0";
   const scanAccent = scanComplete ? colors.sageDeep : tiles.scan.accent;
   const healthScore = libraryHealthScore(stats, scan, today);
   const projectedFreed = scan
@@ -627,7 +627,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.honey,
   },
-  tokenChipValue: { fontWeight: "900", color: colors.honey, fontSize: 14 },
+  tokenChipValue: { fontWeight: "700", color: colors.honey, fontSize: 14 },
   adBanner: {
     marginTop: spacing.md,
     flexDirection: "row",
@@ -663,7 +663,7 @@ const styles = StyleSheet.create({
   breakdownLine: { flexDirection: "row", alignItems: "center", gap: 6 },
   breakdownDot: { width: 8, height: 8, borderRadius: 4 },
   breakdownLabel: { flex: 1, fontSize: 11, fontWeight: "800", color: colors.textMuted },
-  breakdownValue: { fontSize: 11, fontWeight: "900", color: colors.text },
+  breakdownValue: { fontSize: 11, fontWeight: "700", color: colors.text },
   thumbStack: { flexDirection: "row", alignItems: "center" },
   thumbStackImg: {
     width: 32,
@@ -681,8 +681,8 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
   },
   healthCopy: { flex: 1, gap: 4 },
-  healthValue: { color: colors.primary, fontSize: 24, fontWeight: "900" },
-  healthLabel: { color: colors.textMuted, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
+  healthValue: { color: colors.primary, fontSize: 24, fontWeight: "700" },
+  healthLabel: { color: colors.textMuted, fontSize: 10, fontWeight: "700", textTransform: "uppercase" },
   cleanupHero: {
     flexDirection: "row",
     alignItems: "center",
@@ -702,7 +702,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: colors.danger,
   },
-  cleanupTitle: { color: colors.text, fontSize: 16, fontWeight: "900" },
+  cleanupTitle: { color: colors.text, fontSize: 16, fontWeight: "700" },
   cleanupHint: { color: "#991b1b", fontSize: 12, fontWeight: "700", marginTop: 2 },
   optimizeCard: {
     marginTop: spacing.sm,
@@ -737,7 +737,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  storageActionTitle: { color: colors.text, fontSize: 15, fontWeight: "900" },
+  storageActionTitle: { color: colors.text, fontSize: 15, fontWeight: "700" },
   storageActionHint: { color: colors.textMuted, fontSize: 11, fontWeight: "700", lineHeight: 15 },
 
   dailyGoalCard: { gap: spacing.md },
@@ -747,9 +747,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: spacing.md,
   },
-  goalTitle: { fontSize: 14, fontWeight: "900", color: colors.text },
+  goalTitle: { fontSize: 14, fontWeight: "700", color: colors.text },
   goalHint: { marginTop: 2, fontSize: 12, color: colors.textMuted, fontWeight: "600" },
-  goalPercent: { color: colors.primary, fontSize: 22, fontWeight: "900" },
+  goalPercent: { color: colors.primary, fontSize: 22, fontWeight: "700" },
   goalTrack: {
     height: 10,
     overflow: "hidden",
@@ -774,8 +774,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: spacing.md,
   },
-  embeddedGoalTitle: { fontSize: 12, fontWeight: "900", color: colors.text },
-  embeddedGoalValue: { fontSize: 12, fontWeight: "900", color: colors.primary },
+  embeddedGoalTitle: { fontSize: 12, fontWeight: "700", color: colors.text },
+  embeddedGoalValue: { fontSize: 12, fontWeight: "700", color: colors.primary },
 
   weeklyCard: { gap: spacing.lg },
   weeklyDays: { flexDirection: "row", justifyContent: "space-between", gap: 6 },
@@ -793,7 +793,7 @@ const styles = StyleSheet.create({
   weeklyDotDone: { backgroundColor: colors.sageSoft, borderColor: colors.sage },
   weeklyDotClaimed: { backgroundColor: colors.primary, borderColor: colors.primary },
   weeklyDotToday: { borderWidth: 2 },
-  weeklyDotText: { fontSize: 12, fontWeight: "900", color: colors.textMuted },
+  weeklyDotText: { fontSize: 12, fontWeight: "700", color: colors.textMuted },
   weeklyDotTextActive: { color: colors.sageDeep },
   weeklyLabel: { fontSize: 10, color: colors.textMuted, fontWeight: "800" },
   weeklyFooter: { flexDirection: "row", alignItems: "center", gap: spacing.md },
@@ -804,7 +804,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
   },
   claimButtonDisabled: { backgroundColor: colors.border, opacity: 0.8 },
-  claimButtonText: { color: colors.white, fontSize: 13, fontWeight: "900" },
+  claimButtonText: { color: colors.white, fontSize: 13, fontWeight: "700" },
 
   todayCard: {
     borderRadius: radius.lg,
@@ -823,7 +823,7 @@ const styles = StyleSheet.create({
   },
   todayStat: { flex: 1, alignItems: "center", justifyContent: "center", gap: 3 },
   todayCompactStat: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
-  todayValue: { fontSize: 22, fontWeight: "900" },
+  todayValue: { fontSize: 22, fontWeight: "700" },
   todayLabel: { fontSize: 11, color: colors.textMuted, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
   todayDivider: { width: StyleSheet.hairlineWidth, alignSelf: "stretch", backgroundColor: colors.border },
 
@@ -849,7 +849,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
   },
   recommendedCopy: { flex: 1, gap: 3 },
-  recommendedTitle: { fontSize: 16, fontWeight: "900", color: colors.text },
+  recommendedTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
   recommendedHint: { fontSize: 12, fontWeight: "700", color: colors.textMuted },
   reviewButton: {
     borderRadius: radius.pill,
@@ -857,7 +857,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  reviewButtonText: { color: colors.primary, fontSize: 12, fontWeight: "900" },
+  reviewButtonText: { color: colors.primary, fontSize: 12, fontWeight: "700" },
 
   modalBackdrop: {
     flex: 1,
@@ -882,7 +882,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: spacing.md,
   },
-  detailModalTitle: { fontSize: 20, fontWeight: "900", color: colors.text },
+  detailModalTitle: { fontSize: 20, fontWeight: "700", color: colors.text },
   modalHero: { marginTop: 0 },
   modalClose: {
     width: 36,
@@ -906,8 +906,8 @@ const styles = StyleSheet.create({
   },
   filterSlider: { gap: 8 },
   filterSliderHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
-  filterSliderLabel: { fontSize: 12, fontWeight: "900", color: colors.text },
-  filterSliderValue: { fontSize: 12, fontWeight: "900", color: colors.primary },
+  filterSliderLabel: { fontSize: 12, fontWeight: "700", color: colors.text },
+  filterSliderValue: { fontSize: 12, fontWeight: "700", color: colors.primary },
   filterTrack: { height: 24, justifyContent: "center" },
   filterRail: {
     position: "absolute",
@@ -974,7 +974,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
   },
-  recentRowAction: { backgroundColor: "#fff7ed" },
+  recentRowAction: { backgroundColor: "#f3f6f8" },
   recentRowDivider: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.borderSoft,
@@ -991,7 +991,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 6,
   },
-  restorePillText: { color: colors.danger, fontSize: 11, fontWeight: "900" },
+  restorePillText: { color: colors.danger, fontSize: 11, fontWeight: "700" },
 
   emptyCard: { alignItems: "center", gap: 6, paddingVertical: spacing.xl },
   emptyTitle: { fontSize: 14, fontWeight: "800", color: colors.text },

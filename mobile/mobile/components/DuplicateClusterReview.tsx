@@ -304,7 +304,7 @@ const styles = StyleSheet.create({
   title: { ...type.subtitle, color: colors.ink },
   description: { ...type.caption, marginTop: 2 },
   savings: { alignItems: "flex-end", justifyContent: "center", minWidth: 64 },
-  savingsValue: { fontSize: 15, color: colors.sageDeep, fontWeight: "900" },
+  savingsValue: { fontSize: 15, color: colors.sageDeep, fontWeight: "700" },
   savingsLabel: { fontSize: 10, color: colors.textMuted, fontWeight: "700" },
   suggestion: {
     flexDirection: "row",
@@ -320,7 +320,7 @@ const styles = StyleSheet.create({
   suggestionTitleRow: { flexDirection: "row", alignItems: "center", gap: 5 },
   suggestionTitle: {
     fontSize: 12,
-    fontWeight: "900",
+    fontWeight: "700",
     color: colors.sageDeep,
     textTransform: "uppercase",
     letterSpacing: 0.4,
@@ -375,7 +375,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 5,
   },
-  keepBadgeText: { color: colors.white, fontSize: 8, fontWeight: "900", letterSpacing: 0.4 },
+  keepBadgeText: { color: colors.white, fontSize: 8, fontWeight: "700", letterSpacing: 0.4 },
   removeCheck: {
     position: "absolute",
     right: 5,
@@ -419,5 +419,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   confirmButtonDisabled: { opacity: 0.45 },
-  confirmText: { color: colors.white, fontSize: 13, fontWeight: "900" },
+  confirmText: { color: colors.white, fontSize: 13, fontWeight: "700" },
 });
