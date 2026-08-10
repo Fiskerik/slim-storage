@@ -103,6 +103,9 @@ export type NativeActionLogEntry = {
 
 const STATS_FILE = "trimswipe-native-stats-v1.json";
 
+export const MAX_PHOTO_SIZE_THRESHOLD_MB = 500;
+export const MAX_PHOTO_AGE_THRESHOLD_YEARS = 100;
+
 const DEFAULT_BACKGROUND_SCAN_SCHEDULES: NativeBackgroundScanSchedule[] = [
   {
     id: "daily-cleanup-check",
@@ -359,8 +362,14 @@ function normalizeStats(value: unknown): NativeStats {
       targetMode: normalizeTargetMode(rawSettings.targetMode),
       sessionMode: normalizeSessionMode(rawSettings.sessionMode),
       cardsPerRound: Math.min(30, Math.max(5, safeNumber(rawSettings.cardsPerRound, 10))),
-      minSizeMB: Math.min(10, Math.max(0.5, safeNumber(rawSettings.minSizeMB, 5))),
-      minAgeYears: Math.min(3, Math.max(0, safeNumber(rawSettings.minAgeYears, 1))),
+      minSizeMB: Math.min(
+        MAX_PHOTO_SIZE_THRESHOLD_MB,
+        Math.max(0.5, safeNumber(rawSettings.minSizeMB, 5)),
+      ),
+      minAgeYears: Math.min(
+        MAX_PHOTO_AGE_THRESHOLD_YEARS,
+        Math.max(0, safeNumber(rawSettings.minAgeYears, 1)),
+      ),
       trimQuality: Math.min(0.98, Math.max(0.5, safeNumber(rawSettings.trimQuality, 0.9))),
       trimOutputMode: normalizeTrimOutputMode(rawSettings.trimOutputMode),
       trimKinds: normalizeTrimKinds(rawSettings.trimKinds),

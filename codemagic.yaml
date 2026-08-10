@@ -65,6 +65,10 @@ workflows:
             "${EXPO_PUBLIC_IOS_INTERSTITIAL_ID:-}" \
             "${ADMOB_IOS_INTERSTITIAL_ID:-}" \
             "${admob_ios_interstitial_id:-}")
+          ADMOB_IOS_NATIVE_MIDSET=$(first_value \
+            "${EXPO_PUBLIC_IOS_NATIVE_MIDSET_ID:-}" \
+            "${ADMOB_IOS_NATIVE_MIDSET_ID:-}" \
+            "${admob_ios_native_midset_id:-}")
           ADMOB_USE_TEST_ADS=$(first_value \
             "${EXPO_PUBLIC_ADMOB_USE_TEST_ADS:-}" \
             "${ADMOB_USE_TEST_ADS:-}" \
@@ -114,6 +118,13 @@ workflows:
                 exit 1
                 ;;
             esac
+            case "$ADMOB_IOS_NATIVE_MIDSET" in
+              ca-app-pub-*/*) ;;
+              *)
+                echo "AdMob iOS native mid-set ad-unit ID is missing or invalid. Add EXPO_PUBLIC_IOS_NATIVE_MIDSET_ID to the Env group (format: ca-app-pub-.../...)."
+                exit 1
+                ;;
+            esac
           fi
 
           printf 'EXPO_PUBLIC_RC_KEY=%s\n' "$REVENUECAT_KEY" >> "$CM_ENV"
@@ -122,6 +133,7 @@ workflows:
           printf 'EXPO_PUBLIC_ADMOB_IOS_APP_ID=%s\n' "$ADMOB_IOS_APP" >> "$CM_ENV"
           printf 'EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID=%s\n' "$ADMOB_IOS_REWARDED" >> "$CM_ENV"
           printf 'EXPO_PUBLIC_ADMOB_IOS_INTERSTITIAL_ID=%s\n' "$ADMOB_IOS_INTERSTITIAL" >> "$CM_ENV"
+          printf 'EXPO_PUBLIC_IOS_NATIVE_MIDSET_ID=%s\n' "$ADMOB_IOS_NATIVE_MIDSET" >> "$CM_ENV"
           printf 'EXPO_PUBLIC_ADMOB_USE_TEST_ADS=%s\n' "$ADMOB_USE_TEST_ADS" >> "$CM_ENV"
 
       - name: Build Root Mobile SPA Bundle

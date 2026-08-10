@@ -1,7 +1,20 @@
 import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library";
 import type { NativeSettings, NativeTrimKind } from "./native-store";
-import { findSimilarPhotosOnDevice, isPhotoIntelligenceAvailable } from "./photo-intelligence";
+import {
+  findSimilarPhotosOnDevice,
+  isPhotoIntelligenceAvailable,
+  photoIntelligenceCapabilities,
+  type PhotoIntelligenceAsset,
+} from "./photo-intelligence";
+import {
+  buildConservativeCaptureGroups,
+  buildSimilarityCandidateGroups,
+  clusterVerifiedSimilarityPairs,
+  selectSimilarityRemovals,
+  type SimilarityItem,
+  type VerifiedSimilarityPair,
+} from "./photo-similarity";
 
 export type NativeCleanupCategory =
   | "large"
@@ -53,6 +66,9 @@ export type NativePhotoRoundOptions = {
 export type NativeLibraryScanProgress = {
   scanned: number;
   total?: number;
+  phase?: "indexing" | "similarity";
+  analyzed?: number;
+  analysisTotal?: number;
 };
 
 export type NativePhotoStorageBreakdown = {
@@ -62,15 +78,27 @@ export type NativePhotoStorageBreakdown = {
   otherPhotosMB: number;
 };
 
+export type NativePhotoFilterIndexItem = {
+  sizeMB: number;
+  ageYears: number;
+  trimSavingsMB: number;
+};
+
 export type NativeLibraryScan = {
   assetCount: number;
   localAssetCount: number;
   unknownSizeCount: number;
   totalSizeMB: number;
   localSizeMB: number;
+  largestPhotoMB: number;
+  oldestPhotoAgeYears: number;
+  filterIndex: NativePhotoFilterIndexItem[];
   storageByType: NativePhotoStorageBreakdown;
   deviceCapacityMB: number | null;
   freeSpaceMB: number | null;
+  similarityAnalysis: "vision" | "unavailable";
+  similarityCandidateCount: number;
+  similarityAnalyzedCount: number;
   trimSavingsMB: number;
   duplicateDeleteSavingsMB: number;
   mistakeDeleteSavingsMB: number;
@@ -121,7 +149,8 @@ type PhotoMetadataCache = {
 type MediaAlbum = Awaited<ReturnType<typeof MediaLibrary.getAlbumsAsync>>[number];
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const CACHE_FILE = "trimswipe-native-photo-cache-v2.json";
+// v3 drops legacy heuristic "Similar" labels from cached photo metadata.
+const CACHE_FILE = "trimswipe-native-photo-cache-v3.json";
 const TRIM_TAGS_FILE = "trimswipe-native-trim-tags-v1.json";
 const CACHE_LIMIT = 700;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -437,6 +466,7 @@ function estimateTrimKindSavings(
 
 const SIMILAR_SESSION_WINDOW_MS = 90 * 1000;
 const BURST_WINDOW_MS = 8 * 1000;
+const VISION_SIMILARITY_THRESHOLD = 8;
 
 function burstKey(asset: MediaLibrary.Asset): string {
   return `${Math.round(asset.creationTime / BURST_WINDOW_MS)}:${asset.width}x${asset.height}`;
@@ -467,38 +497,43 @@ function assetsLookSimilar(a: MediaLibrary.Asset, b: MediaLibrary.Asset, windowM
   return gapMs <= windowMs && dimensionsClose(a, b) && sizesClose(a, b);
 }
 
-function buildSimilarGroups(assets: MediaLibrary.Asset[]): MediaLibrary.Asset[][] {
-  const sorted = assets
-    .filter((asset) => !assetHasGeneratedTrimFilename(asset))
-    .sort((a, b) => b.creationTime - a.creationTime);
-  const used = new Set<string>();
-  const groups: MediaLibrary.Asset[][] = [];
-
-  for (let i = 0; i < sorted.length; i += 1) {
-    const anchor = sorted[i];
-    if (used.has(anchor.id)) continue;
-    const group = [anchor];
-
-    for (let j = i + 1; j < sorted.length; j += 1) {
-      const candidate = sorted[j];
-      const gapMs = Math.abs(anchor.creationTime - candidate.creationTime);
-      if (gapMs > SIMILAR_SESSION_WINDOW_MS) break;
-      if (!used.has(candidate.id) && assetsLookSimilar(anchor, candidate)) {
-        group.push(candidate);
-      }
-    }
-
-    if (group.length >= 2) {
-      group.forEach((asset) => used.add(asset.id));
-      groups.push(group);
-    }
-  }
-
-  return groups;
+function similarityItem(asset: MediaLibrary.Asset): SimilarityItem {
+  return {
+    id: asset.id,
+    creationTime: asset.creationTime,
+    width: asset.width || 0,
+    height: asset.height || 0,
+    sizeMB: estimatedAssetSizeMB(asset),
+  };
 }
 
-function buildDuplicateLookup(assets: MediaLibrary.Asset[]): Set<string> {
-  return new Set(buildSimilarGroups(assets).flatMap((group) => group.map((asset) => asset.id)));
+function assetCanBeSimilar(asset: MediaLibrary.Asset): boolean {
+  return (
+    !assetHasGeneratedTrimFilename(asset) &&
+    !assetLooksLikeScreenshot(asset) &&
+    !assetLooksLikeLivePhoto(asset) &&
+    !assetLooksLikeBurst(asset)
+  );
+}
+
+function mapItemGroupsToAssets(
+  groups: SimilarityItem[][],
+  assets: MediaLibrary.Asset[],
+): MediaLibrary.Asset[][] {
+  const byId = new Map(assets.map((asset) => [asset.id, asset]));
+  return groups
+    .map((group) => group.map((item) => byId.get(item.id)).filter((asset): asset is MediaLibrary.Asset => Boolean(asset)))
+    .filter((group) => group.length >= 2);
+}
+
+function buildSimilarityCandidateAssetGroups(assets: MediaLibrary.Asset[]): MediaLibrary.Asset[][] {
+  const eligible = assets.filter(assetCanBeSimilar);
+  return mapItemGroupsToAssets(buildSimilarityCandidateGroups(eligible.map(similarityItem)), eligible);
+}
+
+function buildConservativeSimilarGroups(assets: MediaLibrary.Asset[]): MediaLibrary.Asset[][] {
+  const eligible = assets.filter(assetCanBeSimilar);
+  return mapItemGroupsToAssets(buildConservativeCaptureGroups(eligible.map(similarityItem)), eligible);
 }
 
 function includesReason(photo: Pick<NativePhoto, "cleanupReasons" | "title">, reason: string): boolean {
@@ -527,7 +562,7 @@ function matchesPhotoSettings(
       return isLarge && isOld;
     case "duplicates":
     case "similar":
-      return includesReason(photo, "Similar") || includesReason(photo, "Uncategorized");
+      return includesReason(photo, "Similar");
     case "blurry":
       return includesReason(photo, "Mistake?") || includesReason(photo, "Blurry") || includesReason(photo, "Dark");
     case "screenshots":
@@ -1056,6 +1091,116 @@ async function readDeviceStorageMB(): Promise<{ total: number | null; free: numb
   return { total, free };
 }
 
+type VerifiedSimilarityResult = {
+  groups: MediaLibrary.Asset[][];
+  analysisById: Map<string, PhotoIntelligenceAsset>;
+  method: "vision" | "unavailable";
+  candidateCount: number;
+  analyzedCount: number;
+};
+
+function packSimilarityGroups(
+  groups: MediaLibrary.Asset[][],
+  maximumAssets: number,
+): { candidateGroups: MediaLibrary.Asset[][]; batches: MediaLibrary.Asset[][] } {
+  const capacity = Math.max(2, maximumAssets);
+  const candidateGroups = groups.flatMap((group) => {
+    if (group.length <= capacity) return [group];
+    const chunks: MediaLibrary.Asset[][] = [];
+    for (let index = 0; index < group.length; index += capacity) {
+      const chunk = group.slice(index, index + capacity);
+      if (chunk.length >= 2) chunks.push(chunk);
+    }
+    return chunks;
+  });
+  const batches: MediaLibrary.Asset[][] = [];
+  let current: MediaLibrary.Asset[] = [];
+
+  candidateGroups.forEach((group) => {
+    if (current.length > 0 && current.length + group.length > capacity) {
+      batches.push(current);
+      current = [];
+    }
+    current.push(...group);
+  });
+  if (current.length > 0) batches.push(current);
+  return { candidateGroups, batches };
+}
+
+async function findVerifiedSimilarAssetGroups(
+  assets: MediaLibrary.Asset[],
+  onProgress?: (progress: NativeLibraryScanProgress) => void,
+): Promise<VerifiedSimilarityResult> {
+  const broadGroups = buildSimilarityCandidateAssetGroups(assets);
+  const candidateCount = broadGroups.reduce((sum, group) => sum + group.length, 0);
+  const analysisById = new Map<string, PhotoIntelligenceAsset>();
+  if (!isPhotoIntelligenceAvailable()) {
+    return { groups: [], analysisById, method: "unavailable", candidateCount, analyzedCount: 0 };
+  }
+  if (candidateCount === 0) {
+    return { groups: [], analysisById, method: "vision", candidateCount: 0, analyzedCount: 0 };
+  }
+
+  const maximumAssets = photoIntelligenceCapabilities()?.maximumAssetsPerBatch ?? 120;
+  const { candidateGroups, batches } = packSimilarityGroups(broadGroups, maximumAssets);
+  const verifiedPairs: VerifiedSimilarityPair[] = [];
+  let succeededBatches = 0;
+  let analyzedCount = 0;
+  let processedCount = 0;
+
+  for (const batch of batches) {
+    try {
+      const analysis = await findSimilarPhotosOnDevice(
+        batch.map((asset) => asset.id),
+        VISION_SIMILARITY_THRESHOLD,
+      );
+      succeededBatches += 1;
+      processedCount += analysis.processedCount;
+      analysis.items.forEach((item) => {
+        analysisById.set(item.assetId, item);
+        if (item.analysisAvailable) analyzedCount += 1;
+      });
+      verifiedPairs.push(...analysis.pairs);
+    } catch (error) {
+      console.log("[NativePhotoSource] Vision similarity batch failed", {
+        error,
+        batchSize: batch.length,
+      });
+    }
+    onProgress?.({
+      scanned: assets.length,
+      total: assets.length,
+      phase: "similarity",
+      analyzed: Math.min(candidateCount, processedCount),
+      analysisTotal: candidateCount,
+    });
+  }
+
+  const method = succeededBatches > 0 && analyzedCount >= 2 ? "vision" : "unavailable";
+  if (method !== "vision") {
+    return { groups: [], analysisById, method, candidateCount, analyzedCount };
+  }
+  const verifiedItemGroups = clusterVerifiedSimilarityPairs(
+    candidateGroups.map((group) => group.map(similarityItem)),
+    verifiedPairs,
+  );
+  return {
+    groups: mapItemGroupsToAssets(verifiedItemGroups, assets),
+    analysisById,
+    method,
+    candidateCount,
+    analyzedCount,
+  };
+}
+
+async function buildVisionVerifiedDuplicateLookup(
+  assets: MediaLibrary.Asset[],
+): Promise<Set<string>> {
+  const verified = await findVerifiedSimilarAssetGroups(assets);
+  if (verified.method !== "vision") return new Set<string>();
+  return new Set(verified.groups.flatMap((group) => group.map((asset) => asset.id)));
+}
+
 async function fetchAllPhotoAssets(
   onProgress?: (progress: NativeLibraryScanProgress) => void,
 ): Promise<MediaLibrary.Asset[]> {
@@ -1076,7 +1221,7 @@ async function fetchAllPhotoAssets(
     total = typeof (page as typeof page & { totalCount?: number }).totalCount === "number"
       ? (page as typeof page & { totalCount?: number }).totalCount
       : total;
-    onProgress?.({ scanned: assets.length, total });
+    onProgress?.({ scanned: assets.length, total, phase: "indexing" });
   } while (after);
 
   return assets;
@@ -1086,9 +1231,12 @@ export async function scanPhotoLibrary(
   onProgress?: (progress: NativeLibraryScanProgress) => void,
 ): Promise<NativeLibraryScan> {
   const [assets, storage] = await Promise.all([fetchAllPhotoAssets(onProgress), readDeviceStorageMB()]);
+  const similarity = await findVerifiedSimilarAssetGroups(assets, onProgress);
+  const similaritySelection = selectSimilarityRemovals(
+    similarity.groups.map((group) => group.map(similarityItem)),
+  );
+  const duplicateRemovalIds = similaritySelection.removalIds;
   const burstGroups = new Map<string, Array<{ id: string; sizeMB: number }>>();
-  const similarGroups = buildSimilarGroups(assets);
-  const similarIds = new Set(similarGroups.flatMap((group) => group.map((asset) => asset.id)));
   const summaries = assets.map((asset) => {
     const measuredSizeMB = assetSizeMB(asset);
     const sizeMB = estimatedAssetSizeMB(asset);
@@ -1098,10 +1246,11 @@ export async function scanPhotoLibrary(
       burst,
       sizeMB,
       measured: measuredSizeMB > 0,
-      duplicate: similarIds.has(asset.id),
+      similarRemoval: duplicateRemovalIds.has(asset.id),
       mistake: assetLooksLikeMistake(asset),
       screenshot: assetLooksLikeScreenshot(asset),
       large: sizeMB >= 5,
+      ageYears: ageYears(asset.creationTime),
       old: ageYears(asset.creationTime) >= 1,
       live: assetLooksLikeLivePhoto(asset),
     };
@@ -1109,32 +1258,35 @@ export async function scanPhotoLibrary(
     return summary;
   });
 
-  const duplicateRemovalIds = new Set<string>();
-  let duplicateDeleteSavingsMB = 0;
-  let duplicateRemovalCount = 0;
-
-  similarGroups.forEach((group) => {
-    const removable = group
-      .map((asset) => ({ id: asset.id, sizeMB: estimatedAssetSizeMB(asset) }))
-      .sort((a, b) => b.sizeMB - a.sizeMB)
-      .slice(1);
-    duplicateRemovalCount += removable.length;
-    removable.forEach((item) => {
-      duplicateRemovalIds.add(item.id);
-      duplicateDeleteSavingsMB += item.sizeMB;
-    });
-  });
+  const deleteCandidateIds = new Set<string>();
+  const screenshotSummaries = summaries.filter((item) => item.screenshot);
+  screenshotSummaries.forEach((item) => deleteCandidateIds.add(item.id));
+  const screenshotSavingsMB = screenshotSummaries.reduce((sum, item) => sum + item.sizeMB, 0);
+  const duplicateSummaries = summaries.filter((item) => item.similarRemoval && !deleteCandidateIds.has(item.id));
+  duplicateSummaries.forEach((item) => deleteCandidateIds.add(item.id));
+  const duplicateDeleteSavingsMB = duplicateSummaries.reduce((sum, item) => sum + item.sizeMB, 0);
+  const duplicateRemovalCount = duplicateSummaries.length;
 
   let burstDeleteSavingsMB = 0;
   let burstCount = 0;
   burstGroups.forEach((items) => {
     if (items.length < 3) return;
     const removable = [...items].sort((a, b) => b.sizeMB - a.sizeMB).slice(1);
-    burstCount += removable.length;
     removable.forEach((item) => {
-      if (!duplicateRemovalIds.has(item.id)) burstDeleteSavingsMB += item.sizeMB;
+      if (deleteCandidateIds.has(item.id)) return;
+      deleteCandidateIds.add(item.id);
+      burstCount += 1;
+      burstDeleteSavingsMB += item.sizeMB;
     });
   });
+
+  const mistakeSummaries = summaries.filter(
+    (item) => item.mistake && !deleteCandidateIds.has(item.id),
+  );
+  mistakeSummaries.forEach((item) => deleteCandidateIds.add(item.id));
+  const mistakeDeleteSavingsMB = mistakeSummaries.reduce((sum, item) => sum + item.sizeMB, 0);
+  const deleteSavingsMB =
+    screenshotSavingsMB + duplicateDeleteSavingsMB + burstDeleteSavingsMB + mistakeDeleteSavingsMB;
 
   const totalSizeMB = summaries.reduce((sum, item) => sum + item.sizeMB, 0);
   const localSizeMB = summaries
@@ -1144,29 +1296,26 @@ export async function scanPhotoLibrary(
     (breakdown, item) => {
       if (item.screenshot) breakdown.screenshotsMB += item.sizeMB;
       else if (item.live) breakdown.livePhotosMB += item.sizeMB;
-      else if (item.duplicate) breakdown.similarPhotosMB += item.sizeMB;
+      else if (item.similarRemoval) breakdown.similarPhotosMB += item.sizeMB;
       else breakdown.otherPhotosMB += item.sizeMB;
       return breakdown;
     },
     { screenshotsMB: 0, livePhotosMB: 0, similarPhotosMB: 0, otherPhotosMB: 0 },
   );
   const trimSavingsMB = summaries.reduce(
-    (sum, item) => sum + estimateTrimSavings({ sizeMB: item.sizeMB, hasGPS: false }),
+    (sum, item) =>
+      sum +
+      (deleteCandidateIds.has(item.id)
+        ? 0
+        : estimateTrimSavings({ sizeMB: item.sizeMB, hasGPS: false })),
     0,
   );
-  const mistakeDeleteSavingsMB = summaries
-    .filter((item) => item.mistake && !duplicateRemovalIds.has(item.id))
-    .reduce((sum, item) => sum + item.sizeMB, 0);
-  const deleteSavingsMB = duplicateDeleteSavingsMB + mistakeDeleteSavingsMB;
   const largeSavingsMB = summaries
     .filter((item) => item.large)
     .reduce((sum, item) => sum + estimateTrimSavings({ sizeMB: item.sizeMB, hasGPS: false }), 0);
   const oldSavingsMB = summaries
     .filter((item) => item.old)
     .reduce((sum, item) => sum + estimateTrimSavings({ sizeMB: item.sizeMB, hasGPS: false }), 0);
-  const screenshotSavingsMB = summaries
-    .filter((item) => item.screenshot)
-    .reduce((sum, item) => sum + item.sizeMB, 0);
   const livePhotoSavingsMB = summaries
     .filter((item) => item.live)
     .reduce((sum, item) => sum + estimateTrimSavings({ sizeMB: item.sizeMB, hasGPS: false }), 0);
@@ -1177,6 +1326,15 @@ export async function scanPhotoLibrary(
     unknownSizeCount: summaries.filter((item) => !item.measured).length,
     totalSizeMB: +totalSizeMB.toFixed(2),
     localSizeMB: +localSizeMB.toFixed(2),
+    largestPhotoMB: +Math.max(0, ...summaries.map((item) => item.sizeMB)).toFixed(2),
+    oldestPhotoAgeYears: +Math.max(0, ...assets.map((asset) => ageYears(asset.creationTime))).toFixed(4),
+    filterIndex: summaries.map((item) => ({
+      sizeMB: item.sizeMB,
+      ageYears: item.ageYears,
+      // Folder-specific estimates remain useful even when the same photo is a
+      // delete candidate elsewhere; only the headline totals are de-duplicated.
+      trimSavingsMB: +estimateTrimSavings({ sizeMB: item.sizeMB, hasGPS: false }).toFixed(2),
+    })),
     storageByType: {
       screenshotsMB: +storageByType.screenshotsMB.toFixed(2),
       livePhotosMB: +storageByType.livePhotosMB.toFixed(2),
@@ -1185,12 +1343,15 @@ export async function scanPhotoLibrary(
     },
     deviceCapacityMB: storage.total,
     freeSpaceMB: storage.free,
+    similarityAnalysis: similarity.method,
+    similarityCandidateCount: similarity.candidateCount,
+    similarityAnalyzedCount: similarity.analyzedCount,
     trimSavingsMB: +trimSavingsMB.toFixed(2),
     duplicateDeleteSavingsMB: +duplicateDeleteSavingsMB.toFixed(2),
     mistakeDeleteSavingsMB: +mistakeDeleteSavingsMB.toFixed(2),
     deleteSavingsMB: +deleteSavingsMB.toFixed(2),
     duplicateRemovalCount,
-    mistakeCount: summaries.filter((item) => item.mistake).length,
+    mistakeCount: mistakeSummaries.length,
     screenshotCount: summaries.filter((item) => item.screenshot).length,
     largeCount: summaries.filter((item) => item.large).length,
     oldCount: summaries.filter((item) => item.old).length,
@@ -1290,11 +1451,7 @@ function chooseAssets(
   duplicateLookup: Set<string>,
 ): MediaLibrary.Asset[] {
   const targeted = assets.filter((asset) => matchesAssetSettings(asset, settings, duplicateLookup));
-  // Most strict modes can be filtered from lightweight Asset fields. Uncategorized
-  // needs EXIF/trim metadata, so it hydrates a broader pool and filters afterward.
-  const needsHydratedCategory =
-    settings.targetMode === "duplicates" || settings.targetMode === "similar";
-  const pool = settings.targetMode === "balanced" || needsHydratedCategory ? assets : targeted;
+  const pool = settings.targetMode === "balanced" ? assets : targeted;
   if (settings.targetMode === "balanced") {
     return shuffle(pool)
       .sort((a, b) => b.creationTime - a.creationTime + (Math.random() - 0.5) * DAY_MS)
@@ -1367,14 +1524,15 @@ export async function loadRelatedPhotoPairs(
       assets.filter((asset) => !used.has(asset.id)),
       (requestedPairs - selectedAssets.length) * 2,
       { ...settings, targetMode: "balanced" },
-      buildDuplicateLookup(assets),
+      new Set<string>(),
     );
     for (let i = 0; i + 1 < fallback.length && selectedAssets.length < requestedPairs; i += 2) {
       selectedAssets.push([fallback[i], fallback[i + 1]]);
     }
   }
 
-  const duplicateLookup = buildDuplicateLookup(assets);
+  // Related-pair mode is not a similarity classification surface.
+  const duplicateLookup = new Set<string>();
   const flattened = selectedAssets.flat();
   const photos = await mapWithConcurrency(flattened, 3, (asset) => assetToPhoto(asset, duplicateLookup));
   await upsertCache(photos);
@@ -1410,52 +1568,21 @@ export async function loadDuplicatePhotoGroups(
   );
   if (assets.length < 2) return [];
 
-  let groupedAssets: MediaLibrary.Asset[][] = [];
-  const analysisById = new Map<
-    string,
-    { aestheticScore?: number; bestFaceCaptureQuality?: number; isUtility: boolean }
-  >();
-
-  if (isPhotoIntelligenceAvailable()) {
-    try {
-      const analysis = await findSimilarPhotosOnDevice(assets.map((asset) => asset.id), 10);
-      analysis.items.forEach((item) => analysisById.set(item.assetId, item));
-      const parent = new Map(assets.map((asset) => [asset.id, asset.id]));
-      const find = (id: string): string => {
-        const current = parent.get(id) ?? id;
-        if (current === id) return id;
-        const root = find(current);
-        parent.set(id, root);
-        return root;
-      };
-      const join = (first: string, second: string) => {
-        const firstRoot = find(first);
-        const secondRoot = find(second);
-        if (firstRoot !== secondRoot) parent.set(secondRoot, firstRoot);
-      };
-      analysis.pairs.forEach((pair) => join(pair.firstAssetId, pair.secondAssetId));
-      const byRoot = new Map<string, MediaLibrary.Asset[]>();
-      assets.forEach((asset) => {
-        const root = find(asset.id);
-        byRoot.set(root, [...(byRoot.get(root) ?? []), asset]);
-      });
-      groupedAssets = [...byRoot.values()].filter((group) => group.length >= 2);
-    } catch (error) {
-      console.log("[NativePhotoSource] Vision similarity failed; using conservative fallback", { error });
-    }
-  }
-
-  if (groupedAssets.length === 0) groupedAssets = buildSimilarGroups(assets);
+  const verified = await findVerifiedSimilarAssetGroups(assets);
+  const analysisById = verified.analysisById;
+  const usedVision = verified.method === "vision";
+  let groupedAssets = usedVision ? verified.groups : buildConservativeSimilarGroups(assets);
   groupedAssets = groupedAssets
     .sort((a, b) => Math.max(...b.map((asset) => asset.creationTime)) - Math.max(...a.map((asset) => asset.creationTime)))
     .slice(0, requestedGroups);
   if (groupedAssets.length === 0) return [];
 
   const groupedIds = new Set(groupedAssets.flatMap((group) => group.map((asset) => asset.id)));
+  const classificationIds = usedVision ? groupedIds : new Set<string>();
   const photoList = await mapWithConcurrency(
     assets.filter((asset) => groupedIds.has(asset.id)),
     3,
-    (asset) => assetToPhoto(asset, groupedIds),
+    (asset) => assetToPhoto(asset, classificationIds),
   );
   await upsertCache(photoList);
   const photoById = new Map(photoList.map((photo) => [photo.id, photo]));
@@ -1498,9 +1625,9 @@ export async function loadDuplicatePhotoGroups(
       id: assetGroup.map((asset) => asset.id).sort().join(":"),
       photos: decorated,
       suggestedKeeperId: keeper.photo.id,
-      similarityLabel: analysisById.size > 0
+      similarityLabel: usedVision
         ? "Compared privately with Apple Vision on this iPhone"
-        : "Grouped conservatively by capture time and image properties",
+        : "Short capture sequence to compare manually",
     }];
   });
 }
@@ -1538,8 +1665,10 @@ export async function loadPhotoRound(
   const avoidIds = new Set(options.avoidIds ?? []);
   const excludeMaxTrimmed = options.excludeMaxTrimmed !== false;
   const includeTrimmed = options.includeTrimmed === true || settings.includePreviouslyReviewed;
+  const requiresVisualSimilarity =
+    settings.targetMode === "duplicates" || settings.targetMode === "similar";
   const cachedTargeted = shuffle(
-    cache.photos.filter(
+    (requiresVisualSimilarity ? [] : cache.photos).filter(
       (photo) =>
         matchesPhotoSettings(photo, settings) &&
         shouldUseRoundPhoto(photo, settings, avoidIds, excludeMaxTrimmed, includeTrimmed),
@@ -1553,7 +1682,9 @@ export async function loadPhotoRound(
   }
 
   const assets = await fetchCandidateAssets(count, settings);
-  const duplicateLookup = buildDuplicateLookup(assets);
+  const duplicateLookup = requiresVisualSimilarity
+    ? await buildVisionVerifiedDuplicateLookup(assets)
+    : new Set<string>();
   const cachedIds = new Set(cachedTargeted.map((photo) => photo.id));
   const selectedCount =
     settings.targetMode === "balanced" ? count : count - cachedTargeted.length;
@@ -1580,7 +1711,9 @@ export async function loadPhotoRound(
 
   if (settings.targetMode !== "balanced" && combined.length < count) {
     const deepAssets = await fetchAllPhotoAssets();
-    const deepDuplicateLookup = buildDuplicateLookup(deepAssets);
+    const deepDuplicateLookup = requiresVisualSimilarity
+      ? await buildVisionVerifiedDuplicateLookup(deepAssets)
+      : new Set<string>();
     const usedIds = new Set(combined.map((photo) => photo.id));
     const deepSelected = chooseAssets(
       deepAssets.filter((asset) => !usedIds.has(asset.id) && !avoidIds.has(asset.id)),

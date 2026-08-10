@@ -1,0 +1,306 @@
+import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Animated,
+  Image,
+  PanResponder,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import type { LoadedSwipeMidsetNativeAd } from "../lib/ads";
+import { midsetHoldSeconds } from "../lib/swipe-midset";
+
+const DISMISS_THRESHOLD = 96;
+
+export function SwipeMidsetAdCard({
+  loaded,
+  onDismiss,
+  onOpenShop,
+}: {
+  loaded: LoadedSwipeMidsetNativeAd;
+  onDismiss: () => void;
+  onOpenShop: () => void;
+}) {
+  const { ad, renderer } = loaded;
+  const { NativeAdView, NativeMediaView, NativeAsset, NativeAssetType } = renderer;
+  const holdSeconds = useRef(midsetHoldSeconds()).current;
+  const unlockAt = useRef(Date.now() + holdSeconds * 1000).current;
+  const [secondsRemaining, setSecondsRemaining] = useState(holdSeconds);
+  const pan = useRef(new Animated.ValueXY()).current;
+  const dismissingRef = useRef(false);
+  const unlocked = secondsRemaining <= 0;
+
+  useEffect(() => {
+    const update = () => {
+      setSecondsRemaining(Math.max(0, Math.ceil((unlockAt - Date.now()) / 1000)));
+    };
+    update();
+    const timer = setInterval(update, 250);
+    return () => clearInterval(timer);
+  }, [unlockAt]);
+
+  function dismiss(direction: -1 | 1) {
+    if (!unlocked || dismissingRef.current) return;
+    dismissingRef.current = true;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Animated.timing(pan, {
+      toValue: { x: direction * 560, y: 0 },
+      duration: 220,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) onDismiss();
+      else dismissingRef.current = false;
+    });
+  }
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_, gesture) =>
+          unlocked && Math.abs(gesture.dx) > 8 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+        onPanResponderMove: Animated.event([null, { dx: pan.x }], { useNativeDriver: false }),
+        onPanResponderRelease: (_, gesture) => {
+          if (gesture.dx > DISMISS_THRESHOLD) {
+            dismiss(1);
+            return;
+          }
+          if (gesture.dx < -DISMISS_THRESHOLD) {
+            dismiss(-1);
+            return;
+          }
+          Animated.spring(pan, {
+            toValue: { x: 0, y: 0 },
+            tension: 72,
+            friction: 8,
+            useNativeDriver: true,
+          }).start();
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(pan, {
+            toValue: { x: 0, y: 0 },
+            tension: 72,
+            friction: 8,
+            useNativeDriver: true,
+          }).start();
+        },
+        onPanResponderTerminationRequest: () => false,
+      }),
+    // The responder must be rebuilt at unlock so it cannot capture an ad gesture early.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pan, unlocked],
+  );
+
+  const rotate = pan.x.interpolate({
+    inputRange: [-180, 0, 180],
+    outputRange: ["-9deg", "0deg", "9deg"],
+  });
+
+  function openShop() {
+    if (dismissingRef.current) return;
+    dismissingRef.current = true;
+    onDismiss();
+    onOpenShop();
+  }
+
+  return (
+    <Animated.View
+      {...panResponder.panHandlers}
+      style={[styles.card, { transform: [{ translateX: pan.x }, { rotate }] }]}
+    >
+      <NativeAdView nativeAd={ad} style={styles.adView}>
+        <NativeMediaView resizeMode="cover" style={styles.media} />
+        <View pointerEvents="none" style={styles.sponsoredBadge}>
+          <Text style={styles.sponsoredText}>Sponsored</Text>
+        </View>
+
+        {ad.icon ? (
+          <NativeAsset assetType={NativeAssetType.ICON}>
+            <Image source={{ uri: ad.icon.url }} style={styles.icon} />
+          </NativeAsset>
+        ) : null}
+        <NativeAsset assetType={NativeAssetType.HEADLINE}>
+          <Text style={[styles.headline, !ad.icon && styles.headlineWithoutIcon]} numberOfLines={2}>
+            {ad.headline}
+          </Text>
+        </NativeAsset>
+        {ad.advertiser ? (
+          <NativeAsset assetType={NativeAssetType.ADVERTISER}>
+            <Text style={[styles.advertiser, !ad.icon && styles.advertiserWithoutIcon]} numberOfLines={1}>
+              {ad.advertiser}
+            </Text>
+          </NativeAsset>
+        ) : null}
+        <NativeAsset assetType={NativeAssetType.BODY}>
+          <Text style={styles.body} numberOfLines={2}>{ad.body}</Text>
+        </NativeAsset>
+        <NativeAsset assetType={NativeAssetType.CALL_TO_ACTION}>
+          <Text style={styles.callToAction} numberOfLines={1}>{ad.callToAction}</Text>
+        </NativeAsset>
+
+        <View pointerEvents="none" style={styles.continueBadge}>
+          <Ionicons
+            name={unlocked ? "swap-horizontal" : "time-outline"}
+            size={15}
+            color="#ffffff"
+          />
+          <Text style={styles.continueText}>
+            {unlocked ? "Swipe to continue" : `Continue in ${secondsRemaining}s`}
+          </Text>
+        </View>
+      </NativeAdView>
+
+      <Pressable
+        accessibilityRole="link"
+        accessibilityLabel="Upgrade to Pro in the shop"
+        onPress={openShop}
+        style={({ pressed }) => [styles.upgradeLink, pressed && styles.upgradeLinkPressed]}
+      >
+        <Text style={styles.upgradeText}>Ads interrupting your flow? Upgrade to Pro</Text>
+        <Ionicons name="arrow-forward" size={17} color="#315f7d" />
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+const styles = StyleSheet.create({
+  card: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: "hidden",
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: "#d9d4c8",
+    backgroundColor: "#f7f3ea",
+    shadowColor: "#203345",
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
+  },
+  adView: {
+    height: 427,
+    backgroundColor: "#f7f3ea",
+  },
+  media: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 262,
+    backgroundColor: "#dce5df",
+  },
+  sponsoredBadge: {
+    position: "absolute",
+    top: 14,
+    left: 14,
+    borderRadius: 9,
+    backgroundColor: "rgba(18, 33, 47, 0.78)",
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  sponsoredText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  continueBadge: {
+    position: "absolute",
+    top: 222,
+    left: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: 12,
+    backgroundColor: "rgba(18, 33, 47, 0.82)",
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  continueText: {
+    color: "#ffffff",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  icon: {
+    position: "absolute",
+    top: 281,
+    left: 16,
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: "#e5e7eb",
+  },
+  headline: {
+    position: "absolute",
+    top: 278,
+    left: 74,
+    right: 16,
+    color: "#182536",
+    fontSize: 18,
+    lineHeight: 21,
+    fontWeight: "900",
+  },
+  headlineWithoutIcon: {
+    left: 16,
+  },
+  advertiser: {
+    position: "absolute",
+    top: 326,
+    left: 74,
+    right: 16,
+    color: "#68717d",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  advertiserWithoutIcon: {
+    left: 16,
+  },
+  body: {
+    position: "absolute",
+    top: 349,
+    left: 16,
+    right: 132,
+    color: "#55616e",
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  callToAction: {
+    position: "absolute",
+    right: 16,
+    bottom: 18,
+    minWidth: 104,
+    maxWidth: 126,
+    overflow: "hidden",
+    borderRadius: 14,
+    backgroundColor: "#315f7d",
+    color: "#ffffff",
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    textAlign: "center",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  upgradeLink: {
+    height: 65,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#d9d4c8",
+    backgroundColor: "#fcfaf5",
+    paddingHorizontal: 16,
+  },
+  upgradeLinkPressed: {
+    backgroundColor: "#eef2ec",
+  },
+  upgradeText: {
+    color: "#315f7d",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+});

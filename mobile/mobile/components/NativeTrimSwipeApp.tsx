@@ -22,9 +22,7 @@ import {
   StyleSheet,
   Text,
   View,
-  type GestureResponderEvent,
   type ImageSourcePropType,
-  type LayoutChangeEvent,
   type ViewStyle,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -61,6 +59,8 @@ import {
   DEFAULT_NATIVE_STATS,
   EMPTY_DAILY_STATS,
   loadNativeStats,
+  MAX_PHOTO_AGE_THRESHOLD_YEARS,
+  MAX_PHOTO_SIZE_THRESHOLD_MB,
   saveNativeStats,
   type NativeActionLogEntry,
   type NativeActionType,
@@ -80,6 +80,8 @@ import { OnboardingCarousel } from "./OnboardingCarousel";
 import { TrimScreen } from "./TrimScreen";
 import { ShopScreen } from "./ShopScreen";
 import { DuplicateClusterReview, type DuplicateCluster } from "./DuplicateClusterReview";
+import { GameFilterSlider } from "./GameFilterSlider";
+import { SwipeMidsetAdCard } from "./SwipeMidsetAdCard";
 import { addTokens, subscribeTokens, spendTokens, DAILY_CLAIM_TOKENS } from "../lib/tokens";
 import {
   getPurchaseAccessStatus,
@@ -89,7 +91,13 @@ import {
   YEARLY_PRODUCT_ID,
 } from "../lib/purchases";
 import { loadAccountSession, setAccountSignedIn } from "../lib/account-session";
-import { showRewardedAd, showInterstitialAd, initAds } from "../lib/ads";
+import {
+  initAds,
+  loadSwipeMidsetNativeAd,
+  showInterstitialAd,
+  showRewardedAd,
+  type LoadedSwipeMidsetNativeAd,
+} from "../lib/ads";
 import { colors } from "../constants/design";
 import { getNativeTheme, NATIVE_THEME_OPTIONS, type NativeThemePalette } from "../constants/themes";
 import {
@@ -97,6 +105,7 @@ import {
   notifyCleanupProgress,
   registerCleanupBackgroundTask,
 } from "../lib/progress-notifications";
+import { hasReachedMidset, shouldPresentMidsetAd } from "../lib/swipe-midset";
 
 type Screen =
   | "home"
@@ -187,6 +196,17 @@ type ReportPeriod = (typeof REPORT_PERIODS)[number];
 
 function formatMB(value: number): string {
   return value >= 1024 ? `${(value / 1024).toFixed(2)} GB` : `${value.toFixed(1)} MB`;
+}
+
+function formatScanProgress(progress: NativeLibraryScanProgress): string {
+  if (progress.phase === "similarity") {
+    const analyzed = progress.analyzed ?? 0;
+    const total = progress.analysisTotal ?? 0;
+    return total > 0 ? `Verifying similarity ${analyzed}/${total}` : "Verifying similarity";
+  }
+  return progress.total
+    ? `Scanning ${progress.scanned}/${progress.total}`
+    : `Scanning ${progress.scanned}`;
 }
 
 function cleanupPlanSavings(plan: NativeCleanupPlan): number {
@@ -343,8 +363,14 @@ function roundSettings(settings: NativeSettings): NativeSettings {
   return {
     ...settings,
     cardsPerRound: Math.min(30, Math.max(5, Math.round(settings.cardsPerRound) || 10)),
-    minSizeMB: Math.min(500, Math.max(0.5, Math.round(settings.minSizeMB * 2) / 2)),
-    minAgeYears: Math.min(100, Math.max(0, Math.round(settings.minAgeYears * 12) / 12)),
+    minSizeMB: Math.min(
+      MAX_PHOTO_SIZE_THRESHOLD_MB,
+      Math.max(0.5, Math.round(settings.minSizeMB * 2) / 2),
+    ),
+    minAgeYears: Math.min(
+      MAX_PHOTO_AGE_THRESHOLD_YEARS,
+      Math.max(0, Math.round(settings.minAgeYears * 12) / 12),
+    ),
     trimQuality: Math.min(0.98, Math.max(0.5, settings.trimQuality)),
     trimKinds: trimKinds.length > 0 ? [...new Set(trimKinds)] : ["metadata", "location", "compression"],
     trimReviewMode: settings.trimReviewMode === "trimmed-only" || settings.trimReviewMode === "all" ? settings.trimReviewMode : "normal",
@@ -741,6 +767,10 @@ export function NativeTrimSwipeApp() {
   const [stats, setStats] = useState<NativeStats>(DEFAULT_NATIVE_STATS);
   const [reviewLedger, setReviewLedger] = useState<NativePhotoReviewLedger | null>(null);
   const [queue, setQueue] = useState<NativePhoto[]>([]);
+  const [swipeRoundId, setSwipeRoundId] = useState(0);
+  const [swipeRoundInitialCount, setSwipeRoundInitialCount] = useState(0);
+  const [midsetAdDismissed, setMidsetAdDismissed] = useState(false);
+  const [midsetAdVisible, setMidsetAdVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [statsLoaded, setStatsLoaded] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState(false);
@@ -764,6 +794,7 @@ export function NativeTrimSwipeApp() {
   const [pendingTrims, setPendingTrims] = useState<NativePhoto[]>([]);
   const [tokenBalance, setTokenBalance] = useState<number>(10);
   const [isPro, setIsPro] = useState(false);
+  const [purchaseAccessReady, setPurchaseAccessReady] = useState(false);
   const [hasUnlimitedTrims, setHasUnlimitedTrims] = useState(false);
   const [accountSignedIn, setAccountSignedInState] = useState(true);
   const [activeProductId, setActiveProductId] = useState<string | null>(null);
@@ -863,11 +894,14 @@ export function NativeTrimSwipeApp() {
         setIsPro(access.isPro);
         setHasUnlimitedTrims(access.hasUnlimitedTrims);
         setActiveProductId(access.activeProductId);
+        setPurchaseAccessReady(true);
       })
       .catch(() => {
         setIsPro(false);
         setHasUnlimitedTrims(false);
         setActiveProductId(null);
+        // Do not risk showing an ad to a Pro user when entitlement lookup failed.
+        setPurchaseAccessReady(false);
       });
     void initAds().catch(() => {});
     void registerCleanupBackgroundTask();
@@ -1067,7 +1101,7 @@ export function NativeTrimSwipeApp() {
       setScanComplete(true);
       await notifyCleanupProgress(
         "TrimSwipe scan ready",
-        `Found about ${formatMB(result.trimSavingsMB + result.deleteSavingsMB + result.burstDeleteSavingsMB)} to review.`,
+        `Found about ${formatMB(result.trimSavingsMB + result.deleteSavingsMB)} to review.`,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not scan the photo library";
@@ -1086,6 +1120,10 @@ export function NativeTrimSwipeApp() {
     // FIX 1: Guard against NaN cardsPerRound before calling MediaLibrary
     const safeCount = Math.max(1, Math.round(activeSettings.cardsPerRound) || 10);
     setLoading(true);
+    setSwipeRoundId((current) => current + 1);
+    setSwipeRoundInitialCount(0);
+    setMidsetAdDismissed(false);
+    setMidsetAdVisible(false);
     setError(null);
     setRecap(null);
     setPendingDeletes([]);
@@ -1134,6 +1172,7 @@ export function NativeTrimSwipeApp() {
         });
       }
       setQueue(photos);
+      setSwipeRoundInitialCount(photos.length);
       if (fallbackNotice && options.showFallbackToast) {
         showToast("Filter widened", fallbackNotice, "info");
       }
@@ -1155,21 +1194,27 @@ export function NativeTrimSwipeApp() {
   }, [statsLoaded, onboardingDue, stats.startedAt]);
 
   useEffect(() => {
-    if (settings.sessionMode !== "time-attack" || loading || recap || pendingDeletes.length > 0) return undefined;
+    if (
+      settings.sessionMode !== "time-attack" ||
+      loading ||
+      recap ||
+      pendingDeletes.length > 0 ||
+      midsetAdVisible
+    ) return undefined;
     if (timeLeft <= 0) return undefined;
     const timer = setInterval(() => {
       setTimeLeft((current) => Math.max(0, current - 1));
     }, 1000);
     return () => clearInterval(timer);
-  }, [loading, pendingDeletes.length, recap, settings.sessionMode, timeLeft]);
+  }, [loading, midsetAdVisible, pendingDeletes.length, recap, settings.sessionMode, timeLeft]);
 
   useEffect(() => {
-    if (settings.sessionMode !== "time-attack" || timeLeft !== 0 || loading || recap) return;
+    if (settings.sessionMode !== "time-attack" || timeLeft !== 0 || loading || recap || midsetAdVisible) return;
     if (queue.length === 0) return;
     setQueue([]);
     finishSession();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, queue.length, recap, settings.sessionMode, timeLeft]);
+  }, [loading, midsetAdVisible, queue.length, recap, settings.sessionMode, timeLeft]);
 
   function finishSession() {
     commitStats((current) =>
@@ -2188,11 +2233,7 @@ export function NativeTrimSwipeApp() {
   const potentialFromScan = libraryScan
     ? libraryScan.trimSavingsMB + libraryScan.deleteSavingsMB
     : Math.max(stats.mbFreed * 2, 500);
-  const scanInProgressText = scanProgress?.total
-    ? `Scanning ${scanProgress.scanned}/${scanProgress.total}`
-    : scanProgress
-      ? `Scanning ${scanProgress.scanned}`
-      : undefined;
+  const scanInProgressText = scanProgress ? formatScanProgress(scanProgress) : undefined;
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: activeTheme.background }]}>
@@ -2224,6 +2265,9 @@ export function NativeTrimSwipeApp() {
             pendingTrims={pendingTrims}
             trimmingCount={trimmingCount}
             timeLeft={timeLeft}
+            roundId={swipeRoundId}
+            roundInitialCount={swipeRoundInitialCount}
+            midsetAdDismissed={midsetAdDismissed}
             largeControls={false}
             tokens={tokenBalance}
             trimsRemaining={trimCurrencyAvailable}
@@ -2232,10 +2276,16 @@ export function NativeTrimSwipeApp() {
             onReload={() => loadRound(settings, { showFallbackToast: true })}
             onOpenSettings={() => Linking.openSettings()}
             isPro={isPro}
+            adEligibilityReady={purchaseAccessReady}
             onChangeSettings={updateSettings}
             onConfirmActions={confirmActions}
             onCancelPending={cancelPendingActions}
             onOpenShop={() => setScreen("shop")}
+            onMidsetAdDismissed={() => {
+              setMidsetAdDismissed(true);
+              setMidsetAdVisible(false);
+            }}
+            onMidsetAdVisibilityChange={setMidsetAdVisible}
             onShare={shareProgress}
           />
         ) : screen === "stats" ? (
@@ -2338,6 +2388,7 @@ export function NativeTrimSwipeApp() {
             stats={stats}
             settings={settings}
             queue={queue}
+            scan={libraryScan}
             tokens={tokenBalance}
             isPro={isPro}
             onStartGame={startGame}
@@ -2681,24 +2732,82 @@ function CleanupPlanScreen({
 
 function SwipeScreen({
   top, next, queueCount, loading, error, permissionDenied, permissionLimited,
-  settings, recap, pendingDeletes, pendingTrims, trimmingCount, timeLeft, largeControls, tokens,
+  settings, recap, pendingDeletes, pendingTrims, trimmingCount, timeLeft,
+  roundId, roundInitialCount, midsetAdDismissed, largeControls, tokens,
   trimsRemaining, trimLimit, onAction, onReload, onOpenSettings,
-  isPro, onChangeSettings, onConfirmActions, onCancelPending, onOpenShop, onShare,
+  isPro, adEligibilityReady, onChangeSettings, onConfirmActions, onCancelPending, onOpenShop,
+  onMidsetAdDismissed, onMidsetAdVisibilityChange, onShare,
 }: {
   top?: NativePhoto; next?: NativePhoto; queueCount: number; loading: boolean;
   error: string | null; permissionDenied: boolean; permissionLimited: boolean;
   settings: NativeSettings; recap: SessionRecap | null; pendingDeletes: NativePhoto[];
   pendingTrims: NativePhoto[];
-  trimmingCount: number; timeLeft: number; largeControls: boolean; tokens: number; trimsRemaining: number;
+  trimmingCount: number; timeLeft: number; roundId: number; roundInitialCount: number;
+  midsetAdDismissed: boolean; largeControls: boolean; tokens: number; trimsRemaining: number;
   trimLimit: number; onAction: (photo: NativePhoto, action: Action) => void;
   onReload: () => void; onOpenSettings: () => void;
-  isPro: boolean; onChangeSettings: (patch: Partial<NativeSettings>) => void;
+  isPro: boolean; adEligibilityReady: boolean;
+  onChangeSettings: (patch: Partial<NativeSettings>) => void;
   onConfirmActions: (deletes: NativePhoto[], trims: NativePhoto[]) => Promise<void> | void;
   onCancelPending: () => void;
   onOpenShop: () => void;
+  onMidsetAdDismissed: () => void;
+  onMidsetAdVisibilityChange: (visible: boolean) => void;
   onShare: () => void;
 }) {
   const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
+  const [midsetAd, setMidsetAd] = useState<LoadedSwipeMidsetNativeAd | null>(null);
+  const showMidsetAd = shouldPresentMidsetAd({
+    initialCount: roundInitialCount,
+    remainingCount: queueCount,
+    isPro,
+    dismissed: midsetAdDismissed,
+    loaded: Boolean(midsetAd),
+    hasCurrentPhoto: Boolean(top),
+  });
+  const midpointReached = hasReachedMidset(roundInitialCount, queueCount);
+
+  useEffect(() => {
+    let active = true;
+    let ownedAd: LoadedSwipeMidsetNativeAd | null = null;
+    setMidsetAd(null);
+
+    if (!adEligibilityReady || isPro || midsetAdDismissed || roundInitialCount < 2) {
+      return () => { active = false; };
+    }
+
+    void loadSwipeMidsetNativeAd({ freeUserVerified: true }).then((loaded) => {
+      if (!loaded) return;
+      if (!active) {
+        try { loaded.ad.destroy(); } catch {}
+        return;
+      }
+      ownedAd = loaded;
+      setMidsetAd(loaded);
+    });
+
+    return () => {
+      active = false;
+      if (ownedAd) {
+        try { ownedAd.ad.destroy(); } catch {}
+      }
+    };
+  }, [adEligibilityReady, isPro, midsetAdDismissed, roundId, roundInitialCount]);
+
+  useEffect(() => {
+    // The placement belongs exactly at the midpoint. If preloading has not
+    // completed by then, fail open for this round instead of interrupting later.
+    if (adEligibilityReady && !isPro && !midsetAdDismissed && midpointReached && top && !midsetAd) {
+      onMidsetAdDismissed();
+    }
+  }, [adEligibilityReady, isPro, midpointReached, midsetAd, midsetAdDismissed, onMidsetAdDismissed, top]);
+
+  useEffect(() => {
+    onMidsetAdVisibilityChange(showMidsetAd);
+    return () => {
+      if (showMidsetAd) onMidsetAdVisibilityChange(false);
+    };
+  }, [onMidsetAdVisibilityChange, showMidsetAd]);
 
   if (loading) {
     return (
@@ -2759,27 +2868,44 @@ function SwipeScreen({
       </View>
       {permissionLimited ? <Text style={styles.warning}>Limited photo access is enabled. Some photos may be hidden.</Text> : null}
       <View style={styles.deck}>
-        {next ? <PhotoCard photo={next} settings={settings} stacked /> : null}
-        {top ? <SwipeablePhotoCard photo={top} settings={settings} onAction={(action) => onAction(top, action)} onOpenFull={() => setFullPhoto(top)} /> : null}
+        {showMidsetAd
+          ? top ? <PhotoCard photo={top} settings={settings} stacked /> : null
+          : next ? <PhotoCard photo={next} settings={settings} stacked /> : null}
+        {showMidsetAd && midsetAd ? (
+          <SwipeMidsetAdCard
+            loaded={midsetAd}
+            onDismiss={onMidsetAdDismissed}
+            onOpenShop={onOpenShop}
+          />
+        ) : top ? (
+          <SwipeablePhotoCard
+            photo={top}
+            settings={settings}
+            onAction={(action) => onAction(top, action)}
+            onOpenFull={() => setFullPhoto(top)}
+          />
+        ) : null}
       </View>
-      <View style={styles.actions}>
-        <ActionButton label="Keep" tone="keep" large={largeControls} onPress={() => top && onAction(top, "keep")} />
-        <ActionButton
-          label={!top ? "Trim" : !canAttemptTrim(top, settings) ? trimDisabledReason(top, settings) : trimsRemaining <= 0 ? "Limit hit" : "Trim"}
-          tone="trim"
-          large={largeControls}
-          disabled={!top || !canAttemptTrim(top, settings)}
-          onPress={() => {
-            if (!top) return;
-            if (trimsRemaining <= 0) {
-              onOpenShop();
-              return;
-            }
-            onAction(top, "trim");
-          }}
-        />
-        <ActionButton label="Delete" tone="delete" large={largeControls} onPress={() => top && onAction(top, "delete")} />
-      </View>
+      {!showMidsetAd ? (
+        <View style={styles.actions}>
+          <ActionButton label="Keep" tone="keep" large={largeControls} onPress={() => top && onAction(top, "keep")} />
+          <ActionButton
+            label={!top ? "Trim" : !canAttemptTrim(top, settings) ? trimDisabledReason(top, settings) : trimsRemaining <= 0 ? "Limit hit" : "Trim"}
+            tone="trim"
+            large={largeControls}
+            disabled={!top || !canAttemptTrim(top, settings)}
+            onPress={() => {
+              if (!top) return;
+              if (trimsRemaining <= 0) {
+                onOpenShop();
+                return;
+              }
+              onAction(top, "trim");
+            }}
+          />
+          <ActionButton label="Delete" tone="delete" large={largeControls} onPress={() => top && onAction(top, "delete")} />
+        </View>
+      ) : null}
       <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </View>
   );
@@ -3492,7 +3618,7 @@ function OnboardingScreen({ scan, scanBusy, scanError, scanProgress, permissionD
   scanProgress: NativeLibraryScanProgress | null; permissionDenied: boolean; permissionLimited: boolean;
   onScan: () => void; onDone: () => void; onOpenSettings: () => void;
 }) {
-  const progressText = scanProgress?.total ? `Scanning ${scanProgress.scanned}/${scanProgress.total} photos...` : scanProgress ? `Scanning ${scanProgress.scanned} photos...` : "Scanning...";
+  const progressText = scanProgress ? formatScanProgress(scanProgress) : "Scanning...";
   return (
     <ScrollView contentContainerStyle={[styles.content, styles.onboardingContent]}>
       <View style={styles.dashboardHero}>
@@ -3544,7 +3670,7 @@ function ScanResults({ scan }: { scan: NativeLibraryScan }) {
       <View style={styles.storageBars}>
         <StorageBar label="Photo library now" detail={`${formatMB(scan.totalSizeMB)} allocated`} valueMB={scan.totalSizeMB} capacityMB={capacityMB} tone="now" />
         <StorageBar label="After Trim" detail={`${formatMB(scan.trimSavingsMB)} estimated savings`} valueMB={afterTrimMB} capacityMB={capacityMB} tone="trim" />
-        <StorageBar label="After Delete" detail={`${formatMB(scan.deleteSavingsMB)} from uncategorized photos and likely mistakes`} valueMB={afterDeleteMB} capacityMB={capacityMB} tone="delete" />
+        <StorageBar label="After Delete" detail={`${formatMB(scan.deleteSavingsMB)} from disjoint review categories`} valueMB={afterDeleteMB} capacityMB={capacityMB} tone="delete" />
       </View>
       <Text style={styles.scanFootnote}>Delete estimate includes {scan.duplicateRemovalCount} uncategorized candidates and {scan.mistakeCount} likely blurry, dark, or accidental photos.</Text>
     </View>
@@ -3602,11 +3728,11 @@ const GAME_SMART_FOLDER_DEFS: Array<{
   icon: keyof typeof Ionicons.glyphMap;
   match: (photo: NativePhoto, settings: NativeSettings) => boolean;
 }> = [
-  { key: "large", label: (settings) => `>${formatGameSizeThreshold(settings.minSizeMB)}`, icon: "albums-outline", match: (photo, settings) => photo.sizeMB >= settings.minSizeMB },
-  { key: "old", label: (settings) => `>${formatGameAgeThreshold(settings.minAgeYears)}`, icon: "time-outline", match: (photo, settings) => gameAgeYears(photo.creationTime) >= settings.minAgeYears },
+  { key: "large", label: (settings) => `≥${formatGameSizeThreshold(settings.minSizeMB)}`, icon: "albums-outline", match: (photo, settings) => photo.sizeMB >= settings.minSizeMB },
+  { key: "old", label: (settings) => settings.minAgeYears <= 0 ? "Any age" : `≥${formatGameAgeThreshold(settings.minAgeYears)} old`, icon: "time-outline", match: (photo, settings) => gameAgeYears(photo.creationTime) >= settings.minAgeYears },
   { key: "screenshots", label: () => "Screens", icon: "phone-portrait-outline", match: (photo) => photo.cleanupReasons.includes("Screenshot") || photo.title.toLowerCase().includes("screen") },
   { key: "live", label: () => "Live", icon: "radio-button-on-outline", match: (photo) => photo.cleanupReasons.includes("Live Photo") },
-  { key: "duplicates", label: () => "Similar Photos", icon: "copy-outline", match: (photo) => photo.cleanupReasons.includes("Similar") || photo.cleanupReasons.includes("Uncategorized") },
+  { key: "duplicates", label: () => "Similar Photos", icon: "copy-outline", match: (photo) => photo.cleanupReasons.includes("Similar") },
   { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (photo) => photo.cleanupReasons.includes("Burst") },
 ];
 
@@ -3618,8 +3744,8 @@ function photoAccessLabel(permission: NativePhotoPermission | null): string {
   return "Limited";
 }
 
-function GamesScreen({ stats, settings, queue, tokens, isPro, onStartGame, onPickCategory, onChangeSettings, onOpenThisOrThat, onOpenStorageBudget, onOpenMemoryLane }: {
-  stats: NativeStats; settings: NativeSettings; queue: NativePhoto[]; tokens: number; isPro: boolean; onStartGame: (patch: Partial<NativeSettings>) => void;
+function GamesScreen({ stats, settings, queue, scan, tokens, isPro, onStartGame, onPickCategory, onChangeSettings, onOpenThisOrThat, onOpenStorageBudget, onOpenMemoryLane }: {
+  stats: NativeStats; settings: NativeSettings; queue: NativePhoto[]; scan: NativeLibraryScan | null; tokens: number; isPro: boolean; onStartGame: (patch: Partial<NativeSettings>) => void;
   onPickCategory: (category: NativeCleanupCategory) => void;
   onChangeSettings: (patch: Partial<NativeSettings>) => void;
   onOpenThisOrThat: () => void; onOpenStorageBudget: () => void; onOpenMemoryLane: () => void;
@@ -3627,22 +3753,46 @@ function GamesScreen({ stats, settings, queue, tokens, isPro, onStartGame, onPic
   const [photoPermission, setPhotoPermission] = useState<NativePhotoPermission | null>(null);
   const today = dailyFor(stats, dateKey());
   const todayLabel = today.mbFreed > 0 ? `${formatMB(today.mbFreed)} today` : "Ready to clean";
-  const largestPhotoMB = Math.max(0.5, ...queue.map((photo) => photo.sizeMB));
-  const oldestPhotoAgeYears = Math.max(0, ...queue.map((photo) => gameAgeYears(photo.creationTime)));
-  const largeSliderMax = Math.max(0.5, largestPhotoMB);
-  const oldSliderMax = Math.max(0, oldestPhotoAgeYears);
+  const largestPhotoMB = Math.max(0.5, scan?.largestPhotoMB ?? 0, ...queue.map((photo) => photo.sizeMB));
+  const oldestPhotoAgeYears = Math.max(0, scan?.oldestPhotoAgeYears ?? 0, ...queue.map((photo) => gameAgeYears(photo.creationTime)));
+  // Keep a useful tuning range even when the current library happens to contain
+  // only small or same-day photos; scan bounds may expand, but never collapse it.
+  const largeSliderMax = Math.max(20, largestPhotoMB, settings.minSizeMB);
+  const oldSliderMax = Math.max(10, oldestPhotoAgeYears, settings.minAgeYears);
   const largeSliderValue = Math.min(settings.minSizeMB, largeSliderMax);
   const oldSliderValue = Math.min(settings.minAgeYears, oldSliderMax);
   const displayedSettings = { ...settings, minSizeMB: largeSliderValue, minAgeYears: oldSliderValue };
+  const largeMaxText = scan && largeSliderMax === largestPhotoMB
+    ? `Largest photo (${formatGameSizeThreshold(largestPhotoMB)})`
+    : `Range up to ${formatGameSizeThreshold(largeSliderMax)}`;
+  const oldMaxText = scan && oldSliderMax === oldestPhotoAgeYears
+    ? `Oldest photo (${formatGameAgeThreshold(oldestPhotoAgeYears)})`
+    : `Range up to ${formatGameAgeThreshold(oldSliderMax)}`;
   const smartFolders: GameSmartFolder[] = GAME_SMART_FOLDER_DEFS.map((def) => {
     const matched = queue.filter((photo) => def.match(photo, displayedSettings));
-    const estMB = matched.reduce((sum, photo) => sum + (def.key === "screenshots" || def.key === "duplicates" || def.key === "bursts" ? photo.sizeMB : estimateTrimSavingsForSettings(photo, displayedSettings)), 0);
+    const queueEstMB = matched.reduce((sum, photo) => sum + (def.key === "screenshots" || def.key === "duplicates" || def.key === "bursts" ? photo.sizeMB : estimateTrimSavingsForSettings(photo, displayedSettings)), 0);
+    const scanSummary = (() => {
+      if (!scan) return null;
+      if (def.key === "large") {
+        const items = scan.filterIndex.filter((item) => item.sizeMB >= displayedSettings.minSizeMB);
+        return { count: items.length, estMB: items.reduce((sum, item) => sum + item.trimSavingsMB, 0) };
+      }
+      if (def.key === "old") {
+        const items = scan.filterIndex.filter((item) => item.ageYears >= displayedSettings.minAgeYears);
+        return { count: items.length, estMB: items.reduce((sum, item) => sum + item.trimSavingsMB, 0) };
+      }
+      if (def.key === "screenshots") return { count: scan.screenshotCount, estMB: scan.screenshotSavingsMB };
+      if (def.key === "live") return { count: scan.livePhotoCount, estMB: scan.livePhotoSavingsMB };
+      if (def.key === "duplicates") return { count: scan.duplicateRemovalCount, estMB: scan.duplicateDeleteSavingsMB };
+      if (def.key === "bursts") return { count: scan.burstCount, estMB: scan.burstDeleteSavingsMB };
+      return null;
+    })();
     return {
       key: def.key,
       label: def.label(displayedSettings),
       icon: def.icon,
-      count: matched.length || Math.max(0, Math.round(stats.reviewed * 0.15)),
-      estMB: estMB || Math.max(0, Math.round(stats.mbFreed * 0.1)),
+      count: scanSummary?.count ?? matched.length,
+      estMB: scanSummary?.estMB ?? queueEstMB,
       thumb: matched[0]?.uri,
     };
   });
@@ -3740,9 +3890,9 @@ function GamesScreen({ stats, settings, queue, tokens, isPro, onStartGame, onPic
           min={0.5}
           max={largeSliderMax}
           step={0.5}
-          valueText={`>${formatGameSizeThreshold(largeSliderValue)}`}
-          minText=">0.5 MB"
-          maxText={`Largest photo (${formatGameSizeThreshold(largestPhotoMB)})`}
+          formatValue={(sliderValue) => `≥${formatGameSizeThreshold(sliderValue)}`}
+          minText="0.5 MB minimum"
+          maxText={largeMaxText}
           onChange={(minSizeMB) => onChangeSettings({ minSizeMB })}
         />
         <GameFilterSlider
@@ -3751,9 +3901,9 @@ function GamesScreen({ stats, settings, queue, tokens, isPro, onStartGame, onPic
           min={0}
           max={oldSliderMax}
           step={1 / 12}
-          valueText={`>${formatGameAgeThreshold(oldSliderValue)}`}
-          minText="Today"
-          maxText={`Oldest photo (${formatGameAgeThreshold(oldestPhotoAgeYears)})`}
+          formatValue={(sliderValue) => sliderValue <= 0 ? "Any age" : `≥${formatGameAgeThreshold(sliderValue)} old`}
+          minText="Any age"
+          maxText={oldMaxText}
           onChange={(minAgeYears) => onChangeSettings({ minAgeYears })}
         />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.focusFolderScroll}>
@@ -3815,92 +3965,6 @@ function VisualGameCard({ icon, title, detail, image, active, onPress }: {
         <Text style={[styles.gameDetail, active && styles.gameDetailActive]} numberOfLines={1}>{detail}</Text>
       </View>
     </Pressable>
-  );
-}
-
-function GameFilterSlider({
-  label,
-  value,
-  min,
-  max,
-  step,
-  valueText,
-  minText,
-  maxText,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  valueText: string;
-  minText: string;
-  maxText: string;
-  onChange: (value: number) => void;
-}) {
-  const [width, setWidth] = useState(1);
-  const [draftValue, setDraftValue] = useState(value);
-  const safeMax = Math.max(min, max);
-  const markerCount = Math.min(13, Math.max(2, Math.floor((safeMax - min) / step) + 1));
-  const markerValues = useMemo(() => {
-    const values = Array.from({ length: markerCount }, (_, index) => {
-      if (markerCount === 1 || safeMax === min) return min;
-      const raw = min + (index / (markerCount - 1)) * (safeMax - min);
-      return +Math.max(min, Math.min(safeMax, Math.round(raw / step) * step)).toFixed(4);
-    });
-    values[0] = min;
-    values[values.length - 1] = safeMax;
-    return [...new Set(values)];
-  }, [markerCount, min, safeMax, step]);
-  const nearestMarkerValue = (input: number) =>
-    markerValues.reduce((best, candidate) =>
-      Math.abs(candidate - input) < Math.abs(best - input) ? candidate : best,
-    markerValues[0] ?? min);
-  const displayValue = nearestMarkerValue(Math.max(min, Math.min(safeMax, draftValue)));
-  const percent = safeMax === min ? 1 : Math.max(0, Math.min(1, (displayValue - min) / (safeMax - min)));
-
-  useEffect(() => {
-    setDraftValue(value);
-  }, [value]);
-
-  function valueFromLocation(locationX: number) {
-    if (safeMax <= min) {
-      return min;
-    }
-    const raw = min + (Math.max(0, Math.min(width, locationX)) / width) * (safeMax - min);
-    return nearestMarkerValue(raw);
-  }
-
-  return (
-    <View style={styles.focusSlider}>
-      <View style={styles.focusSliderHeader}>
-        <Text style={styles.focusSliderLabel}>{label}</Text>
-        <Text style={styles.focusSliderValue}>{valueText}</Text>
-      </View>
-      <View
-        style={styles.focusTrack}
-        onLayout={(event: LayoutChangeEvent) => setWidth(Math.max(1, event.nativeEvent.layout.width))}
-        onStartShouldSetResponder={() => true}
-        onMoveShouldSetResponder={() => true}
-        onResponderGrant={(event: GestureResponderEvent) => setDraftValue(valueFromLocation(event.nativeEvent.locationX))}
-        onResponderMove={(event: GestureResponderEvent) => setDraftValue(valueFromLocation(event.nativeEvent.locationX))}
-        onResponderRelease={(event: GestureResponderEvent) => onChange(valueFromLocation(event.nativeEvent.locationX))}
-        onResponderTerminate={() => onChange(displayValue)}
-      >
-        <View style={styles.focusRail} />
-        {markerValues.map((markerValue) => {
-          const markerPercent = safeMax === min ? 100 : ((markerValue - min) / (safeMax - min)) * 100;
-          return <View key={markerValue} pointerEvents="none" style={[styles.focusMarker, { left: `${markerPercent}%` }]} />;
-        })}
-        <View style={[styles.focusFill, { width: `${percent * 100}%` }]} />
-        <View style={[styles.focusThumb, { left: `${percent * 100}%` }]} />
-      </View>
-      <View style={styles.focusRangeRow}>
-        <Text style={styles.focusRangeText}>{minText}</Text>
-        <Text style={styles.focusRangeText}>{maxText}</Text>
-      </View>
-    </View>
   );
 }
 
@@ -5413,8 +5477,8 @@ function SettingsScreen({
       <FocusDropdown value={settings.targetMode} onChange={(targetMode) => onChange({ targetMode })} />
       {showsThresholds ? (
         <>
-          <SettingStepper label="Large threshold" value={settings.minSizeMB} suffix="MB" min={0.5} max={10} step={0.5} onChange={(minSizeMB) => onChange({ minSizeMB })} />
-          <SettingStepper label="Old threshold" value={settings.minAgeYears} suffix="years" min={0} max={3} step={1 / 12} onChange={(minAgeYears) => onChange({ minAgeYears })} />
+          <SettingStepper label="Large threshold" value={settings.minSizeMB} suffix="MB" min={0.5} max={MAX_PHOTO_SIZE_THRESHOLD_MB} step={0.5} onChange={(minSizeMB) => onChange({ minSizeMB })} />
+          <SettingStepper label="Old threshold" value={settings.minAgeYears} suffix="years" min={0} max={MAX_PHOTO_AGE_THRESHOLD_YEARS} step={1 / 12} onChange={(minAgeYears) => onChange({ minAgeYears })} />
         </>
       ) : null}
       <SettingStepper
@@ -5799,17 +5863,6 @@ const styles = StyleSheet.create({
   focusPanel: { borderRadius: 24, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, padding: 16, gap: 14 },
   focusHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   focusTitle: { color: "#1f2937", fontSize: 18, fontWeight: "700", marginTop: 4 },
-  focusSlider: { gap: 8 },
-  focusSliderHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  focusSliderLabel: { color: "#1f2937", fontSize: 12, fontWeight: "700" },
-  focusSliderValue: { color: "#315f7d", fontSize: 12, fontWeight: "700" },
-  focusTrack: { height: 24, justifyContent: "center" },
-  focusRail: { position: "absolute", left: 0, right: 0, height: 7, borderRadius: 999, backgroundColor: "#e5ebef" },
-  focusMarker: { position: "absolute", top: 6, width: 2, height: 12, marginLeft: -1, borderRadius: 999, backgroundColor: "#a7bdca" },
-  focusFill: { position: "absolute", left: 0, height: 7, borderRadius: 999, backgroundColor: "#315f7d" },
-  focusThumb: { position: "absolute", width: 22, height: 22, marginLeft: -11, borderRadius: 11, backgroundColor: "#ffffff", borderWidth: 3, borderColor: "#315f7d" },
-  focusRangeRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
-  focusRangeText: { color: "#64748b", fontSize: 10, fontWeight: "800", flexShrink: 1 },
   focusFolderScroll: { gap: 10, paddingRight: 4 },
   focusFolderCard: { width: 118, borderRadius: 16, backgroundColor: "#f3f6f8", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 9 },
   focusFolderThumbWrap: { position: "relative" },

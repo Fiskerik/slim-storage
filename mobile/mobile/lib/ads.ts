@@ -1,20 +1,60 @@
 // AdMob rewarded ads. Gracefully no-ops on web / Expo Go (no native module).
 // On real device builds, loads + shows a rewarded ad and credits Trim Tokens.
 
-import { Platform } from "react-native";
+import type { ComponentType, ReactElement } from "react";
+import { Platform, type ViewProps } from "react-native";
 import { addTokens, REWARDED_AD_TOKENS } from "./tokens";
 import { checkProStatus } from "./purchases";
 
-type RewardedAdModule = {
+export type SwipeMidsetNativeAd = {
+  responseId: string;
+  advertiser: string | null;
+  body: string;
+  callToAction: string;
+  headline: string;
+  icon: { url: string; scale: number } | null;
+  mediaContent: { aspectRatio: number; hasVideoContent: boolean; duration: number } | null;
+  destroy: () => void;
+};
+
+export type SwipeMidsetNativeRenderer = {
+  NativeAdView: ComponentType<ViewProps & { nativeAd: SwipeMidsetNativeAd }>;
+  NativeMediaView: ComponentType<ViewProps & { resizeMode?: "cover" | "contain" | "stretch" }>;
+  NativeAsset: ComponentType<{ assetType: string; children: ReactElement }>;
+  NativeAssetType: {
+    ADVERTISER: string;
+    BODY: string;
+    CALL_TO_ACTION: string;
+    HEADLINE: string;
+    ICON: string;
+  };
+};
+
+export type LoadedSwipeMidsetNativeAd = {
+  ad: SwipeMidsetNativeAd;
+  renderer: SwipeMidsetNativeRenderer;
+};
+
+type GoogleMobileAdsModule = {
   RewardedAd: any;
   InterstitialAd?: any;
-  TestIds: { REWARDED: string; INTERSTITIAL?: string };
+  NativeAd?: {
+    createForAdRequest: (
+      adUnitId: string,
+      options?: { requestNonPersonalizedAdsOnly?: boolean; startVideoMuted?: boolean },
+    ) => Promise<SwipeMidsetNativeAd>;
+  };
+  NativeAdView?: SwipeMidsetNativeRenderer["NativeAdView"];
+  NativeMediaView?: SwipeMidsetNativeRenderer["NativeMediaView"];
+  NativeAsset?: SwipeMidsetNativeRenderer["NativeAsset"];
+  NativeAssetType?: SwipeMidsetNativeRenderer["NativeAssetType"];
+  TestIds: { REWARDED: string; INTERSTITIAL?: string; NATIVE?: string };
   AdEventType: Record<string, string>;
   RewardedAdEventType: Record<string, string>;
   default?: { initialize: () => Promise<unknown> };
 };
 
-let mod: RewardedAdModule | null = null;
+let mod: GoogleMobileAdsModule | null = null;
 let modTried = false;
 let initialized = false;
 
@@ -24,6 +64,8 @@ const ADMOB_IOS_REWARDED_ID = process.env.EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID;
 const ADMOB_ANDROID_REWARDED_ID = process.env.EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID;
 const ADMOB_IOS_INTERSTITIAL_ID = process.env.EXPO_PUBLIC_ADMOB_IOS_INTERSTITIAL_ID;
 const ADMOB_ANDROID_INTERSTITIAL_ID = process.env.EXPO_PUBLIC_ADMOB_ANDROID_INTERSTITIAL_ID;
+const ADMOB_IOS_NATIVE_MIDSET_ID = process.env.EXPO_PUBLIC_IOS_NATIVE_MIDSET_ID;
+const ADMOB_ANDROID_NATIVE_MIDSET_ID = process.env.EXPO_PUBLIC_ANDROID_NATIVE_MIDSET_ID;
 const ADMOB_AD_UNIT_ID_PATTERN = /^ca-app-pub-\d+\/\d+$/;
 const GOOGLE_TEST_REWARDED_IDS = {
   ios: "ca-app-pub-3940256099942544/1712485313",
@@ -33,13 +75,17 @@ const GOOGLE_TEST_INTERSTITIAL_IDS = {
   ios: "ca-app-pub-3940256099942544/4411468910",
   android: "ca-app-pub-3940256099942544/1033173712",
 } as const;
+const GOOGLE_TEST_NATIVE_IDS = {
+  ios: "ca-app-pub-3940256099942544/3986624511",
+  android: "ca-app-pub-3940256099942544/2247696110",
+} as const;
 
-function loadModule(): RewardedAdModule | null {
+function loadModule(): GoogleMobileAdsModule | null {
   if (modTried) return mod;
   modTried = true;
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    mod = require("react-native-google-mobile-ads") as RewardedAdModule;
+    mod = require("react-native-google-mobile-ads") as GoogleMobileAdsModule;
   } catch (err) {
     console.log("[ads] native module unavailable", err);
     mod = null;
@@ -90,6 +136,37 @@ function interstitialUnitId(): string | null {
   return null;
 }
 
+function nativeMidsetUnitId(): string | null {
+  const m = loadModule();
+  if (!m) return null;
+  if (Platform.OS !== "ios" && Platform.OS !== "android") return null;
+
+  const testId = m.TestIds.NATIVE ?? GOOGLE_TEST_NATIVE_IDS[Platform.OS];
+  const productionId =
+    Platform.OS === "ios"
+      ? validProductionUnitId(ADMOB_IOS_NATIVE_MIDSET_ID, "EXPO_PUBLIC_IOS_NATIVE_MIDSET_ID")
+      : validProductionUnitId(
+          ADMOB_ANDROID_NATIVE_MIDSET_ID,
+          "EXPO_PUBLIC_ANDROID_NATIVE_MIDSET_ID",
+        );
+
+  if (USE_TEST_ADS) return testId;
+  if (productionId) return productionId;
+  if (IS_DEV) return testId;
+  console.log("[ads] missing native mid-set ad unit id");
+  return null;
+}
+
+function nativeRenderer(m: GoogleMobileAdsModule): SwipeMidsetNativeRenderer | null {
+  if (!m.NativeAdView || !m.NativeMediaView || !m.NativeAsset || !m.NativeAssetType) return null;
+  return {
+    NativeAdView: m.NativeAdView,
+    NativeMediaView: m.NativeMediaView,
+    NativeAsset: m.NativeAsset,
+    NativeAssetType: m.NativeAssetType,
+  };
+}
+
 export function adsAvailable(): boolean {
   return loadModule() !== null && rewardedUnitId() !== null;
 }
@@ -106,6 +183,33 @@ export async function initAds(): Promise<boolean> {
   } catch (err) {
     console.log("[ads] init failed", err);
     return false;
+  }
+}
+
+/**
+ * Preload the in-deck native ad. Missing modules, IDs, Pro access, and load
+ * failures all return null so a photo round is never blocked by advertising.
+ */
+export async function loadSwipeMidsetNativeAd(
+  options: { freeUserVerified?: boolean } = {},
+): Promise<LoadedSwipeMidsetNativeAd | null> {
+  try {
+    if (!options.freeUserVerified && await checkProStatus().catch(() => false)) return null;
+
+    const m = loadModule();
+    const unitId = nativeMidsetUnitId();
+    const renderer = m ? nativeRenderer(m) : null;
+    if (!m?.NativeAd || !unitId || !renderer) return null;
+    if (!(await initAds())) return null;
+
+    const ad = await m.NativeAd.createForAdRequest(unitId, {
+      requestNonPersonalizedAdsOnly: true,
+      startVideoMuted: true,
+    });
+    return { ad, renderer };
+  } catch (err) {
+    console.log("[ads] native mid-set load failed", err);
+    return null;
   }
 }
 

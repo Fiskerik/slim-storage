@@ -74,9 +74,7 @@ export function StatsDashboard({
   );
   const selectedBucket = chartData.find((item) => item.key === selectedBucketKey) ?? chartData[chartData.length - 1];
   const chartTitle = chartPeriod === "week" ? "7-day savings" : chartPeriod === "month" ? "Monthly savings" : "Yearly savings";
-  const removableMB = scan
-    ? scan.screenshotSavingsMB + scan.mistakeDeleteSavingsMB + scan.duplicateDeleteSavingsMB
-    : 0;
+  const removableMB = scan?.deleteSavingsMB ?? 0;
   const deviceStorage = scan ? buildDeviceStorageSegments(scan) : null;
   const photoStorage = scan ? buildPhotoStorageSegments(scan) : [];
 
@@ -142,7 +140,7 @@ export function StatsDashboard({
                 ? scanInProgressText ?? "Checking photos..."
                 : scan
                   ? `Last checked ${new Date(scan.scannedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
-                  : "Estimate library size, trim potential, screenshots, blurs, and uncategorized groups."}
+                  : "Estimate library size, trim potential, screenshots, blurs, and verified similar groups."}
             </Text>
           </View>
           <Pressable
@@ -177,8 +175,11 @@ export function StatsDashboard({
                 formatValue={formatMB}
               />
               <Text style={styles.storageNote}>
-                Device categories are limited to photo storage, other used space, and available
-                space by iOS.
+                Photo storage is estimated from the scanned library because iOS exposes device
+                capacity and free space, not an exact Photos category.{"\n"}
+                {scan.similarityAnalysis === "vision"
+                  ? "Similar includes only on-device Vision matches after keeping one photo per group."
+                  : "Similar-photo savings are omitted because on-device visual verification was unavailable."}
               </Text>
             </View>
             <View style={styles.scanBreakdown}>
@@ -190,18 +191,25 @@ export function StatsDashboard({
                 color={colors.primary}
               />
               <ScanBreakdownRow
-                icon="aperture-outline"
-                label="Blurs"
+                icon="warning-outline"
+                label="Possible mistakes"
                 count={scan.mistakeCount}
                 value={scan.mistakeDeleteSavingsMB}
                 color={colors.honey}
               />
               <ScanBreakdownRow
                 icon="copy-outline"
-                label="Similar Photos"
+                label={scan.similarityAnalysis === "vision" ? "Similar (verified)" : "Similar (not analyzed)"}
                 count={scan.duplicateRemovalCount}
                 value={scan.duplicateDeleteSavingsMB}
                 color={colors.info}
+              />
+              <ScanBreakdownRow
+                icon="sparkles-outline"
+                label="Burst extras"
+                count={scan.burstCount}
+                value={scan.burstDeleteSavingsMB}
+                color={colors.sage}
               />
             </View>
           </>
@@ -387,13 +395,13 @@ function buildDeviceStorageSegments(scan: NativeLibraryScan): {
   const capacityMB = scan.deviceCapacityMB;
   const availableMB = Math.min(capacityMB, Math.max(0, scan.freeSpaceMB));
   const usedMB = Math.max(0, capacityMB - availableMB);
-  const photosMB = Math.min(usedMB, Math.max(0, scan.localSizeMB));
+  const photosMB = Math.min(usedMB, Math.max(0, scan.totalSizeMB));
   const otherUsedMB = Math.max(0, usedMB - photosMB);
 
   return {
     capacityMB,
     segments: [
-      { key: "photos", label: "Photos", valueMB: photosMB, color: colors.honey },
+      { key: "photos", label: "Photos est.", valueMB: photosMB, color: colors.honey },
       { key: "other-used", label: "Other used", valueMB: otherUsedMB, color: colors.primaryBright },
       { key: "available", label: "Available", valueMB: availableMB, color: colors.cardSoft },
     ],
@@ -411,7 +419,7 @@ function buildPhotoStorageSegments(scan: NativeLibraryScan): StorageBreakdownSeg
     { key: "live", label: "Live Photos", valueMB: scan.storageByType.livePhotosMB, color: colors.sage },
     {
       key: "similar",
-      label: "Similar",
+      label: scan.similarityAnalysis === "vision" ? "Similar verified" : "Similar unavailable",
       valueMB: scan.storageByType.similarPhotosMB,
       color: colors.honey,
     },

@@ -88,7 +88,7 @@ const CAT_DEFS: Array<{
   { key: "old", label: (s) => `>${formatAgeThreshold(s.minAgeYears)}`, icon: "time-outline", match: (p, s) => ageYears(p.creationTime) >= s.minAgeYears },
   { key: "screenshots", label: () => "Screens", icon: "phone-portrait-outline", match: (p) => p.cleanupReasons.includes("Screenshot") || p.title.toLowerCase().includes("screen") },
   { key: "live", label: () => "Live", icon: "radio-button-on-outline", match: (p) => p.cleanupReasons.includes("Live Photo") },
-  { key: "duplicates", label: () => "Similar Photos", icon: "copy-outline", match: (p) => p.cleanupReasons.includes("Similar") || p.cleanupReasons.includes("Uncategorized") },
+  { key: "duplicates", label: () => "Similar Photos", icon: "copy-outline", match: (p) => p.cleanupReasons.includes("Similar") },
   { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (p) => p.cleanupReasons.includes("Burst") },
 ];
 
@@ -173,7 +173,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
   const scanAccent = scanComplete ? colors.sageDeep : tiles.scan.accent;
   const healthScore = libraryHealthScore(stats, scan, today);
   const projectedFreed = scan
-    ? scan.trimSavingsMB + scan.deleteSavingsMB + scan.burstDeleteSavingsMB
+    ? scan.trimSavingsMB + scan.deleteSavingsMB
     : potentialMB;
   const oneTapCount = scan
     ? scan.screenshotCount + scan.duplicateRemovalCount + scan.burstCount
