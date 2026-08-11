@@ -36,6 +36,15 @@ public final class ExpoPhotoIntelligenceModule: Module {
       return await self.analyze(assets: assets).map(\.record)
     }
 
+    // Expo MediaLibrary's generic create API dates replacement assets "now".
+    // Creating through PhotoKit lets a trimmed replacement retain its capture date.
+    AsyncFunction("createPhotoAsset") { (fileUri: String, creationTime: Double) async throws -> String in
+      guard let fileURL = URL(string: fileUri), fileURL.isFileURL else {
+        throw InvalidPhotoFileUrlException(fileUri)
+      }
+      return try await self.createPhotoAsset(fileURL: fileURL, creationTime: creationTime)
+    }
+
     // Vision feature-print distances are only meaningful relative to the same
     // request revision. Keep comparison and clustering in native code for that reason.
     AsyncFunction("findSimilarAssets") { (localIdentifiers: [String], threshold: Double) async -> [String: Any] in
@@ -87,6 +96,25 @@ public final class ExpoPhotoIntelligenceModule: Module {
     var assets: [PHAsset] = []
     result.enumerateObjects { asset, _, _ in assets.append(asset) }
     return assets
+  }
+
+  private func createPhotoAsset(fileURL: URL, creationTime: Double) async throws -> String {
+    try await withCheckedThrowingContinuation { continuation in
+      var placeholderIdentifier: String?
+      PHPhotoLibrary.shared().performChanges {
+        let request = PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: fileURL)
+        request?.creationDate = Date(timeIntervalSince1970: creationTime / 1_000)
+        placeholderIdentifier = request?.placeholderForCreatedAsset?.localIdentifier
+      } completionHandler: { success, error in
+        if let error {
+          continuation.resume(throwing: error)
+        } else if success, let placeholderIdentifier {
+          continuation.resume(returning: placeholderIdentifier)
+        } else {
+          continuation.resume(throwing: PhotoAssetCreationException())
+        }
+      }
+    }
   }
 
   private func analyze(assets: [PHAsset]) async -> [AssetAnalysis] {
@@ -174,6 +202,14 @@ public final class ExpoPhotoIntelligenceModule: Module {
       }
     }
   }
+}
+
+private final class InvalidPhotoFileUrlException: GenericException<String> {
+  override var reason: String { "Cannot create a Photos asset from the file URI: \(param)" }
+}
+
+private final class PhotoAssetCreationException: Exception {
+  override var reason: String { "Photos did not return an identifier for the created asset" }
 }
 
 private extension UIImage.Orientation {

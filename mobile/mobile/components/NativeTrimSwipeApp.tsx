@@ -169,6 +169,7 @@ const FOUR_K_VIDEO_MB_PER_MINUTE = 375;
 const TIME_ATTACK_SECONDS = 60;
 const SELECTION_GRACE_DAYS = 7;
 const SEEN_PHOTO_LIMIT = 500;
+const BULK_TRIM_LIMIT = 50;
 const APP_STORE_URL =
   process.env.EXPO_PUBLIC_APP_STORE_URL ?? "https://apps.apple.com/app/id6764543618";
 const GAME_IMAGES = {
@@ -1790,21 +1791,25 @@ export function NativeTrimSwipeApp() {
   }
 
   async function prepareTrimAll() {
+    // Candidate discovery can take a while on large libraries. Dismiss the
+    // picker immediately and return with a confirmation only when the set is ready.
+    setTrimActionPickerVisible(false);
     setTrimActionLoading(true);
+    showToast("Finding photos", `Preparing up to ${BULK_TRIM_LIMIT} trimmable photos in the background.`, "info");
     try {
-      const photos = await loadTrimmablePhotos(10000);
-      if (photos.length === 0) return;
-      const candidates = hasUnlimitedTrims ? photos : photos.slice(0, tokenBalance);
-      if (candidates.length === 0) {
-        showToast("No trim tokens", "Claim tokens, watch an ad, or upgrade before trimming all.", "warning");
+      const availableTrimSlots = hasUnlimitedTrims ? BULK_TRIM_LIMIT : Math.min(BULK_TRIM_LIMIT, tokenBalance);
+      if (availableTrimSlots === 0) {
+        showToast("No trim tokens", "Claim tokens, watch an ad, or upgrade before bulk trimming.", "warning");
         return;
       }
-      setTrimActionPickerVisible(false);
+      const photos = await loadTrimmablePhotos(availableTrimSlots);
+      if (photos.length === 0) return;
+      const candidates = photos.slice(0, availableTrimSlots);
       const estimated = candidates.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0);
       await requestConfirmation({
-        title: `Trim all ${candidates.length} photos?`,
-        detail: `${candidates.length < photos.length ? `Your token balance allows ${candidates.length} of ${photos.length} trimmable photos. ` : ""}This will process them in the background and may save about ${formatMB(estimated)}. iOS may ask once before replacing originals.`,
-        confirmLabel: "Trim all",
+        title: `Trim ${candidates.length} photos?`,
+        detail: `The photos are ready. Trimming will continue in the background and may save about ${formatMB(estimated)}. Their original capture dates will be retained. iOS may ask once before replacing originals.`,
+        confirmLabel: `Trim ${candidates.length}`,
         runInBackground: true,
         onConfirm: async () => {
           await confirmActions([], candidates);
@@ -5314,7 +5319,7 @@ function TrimmableActionSheet({ visible, loading, onClose, onStartSet, onTrimAll
         <View style={styles.confirmSheet}>
           <View style={styles.confirmIcon}><Ionicons name="cut-outline" size={24} color="#315f7d" /></View>
           <Text style={styles.confirmTitle}>Review trimmable photos</Text>
-          <Text style={styles.confirmDetail}>Choose a swipe-game set, or trim every currently eligible local photo.</Text>
+          <Text style={styles.confirmDetail}>Choose a swipe-game set, or prepare up to {BULK_TRIM_LIMIT} eligible local photos.</Text>
           <Text style={styles.eyebrow}>Swipe a set</Text>
           <View style={styles.trimSetChoices}>
             {[10, 20, 30].map((count) => (
@@ -5324,7 +5329,7 @@ function TrimmableActionSheet({ visible, loading, onClose, onStartSet, onTrimAll
               </Pressable>
             ))}
           </View>
-          <PrimaryButton label={loading ? "Finding photos..." : "Trim all"} disabled={loading} onPress={onTrimAll} />
+          <PrimaryButton label={`Trim up to ${BULK_TRIM_LIMIT}`} disabled={loading} onPress={onTrimAll} />
           <SecondaryButton label="Cancel" disabled={loading} onPress={onClose} />
         </View>
       </View>

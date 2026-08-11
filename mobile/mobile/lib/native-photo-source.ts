@@ -2,6 +2,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library";
 import type { NativeSettings, NativeTrimKind } from "./native-store";
 import {
+  createDatedPhotoAsset,
   findSimilarPhotosOnDevice,
   isPhotoIntelligenceAvailable,
   photoIntelligenceCapabilities,
@@ -1911,7 +1912,10 @@ async function createTrimmedAsset(
       };
     }
     const result = { uri: finalUri };
-    const created = await MediaLibrary.createAssetAsync(result.uri);
+    const datedAssetId = await createDatedPhotoAsset(result.uri, photo.creationTime);
+    const created = datedAssetId
+      ? { id: datedAssetId }
+      : await MediaLibrary.createAssetAsync(result.uri);
     await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
     const appliedTrimKinds = [
       ...new Set([

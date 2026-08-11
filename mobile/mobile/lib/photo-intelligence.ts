@@ -35,6 +35,7 @@ type NativePhotoIntelligenceModule = {
   getCapabilities(): PhotoIntelligenceCapabilities;
   analyzeAssets(assetIds: string[]): Promise<PhotoIntelligenceAsset[]>;
   findSimilarAssets(assetIds: string[], threshold: number): Promise<SimilarPhotoAnalysis>;
+  createPhotoAsset(fileUri: string, creationTime: number): Promise<string>;
 };
 
 const nativeModule = requireOptionalNativeModule<NativePhotoIntelligenceModule>("ExpoPhotoIntelligence");
@@ -65,4 +66,10 @@ export async function findSimilarPhotosOnDevice(
     limited: false,
     processedCount: 0,
   };
+}
+
+/** Saves an image through PhotoKit so its replacement keeps the original capture date. */
+export async function createDatedPhotoAsset(fileUri: string, creationTime: number): Promise<string | null> {
+  if (!nativeModule) return null;
+  return nativeModule.createPhotoAsset(fileUri, creationTime);
 }
