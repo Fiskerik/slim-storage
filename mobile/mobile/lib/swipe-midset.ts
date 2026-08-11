@@ -1,5 +1,5 @@
-export const MIDSET_MIN_HOLD_SECONDS = 5;
-export const MIDSET_MAX_HOLD_SECONDS = 10;
+export const MIDSET_MIN_HOLD_SECONDS = 8;
+export const MIDSET_MAX_HOLD_SECONDS = 12;
 
 export function midsetHoldSeconds(randomValue = Math.random()): number {
   const normalized = Math.min(0.999999, Math.max(0, randomValue));

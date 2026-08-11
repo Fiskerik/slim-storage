@@ -309,9 +309,10 @@ export async function showRewardedAd(): Promise<number> {
         requestNonPersonalizedAdsOnly: true,
       });
 
-      let earned = false;
       let settled = false;
       let credited = false;
+      let rewardPending = false;
+      let loadTimeout: ReturnType<typeof setTimeout> | null = null;
       const creditReward = async (): Promise<number> => {
         if (credited) return REWARDED_AD_TOKENS;
         credited = true;
@@ -321,6 +322,7 @@ export async function showRewardedAd(): Promise<number> {
       const settle = (value: number) => {
         if (settled) return;
         settled = true;
+        if (loadTimeout) clearTimeout(loadTimeout);
         try { unsubLoad?.(); } catch {}
         try { unsubEarn?.(); } catch {}
         try { unsubClose?.(); } catch {}
@@ -329,31 +331,26 @@ export async function showRewardedAd(): Promise<number> {
       };
 
       const unsubLoad = ad.addAdEventListener(m.RewardedAdEventType.LOADED, () => {
+        if (loadTimeout) clearTimeout(loadTimeout);
         try { ad.show(); } catch (err) { console.log("[ads] show error", err); settle(0); }
       });
       const unsubEarn = ad.addAdEventListener(m.RewardedAdEventType.EARNED_REWARD, () => {
-        earned = true;
+        // Multi-part rewarded ads can exceed the old global timeout. The SDK's
+        // earned event is the authoritative completion signal, so credit it now.
+        rewardPending = true;
+        void creditReward().then(settle).catch(() => settle(0));
       });
-      const unsubClose = ad.addAdEventListener(m.AdEventType.CLOSED, async () => {
-        if (earned) {
-          settle(await creditReward());
-        } else settle(0);
+      const unsubClose = ad.addAdEventListener(m.AdEventType.CLOSED, () => {
+        if (!rewardPending) settle(0);
       });
       const unsubErr = ad.addAdEventListener(m.AdEventType.ERROR, (err: unknown) => {
         console.log("[ads] ad error", err);
         settle(0);
       });
 
+      // Only bound loading. Once shown, let long multi-part creatives finish.
+      loadTimeout = setTimeout(() => settle(0), 30000);
       ad.load();
-
-      // Safety timeout
-      setTimeout(() => {
-        if (!earned) {
-          settle(0);
-          return;
-        }
-        void creditReward().then(settle).catch(() => settle(0));
-      }, 45000);
     } catch (err) {
       console.log("[ads] showRewardedAd exception", err);
       resolve(0);

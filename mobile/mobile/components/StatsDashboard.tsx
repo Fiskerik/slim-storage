@@ -48,6 +48,7 @@ export type StatsDashboardProps = {
   scanComplete: boolean;
   scanInProgressText?: string;
   onQuickScan: () => void;
+  onOpenTrimmable: () => void;
   onShare: () => void;
 };
 
@@ -58,6 +59,7 @@ export function StatsDashboard({
   scanComplete,
   scanInProgressText,
   onQuickScan,
+  onOpenTrimmable,
   onShare,
 }: StatsDashboardProps) {
   const today = dailyFor(stats, dateKey());
@@ -156,7 +158,7 @@ export function StatsDashboard({
             <View style={styles.scanMetricGrid}>
               <ScanMetric label="Photos" value={formatCount(scan.assetCount)} />
               <ScanMetric label="Photo size" value={formatMB(scan.totalSizeMB)} />
-              <ScanMetric label="Trimmable" value={formatMB(scan.trimSavingsMB)} accent={colors.sage} />
+              <ScanMetric label="Trimmable" value={formatMB(scan.trimSavingsMB)} accent={colors.sage} onPress={onOpenTrimmable} />
               <ScanMetric label="Removable" value={formatMB(removableMB)} accent={colors.danger} />
             </View>
             <View style={styles.storageOverview}>
@@ -352,13 +354,19 @@ function SmallStat({
   );
 }
 
-function ScanMetric({ label, value, accent = colors.text }: { label: string; value: string; accent?: string }) {
-  return (
-    <View style={styles.scanMetric}>
+function ScanMetric({ label, value, accent = colors.text, onPress }: { label: string; value: string; accent?: string; onPress?: () => void }) {
+  const content = (
+    <>
       <Text style={styles.scanMetricLabel}>{label}</Text>
       <Text style={[styles.scanMetricValue, { color: accent }]} numberOfLines={1}>{value}</Text>
-    </View>
+      {onPress ? <Text style={styles.scanMetricAction}>Review photos</Text> : null}
+    </>
   );
+  return onPress ? (
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.scanMetric, styles.scanMetricButton, pressed && styles.scanMetricPressed]}>
+      {content}
+    </Pressable>
+  ) : <View style={styles.scanMetric}>{content}</View>;
 }
 
 function ScanBreakdownRow({
@@ -834,6 +842,9 @@ const styles = StyleSheet.create({
   },
   scanMetricLabel: { fontSize: 10, fontWeight: "700", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.8 },
   scanMetricValue: { marginTop: 5, fontSize: 17, fontWeight: "700" },
+  scanMetricAction: { marginTop: 3, fontSize: 10, fontWeight: "800", color: colors.primary },
+  scanMetricButton: { borderWidth: 1, borderColor: colors.sage },
+  scanMetricPressed: { opacity: 0.72 },
   storageOverview: {
     gap: spacing.lg,
     borderTopWidth: StyleSheet.hairlineWidth,

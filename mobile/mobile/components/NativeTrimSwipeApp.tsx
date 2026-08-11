@@ -271,6 +271,15 @@ type ReportDashboardData = {
   deletePercent: number;
 };
 
+type BackgroundTrimResult = {
+  requested: number;
+  trimmed: number;
+  failed: number;
+  beforeMB: number;
+  afterMB: number;
+  savedMB: number;
+};
+
 function reportStatsForPeriod(stats: NativeStats, period: ReportPeriod): NativeDailyStats {
   return period === "weekly" ? sumDays(stats, 7) : monthStats(stats);
 }
@@ -781,6 +790,10 @@ export function NativeTrimSwipeApp() {
   const [recap, setRecap] = useState<SessionRecap | null>(null);
   const [pendingDeletes, setPendingDeletes] = useState<NativePhoto[]>([]);
   const [trimmingCount, setTrimmingCount] = useState(0);
+  const [trimActionPickerVisible, setTrimActionPickerVisible] = useState(false);
+  const [trimActionLoading, setTrimActionLoading] = useState(false);
+  const [backgroundTrimResult, setBackgroundTrimResult] = useState<BackgroundTrimResult | null>(null);
+  const [trimResultVisible, setTrimResultVisible] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [libraryScan, setLibraryScan] = useState<NativeLibraryScan | null>(null);
@@ -838,6 +851,7 @@ export function NativeTrimSwipeApp() {
     cancelLabel = "Cancel",
     confirmLabel = "Apply",
     danger,
+    runInBackground = false,
     onConfirm,
   }: {
     title: string;
@@ -845,6 +859,7 @@ export function NativeTrimSwipeApp() {
     cancelLabel?: string;
     confirmLabel?: string;
     danger?: boolean;
+    runInBackground?: boolean;
     onConfirm: () => Promise<number>;
   }): Promise<number> {
     return new Promise((resolve) => {
@@ -863,6 +878,16 @@ export function NativeTrimSwipeApp() {
         danger,
         onCancel: () => close(0),
         onConfirm: async () => {
+          if (runInBackground) {
+            setConfirmRequest(null);
+            setConfirmBusy(false);
+            resolve(0);
+            showToast("Trim started", "You can keep using TrimSwipe while the batch runs.", "info");
+            void onConfirm()
+              .then((count) => showToast("Trim finished", `${count} photo${count === 1 ? "" : "s"} processed.`, "success"))
+              .catch((err) => showToast("Trim failed", err instanceof Error ? err.message : "Please try again.", "error"));
+            return;
+          }
           setConfirmBusy(true);
           try {
             close(await onConfirm());
@@ -930,11 +955,11 @@ export function NativeTrimSwipeApp() {
     }
   }
 
-  function maybeShowInterstitialAfterCleanup(appliedCount: number) {
-    if (appliedCount <= 0 || isPro) return;
+  function maybeShowInterstitialAfterCleanup(reviewedCount: number) {
+    if (reviewedCount <= 0 || isPro) return;
     cleanupCompletionsRef.current += 1;
-    // Show an interstitial only after every 5th completed set / swipe round.
-    if (cleanupCompletionsRef.current < 5) return;
+    // Show an interstitial after every second completed set / swipe round.
+    if (cleanupCompletionsRef.current < 2) return;
     cleanupCompletionsRef.current = 0;
     void showInterstitialAd();
   }
@@ -1312,7 +1337,10 @@ export function NativeTrimSwipeApp() {
       showToast("Not enough tokens", `${chargeableTrims.length}/${trims.length} selected trims can be applied.`, "warning");
     }
 
-    if (chargeableTrims.length > 0) setTrimmingCount((count) => count + chargeableTrims.length);
+    if (chargeableTrims.length > 0) {
+      setBackgroundTrimResult(null);
+      setTrimmingCount((count) => count + chargeableTrims.length);
+    }
     const totalActions = deletes.length + chargeableTrims.length;
     if (totalActions >= 5) {
       await notifyCleanupProgress("Cleanup started", `Applying ${totalActions} selected actions.`);
@@ -1404,7 +1432,20 @@ export function NativeTrimSwipeApp() {
     if (totalActions >= 5) {
       await notifyCleanupProgress("Cleanup complete", `Saved about ${formatMB(sessionRef.current.freed)}.`);
     }
-    maybeShowInterstitialAfterCleanup(deletedCount + trimmedOkIds.size);
+    maybeShowInterstitialAfterCleanup(
+      sessionRef.current.kept + sessionRef.current.deleted + sessionRef.current.trimmed,
+    );
+    if (chargeableTrims.length > 0) {
+      const beforeMB = chargeableTrims.reduce((sum, photo) => sum + photo.sizeMB, 0);
+      setBackgroundTrimResult({
+        requested: chargeableTrims.length,
+        trimmed: trimmedOkIds.size,
+        failed: chargeableTrims.length - trimmedOkIds.size,
+        beforeMB: +beforeMB.toFixed(2),
+        afterMB: +Math.max(0, beforeMB - actualTrimSaved).toFixed(2),
+        savedMB: +actualTrimSaved.toFixed(2),
+      });
+    }
     } finally {
       applyingActionsRef.current = false;
     }
@@ -1568,9 +1609,9 @@ export function NativeTrimSwipeApp() {
           .forEach((photo) => {
             if (byId.size < count) byId.set(photo.id, photo);
           });
-        if (byId.size >= Math.min(6, count)) break;
+        if (byId.size >= count) break;
       }
-      if (byId.size >= Math.min(6, count)) break;
+      if (byId.size >= count) break;
     }
     const trimCandidates = [...byId.values()].slice(0, count);
     return {
@@ -1705,6 +1746,73 @@ export function NativeTrimSwipeApp() {
       showToast("Deep Clean failed", error instanceof Error ? error.message : "Could not build a Deep Clean preview.", "error");
     } finally {
       setCleanupPlanBusy(false);
+    }
+  }
+
+  async function loadTrimmablePhotos(count: number): Promise<NativePhoto[]> {
+    const permission = await requestPhotoPermission();
+    if (!permission.granted) {
+      setPermissionDenied(true);
+      showToast("Photo access needed", "Open iOS Settings to review trimmable photos.", "warning");
+      return [];
+    }
+    setPermissionDenied(false);
+    const plan = await buildTrimmableFallbackPlan(count, settings, currentAvoidIds());
+    if (plan.trimCandidates.length === 0) {
+      showToast("No trimmable photos", "No local photos currently have useful trim savings.", "info");
+    }
+    return plan.trimCandidates;
+  }
+
+  async function startTrimmableSwipeSet(count: number) {
+    setTrimActionLoading(true);
+    try {
+      const photos = await loadTrimmablePhotos(count);
+      if (photos.length === 0) return;
+      setTrimActionPickerVisible(false);
+      setQueue(photos);
+      setSwipeRoundInitialCount(photos.length);
+      setSwipeRoundId((current) => current + 1);
+      setMidsetAdDismissed(false);
+      setMidsetAdVisible(false);
+      setPendingDeletes([]);
+      setPendingTrims([]);
+      pendingDeletesRef.current = [];
+      pendingTrimsRef.current = [];
+      sessionRef.current = { kept: 0, trimmed: 0, deleted: 0, freed: 0 };
+      setRecap(null);
+      setError(null);
+      setLoading(false);
+      setScreen("swipe");
+    } finally {
+      setTrimActionLoading(false);
+    }
+  }
+
+  async function prepareTrimAll() {
+    setTrimActionLoading(true);
+    try {
+      const photos = await loadTrimmablePhotos(10000);
+      if (photos.length === 0) return;
+      const candidates = hasUnlimitedTrims ? photos : photos.slice(0, tokenBalance);
+      if (candidates.length === 0) {
+        showToast("No trim tokens", "Claim tokens, watch an ad, or upgrade before trimming all.", "warning");
+        return;
+      }
+      setTrimActionPickerVisible(false);
+      const estimated = candidates.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0);
+      await requestConfirmation({
+        title: `Trim all ${candidates.length} photos?`,
+        detail: `${candidates.length < photos.length ? `Your token balance allows ${candidates.length} of ${photos.length} trimmable photos. ` : ""}This will process them in the background and may save about ${formatMB(estimated)}. iOS may ask once before replacing originals.`,
+        confirmLabel: "Trim all",
+        runInBackground: true,
+        onConfirm: async () => {
+          await confirmActions([], candidates);
+          return candidates.length;
+        },
+      });
+    } finally {
+      setTrimActionLoading(false);
     }
   }
 
@@ -1940,6 +2048,7 @@ export function NativeTrimSwipeApp() {
       title: "Apply suggested removals?",
       detail: `Delete ${deleted.length} and trim ${trimCandidates.length}${trimCandidates.length < toTrim.length ? ` of ${toTrim.length}` : ""} photo${deleted.length + trimCandidates.length === 1 ? "" : "s"}.`,
       danger: deleted.length > 0,
+      runInBackground: trimCandidates.length > 0,
       onConfirm: async () => {
             const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
             const deletedPhotos = deleted.slice(0, deleteResult.deleted);
@@ -2034,9 +2143,12 @@ export function NativeTrimSwipeApp() {
     if (kept.length + deleted.length + toTrim.length === 0) return 0;
 
     return requestConfirmation({
-      title: "Apply your budget choices?",
-      detail: `Delete ${deleted.length} and trim ${trimCandidates.length}${trimCandidates.length < toTrim.length ? ` of ${toTrim.length}` : ""} photo${deleted.length + trimCandidates.length === 1 ? "" : "s"} for about ${formatMB(deleteSavings + trimSavings)} saved.`,
+      title: deleted.length === 0 && toTrim.length === 0 ? "Keep all photos?" : "Apply your budget choices?",
+      detail: deleted.length === 0 && toTrim.length === 0
+        ? `Keep all ${kept.length} photos unchanged and finish this plan.`
+        : `Delete ${deleted.length} and trim ${trimCandidates.length}${trimCandidates.length < toTrim.length ? ` of ${toTrim.length}` : ""} photo${deleted.length + trimCandidates.length === 1 ? "" : "s"} for about ${formatMB(deleteSavings + trimSavings)} saved.`,
       danger: deleted.length > 0,
+      runInBackground: trimCandidates.length > 0,
       onConfirm: async () => {
               const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
               const deletedPhotos = deleted.slice(0, deleteResult.deleted);
@@ -2103,7 +2215,7 @@ export function NativeTrimSwipeApp() {
                   "warning",
                 );
               }
-              maybeShowInterstitialAfterCleanup(deletedPhotos.length + trimmedPhotos.length);
+              maybeShowInterstitialAfterCleanup(reviewed.length);
               return deletedPhotos.length + trimmedPhotos.length + kept.length;
             },
     });
@@ -2126,6 +2238,7 @@ export function NativeTrimSwipeApp() {
       title: "Apply Past Moments choices?",
       detail: `Delete ${deleted.length} and trim ${trimCandidates.length}${trimCandidates.length < toTrim.length ? ` of ${toTrim.length}` : ""} photo${deleted.length + trimCandidates.length === 1 ? "" : "s"} for about ${formatMB(deleteSavings + trimSavings)} saved.`,
       danger: deleted.length > 0,
+      runInBackground: trimCandidates.length > 0,
       onConfirm: async () => {
               const deleteResult = deleted.length > 0 ? await deletePhotos(deleted.map((photo) => photo.id)) : { deleted: 0 };
               const deletedPhotos = deleted.slice(0, deleteResult.deleted);
@@ -2302,6 +2415,7 @@ export function NativeTrimSwipeApp() {
             scanComplete={scanComplete}
             scanInProgressText={scanInProgressText}
             onQuickScan={runLibraryScan}
+            onOpenTrimmable={() => setTrimActionPickerVisible(true)}
             onShare={shareProgress}
           />
         ) : screen === "this-or-that" ? (
@@ -2356,10 +2470,13 @@ export function NativeTrimSwipeApp() {
               const category = cleanupPlan?.category;
               if (category) void openCleanupCategory(category);
             }}
-            onConfirm={async (deletes, trims) => {
-              await confirmActions(deletes, trims);
+            onConfirm={(deletes, trims) => {
               setCleanupPlan(null);
               setScreen("swipe");
+              showToast("Cleanup started", "You can keep using TrimSwipe while the batch runs.", "info");
+              void confirmActions(deletes, trims).catch((err) => {
+                showToast("Cleanup failed", err instanceof Error ? err.message : "Please try again.", "error");
+              });
             }}
             trimsRemaining={trimCurrencyAvailable}
             onOpenShop={() => setScreen("shop")}
@@ -2484,6 +2601,29 @@ export function NativeTrimSwipeApp() {
         )}
 
         {statsLoaded && !onboardingDue ? <BottomNav screen={screen} isPro={isPro} theme={activeTheme} onChange={changeScreen} /> : null}
+        {statsLoaded && (trimmingCount > 0 || backgroundTrimResult) ? (
+          <BackgroundTrimStatus
+            count={trimmingCount}
+            result={backgroundTrimResult}
+            onOpenResult={() => setTrimResultVisible(true)}
+          />
+        ) : null}
+        <TrimmableActionSheet
+          visible={trimActionPickerVisible}
+          loading={trimActionLoading}
+          onClose={() => setTrimActionPickerVisible(false)}
+          onStartSet={(count) => void startTrimmableSwipeSet(count)}
+          onTrimAll={() => void prepareTrimAll()}
+        />
+        <TrimResultSheet
+          visible={trimResultVisible}
+          result={backgroundTrimResult}
+          onClose={() => setTrimResultVisible(false)}
+          onDismiss={() => {
+            setTrimResultVisible(false);
+            setBackgroundTrimResult(null);
+          }}
+        />
         <ReportDashboardModal
           visible={reportPeriod !== null}
           period={reportPeriod ?? "weekly"}
@@ -2881,7 +3021,6 @@ function SwipeScreen({
           <SwipeMidsetAdCard
             loaded={midsetAd}
             onDismiss={onMidsetAdDismissed}
-            onOpenShop={onOpenShop}
           />
         ) : top ? (
           <SwipeablePhotoCard
@@ -4196,6 +4335,20 @@ function StorageBudgetScreen({ settings, tokens, isPro, trimsRemaining, avoidIds
     }
   }
 
+  async function keepAllAndFinish() {
+    setBusy(true);
+    try {
+      const count = await onConfirmOutcome(photos, [], []);
+      if (count > 0) {
+        const boardIds = photos.map((photo) => photo.id);
+        setLocalAvoidIds((current) => [...new Set([...current, ...boardIds])].slice(-120));
+        void loadBoard(boardIds);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (loadingPhotos) return <Centered><ActivityIndicator color="#334155" size="large" /><Text style={styles.muted}>Building a Free Space Plan...</Text></Centered>;
 
   if (photos.length === 0) {
@@ -4253,6 +4406,11 @@ function StorageBudgetScreen({ settings, tokens, isPro, trimsRemaining, avoidIds
             label={busy ? "Applying..." : `Continue with ${keptPhotos.length} kept`}
             disabled={busy || photos.length === 0}
             onPress={lockBudget}
+          />
+          <SecondaryButton
+            label="Keep all & finish"
+            disabled={busy}
+            onPress={() => void keepAllAndFinish()}
           />
         </>
       ) : step === "unkept" ? (
@@ -4326,7 +4484,7 @@ function MemoryLaneScreen({ settings, tokens, isPro, avoidIds, trimsRemaining, o
       if (!permission.granted) { setPhotos([]); return; }
       const roundSize = Math.min(30, Math.max(5, Math.round(settings.cardsPerRound) || 10));
       let fallbackNotice = "";
-      const next = await loadPhotoRound(
+      let next = await loadPhotoRound(
         roundSize,
         { ...settings, cardsPerRound: roundSize, targetMode: "old-only", sessionMode: "classic" },
         {
@@ -4337,6 +4495,29 @@ function MemoryLaneScreen({ settings, tokens, isPro, avoidIds, trimsRemaining, o
           },
         },
       );
+      if (next.length === 0) {
+        const broadSettings = roundSettings({
+          ...settings,
+          cardsPerRound: roundSize,
+          targetMode: "balanced",
+          sessionMode: "classic",
+          minAgeYears: 0,
+          minSizeMB: 0,
+        });
+        next = await loadPhotoRound(roundSize, broadSettings, {
+          avoidIds,
+          includeTrimmed: true,
+        });
+        if (next.length === 0 && avoidIds.length > 0) {
+          next = await loadPhotoRound(roundSize, broadSettings, {
+            avoidIds: [],
+            includeTrimmed: true,
+          });
+        }
+        if (next.length > 0) {
+          fallbackNotice = "No older matches were available, so any age and any size were included.";
+        }
+      }
       if (fallbackNotice) {
         onToast("Older photos finished", fallbackNotice, "info");
       }
@@ -5096,6 +5277,92 @@ function TrimKindSettings({
   );
 }
 
+function BackgroundTrimStatus({ count, result, onOpenResult }: { count: number; result: BackgroundTrimResult | null; onOpenResult: () => void }) {
+  const finished = count <= 0 && result !== null;
+  return (
+    <Pressable
+      disabled={!finished}
+      accessibilityRole={finished ? "button" : "progressbar"}
+      accessibilityLabel={finished ? "Trimming finished. Open results." : `Trimming ${count} photos in the background`}
+      onPress={onOpenResult}
+      style={({ pressed }) => [styles.backgroundTrimStatus, finished && styles.backgroundTrimFinished, pressed && styles.backgroundTrimPressed]}
+    >
+      {finished ? <Ionicons name="checkmark-circle" size={22} color="#ffffff" /> : <ActivityIndicator size="small" color="#ffffff" />}
+      <View style={styles.backgroundTrimCopy}>
+        <Text style={styles.backgroundTrimTitle}>{finished ? "Trimming finished" : "Trimming in background"}</Text>
+        <Text style={styles.backgroundTrimDetail}>
+          {finished && result
+            ? `${result.trimmed} trimmed · ${formatMB(result.savedMB)} saved · Tap for results`
+            : `${count} photo${count === 1 ? "" : "s"} processing · You can keep browsing`}
+        </Text>
+      </View>
+      {finished ? <Ionicons name="chevron-forward" size={19} color="#ffffff" /> : null}
+    </Pressable>
+  );
+}
+
+function TrimmableActionSheet({ visible, loading, onClose, onStartSet, onTrimAll }: {
+  visible: boolean;
+  loading: boolean;
+  onClose: () => void;
+  onStartSet: (count: number) => void;
+  onTrimAll: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.confirmBackdrop}>
+        <View style={styles.confirmSheet}>
+          <View style={styles.confirmIcon}><Ionicons name="cut-outline" size={24} color="#315f7d" /></View>
+          <Text style={styles.confirmTitle}>Review trimmable photos</Text>
+          <Text style={styles.confirmDetail}>Choose a swipe-game set, or trim every currently eligible local photo.</Text>
+          <Text style={styles.eyebrow}>Swipe a set</Text>
+          <View style={styles.trimSetChoices}>
+            {[10, 20, 30].map((count) => (
+              <Pressable key={count} disabled={loading} onPress={() => onStartSet(count)} style={styles.trimSetChoice}>
+                <Text style={styles.trimSetChoiceValue}>{count}</Text>
+                <Text style={styles.trimSetChoiceLabel}>photos</Text>
+              </Pressable>
+            ))}
+          </View>
+          <PrimaryButton label={loading ? "Finding photos..." : "Trim all"} disabled={loading} onPress={onTrimAll} />
+          <SecondaryButton label="Cancel" disabled={loading} onPress={onClose} />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function TrimResultSheet({ visible, result, onClose, onDismiss }: {
+  visible: boolean;
+  result: BackgroundTrimResult | null;
+  onClose: () => void;
+  onDismiss: () => void;
+}) {
+  if (!result) return null;
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.confirmBackdrop}>
+        <View style={styles.confirmSheet}>
+          <View style={[styles.confirmIcon, styles.trimResultIcon]}><Ionicons name="checkmark" size={26} color="#ffffff" /></View>
+          <Text style={styles.confirmTitle}>Trimming finished</Text>
+          <Text style={styles.confirmDetail}>{result.trimmed} of {result.requested} photos were trimmed successfully.</Text>
+          <View style={styles.trimBeforeAfter}>
+            <View style={styles.trimResultMetric}><Text style={styles.trimResultLabel}>Before</Text><Text style={styles.trimResultValue}>{formatMB(result.beforeMB)}</Text></View>
+            <Ionicons name="arrow-forward" size={20} color="#64748b" />
+            <View style={styles.trimResultMetric}><Text style={styles.trimResultLabel}>After</Text><Text style={styles.trimResultValue}>{formatMB(result.afterMB)}</Text></View>
+          </View>
+          <View style={styles.trimSavedCard}>
+            <Text style={styles.trimSavedLabel}>Space saved</Text>
+            <Text style={styles.trimSavedValue}>{formatMB(result.savedMB)}</Text>
+            {result.failed > 0 ? <Text style={styles.trimFailedText}>{result.failed} photo{result.failed === 1 ? "" : "s"} could not be trimmed.</Text> : null}
+          </View>
+          <PrimaryButton label="Done" onPress={onDismiss} />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function ProAutomationScreen({
   schedules,
   busy,
@@ -5743,6 +6010,43 @@ const styles = StyleSheet.create({
   toastError: { borderColor: "#fca5a5", backgroundColor: "#fef2f2" },
   toastTitle: { color: "#1f2937", fontSize: 13, fontWeight: "700" },
   toastDetail: { marginTop: 2, color: "#64748b", fontSize: 12, lineHeight: 16, fontWeight: "600" },
+  backgroundTrimStatus: {
+    position: "absolute",
+    left: 18,
+    right: 18,
+    bottom: 92,
+    zIndex: 900,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 18,
+    backgroundColor: "#203345",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    shadowColor: "#1f2937",
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 5,
+  },
+  backgroundTrimFinished: { backgroundColor: "#2f7d68" },
+  backgroundTrimPressed: { opacity: 0.86 },
+  backgroundTrimCopy: { flex: 1 },
+  backgroundTrimTitle: { color: "#ffffff", fontSize: 13, fontWeight: "900" },
+  backgroundTrimDetail: { marginTop: 2, color: "#dbe7ee", fontSize: 11, fontWeight: "700" },
+  trimSetChoices: { flexDirection: "row", gap: 10 },
+  trimSetChoice: { flex: 1, alignItems: "center", borderRadius: 16, borderWidth: 1, borderColor: "#b8c9d3", backgroundColor: "#f3f6f8", paddingVertical: 14 },
+  trimSetChoiceValue: { color: "#203345", fontSize: 20, fontWeight: "900" },
+  trimSetChoiceLabel: { marginTop: 2, color: "#64748b", fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
+  trimResultIcon: { backgroundColor: "#2f7d68", borderColor: "#2f7d68" },
+  trimBeforeAfter: { flexDirection: "row", alignItems: "center", gap: 10 },
+  trimResultMetric: { flex: 1, borderRadius: 16, backgroundColor: "#f3f6f8", padding: 14 },
+  trimResultLabel: { color: "#64748b", fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.7 },
+  trimResultValue: { marginTop: 5, color: "#203345", fontSize: 18, fontWeight: "900" },
+  trimSavedCard: { alignItems: "center", borderRadius: 18, backgroundColor: "#edf5ef", padding: 16 },
+  trimSavedLabel: { color: "#547567", fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
+  trimSavedValue: { marginTop: 4, color: "#2f7d68", fontSize: 28, fontWeight: "900" },
+  trimFailedText: { marginTop: 6, color: "#9a5b38", fontSize: 11, fontWeight: "700" },
   confirmBackdrop: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20, backgroundColor: "rgba(31, 41, 55, 0.34)" },
   confirmSheet: { width: "100%", maxWidth: 420, borderRadius: 26, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#cbd8e0", padding: 20, gap: 12, shadowColor: "#1f2937", shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 16 }, elevation: 8 },
   confirmIcon: { width: 52, height: 52, alignItems: "center", justifyContent: "center", borderRadius: 18, backgroundColor: "#e5ebef", borderWidth: 1, borderColor: "#cbd8e0" },

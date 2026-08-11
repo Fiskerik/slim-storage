@@ -5,7 +5,6 @@ import {
   Animated,
   Image,
   PanResponder,
-  Pressable,
   StyleSheet,
   Text,
   View,
@@ -18,11 +17,9 @@ const DISMISS_THRESHOLD = 96;
 export function SwipeMidsetAdCard({
   loaded,
   onDismiss,
-  onOpenShop,
 }: {
   loaded: LoadedSwipeMidsetNativeAd;
   onDismiss: () => void;
-  onOpenShop: () => void;
 }) {
   const { ad, renderer } = loaded;
   const { NativeAdView, NativeMediaView, NativeAsset, NativeAssetType } = renderer;
@@ -99,13 +96,6 @@ export function SwipeMidsetAdCard({
     outputRange: ["-9deg", "0deg", "9deg"],
   });
 
-  function openShop() {
-    if (dismissingRef.current) return;
-    dismissingRef.current = true;
-    onDismiss();
-    onOpenShop();
-  }
-
   return (
     <Animated.View
       {...panResponder.panHandlers}
@@ -141,27 +131,23 @@ export function SwipeMidsetAdCard({
           <Text style={styles.callToAction} numberOfLines={1}>{ad.callToAction}</Text>
         </NativeAsset>
 
-        <View pointerEvents="none" style={styles.continueBadge}>
-          <Ionicons
-            name={unlocked ? "swap-horizontal" : "time-outline"}
-            size={15}
-            color="#ffffff"
-          />
-          <Text style={styles.continueText}>
-            {unlocked ? "Swipe to continue" : `Continue in ${secondsRemaining}s`}
-          </Text>
-        </View>
       </NativeAdView>
 
-      <Pressable
-        accessibilityRole="link"
-        accessibilityLabel="Upgrade to Pro in the shop"
-        onPress={openShop}
-        style={({ pressed }) => [styles.upgradeLink, pressed && styles.upgradeLinkPressed]}
+      <View
+        accessibilityRole="timer"
+        accessibilityLabel={unlocked ? "Ad finished. Swipe to continue." : `Continue in ${secondsRemaining} seconds.`}
+        style={[styles.continuePanel, unlocked && styles.continuePanelUnlocked]}
       >
-        <Text style={styles.upgradeText}>Ads interrupting your flow? Upgrade to Pro</Text>
-        <Ionicons name="arrow-forward" size={17} color="#315f7d" />
-      </Pressable>
+        <Ionicons name={unlocked ? "swap-horizontal" : "time-outline"} size={22} color="#315f7d" />
+        <View>
+          <Text style={styles.continueText}>
+            {unlocked ? "Swipe to continue" : `Continue in ${secondsRemaining} seconds`}
+          </Text>
+          <Text style={styles.continueHint}>
+            {unlocked ? "Swipe the card left or right" : "The ad will unlock automatically"}
+          </Text>
+        </View>
+      </View>
     </Animated.View>
   );
 }
@@ -208,22 +194,30 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     textTransform: "uppercase",
   },
-  continueBadge: {
-    position: "absolute",
-    top: 222,
-    left: 14,
+  continuePanel: {
+    height: 65,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    borderRadius: 12,
-    backgroundColor: "rgba(18, 33, 47, 0.82)",
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    justifyContent: "center",
+    gap: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#d9d4c8",
+    backgroundColor: "#fcfaf5",
+    paddingHorizontal: 16,
+  },
+  continuePanelUnlocked: {
+    backgroundColor: "#edf5ef",
   },
   continueText: {
-    color: "#ffffff",
+    color: "#203345",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  continueHint: {
+    marginTop: 2,
+    color: "#68717d",
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   icon: {
     position: "absolute",
@@ -283,24 +277,5 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontSize: 12,
     fontWeight: "900",
-  },
-  upgradeLink: {
-    height: 65,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#d9d4c8",
-    backgroundColor: "#fcfaf5",
-    paddingHorizontal: 16,
-  },
-  upgradeLinkPressed: {
-    backgroundColor: "#eef2ec",
-  },
-  upgradeText: {
-    color: "#315f7d",
-    fontSize: 13,
-    fontWeight: "800",
   },
 });

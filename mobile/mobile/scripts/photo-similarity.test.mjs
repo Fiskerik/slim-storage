@@ -71,8 +71,8 @@ test("mid-set threshold handles even and odd set sizes", () => {
   assert.equal(hasReachedMidset(1, 0), false);
 });
 
-test("mid-set hold duration stays within the requested five-to-ten-second window", () => {
-  assert.equal(midsetHoldSeconds(0), 5);
-  assert.equal(midsetHoldSeconds(0.5), 8);
-  assert.equal(midsetHoldSeconds(1), 10);
+test("mid-set hold duration stays within the requested eight-to-twelve-second window", () => {
+  assert.equal(midsetHoldSeconds(0), 8);
+  assert.equal(midsetHoldSeconds(0.5), 10);
+  assert.equal(midsetHoldSeconds(1), 12);
 });
