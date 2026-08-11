@@ -73,6 +73,10 @@ workflows:
             "${EXPO_PUBLIC_ADMOB_USE_TEST_ADS:-}" \
             "${ADMOB_USE_TEST_ADS:-}" \
             "false")
+          ADMOB_ENABLE_INSPECTOR=$(first_value \
+            "${EXPO_PUBLIC_ADMOB_ENABLE_INSPECTOR:-}" \
+            "${ADMOB_ENABLE_INSPECTOR:-}" \
+            "false")
 
           case "$REVENUECAT_KEY" in
             appl_*) ;;
@@ -100,6 +104,13 @@ workflows:
             true|false) ;;
             *)
               echo "EXPO_PUBLIC_ADMOB_USE_TEST_ADS must be true or false."
+              exit 1
+              ;;
+          esac
+          case "$ADMOB_ENABLE_INSPECTOR" in
+            true|false) ;;
+            *)
+              echo "EXPO_PUBLIC_ADMOB_ENABLE_INSPECTOR must be true or false."
               exit 1
               ;;
           esac
@@ -135,6 +146,7 @@ workflows:
           printf 'EXPO_PUBLIC_ADMOB_IOS_INTERSTITIAL_ID=%s\n' "$ADMOB_IOS_INTERSTITIAL" >> "$CM_ENV"
           printf 'EXPO_PUBLIC_IOS_NATIVE_MIDSET_ID=%s\n' "$ADMOB_IOS_NATIVE_MIDSET" >> "$CM_ENV"
           printf 'EXPO_PUBLIC_ADMOB_USE_TEST_ADS=%s\n' "$ADMOB_USE_TEST_ADS" >> "$CM_ENV"
+          printf 'EXPO_PUBLIC_ADMOB_ENABLE_INSPECTOR=%s\n' "$ADMOB_ENABLE_INSPECTOR" >> "$CM_ENV"
 
       - name: Build Root Mobile SPA Bundle
         script: |
@@ -186,7 +198,12 @@ workflows:
       - name: Build iOS IPA
         script: |
           cd mobile/mobile/ios
-          pod install
+          pod install --repo-update
+          if ! grep -q "GoogleMobileAdsMediationFacebook (6.21.1.0)" Podfile.lock || ! grep -q "GoogleMobileAdsMediationUnity (4.17.0.0)" Podfile.lock; then
+            echo "ERROR: AdMob Meta/Unity mediation adapters are missing or have unexpected versions."
+            grep -E "GoogleMobileAdsMediation(Facebook|Unity)" Podfile.lock || true
+            exit 1
+          fi
           xcode-project build-ipa --workspace *.xcworkspace --scheme "Trimswipe"
     artifacts:
       

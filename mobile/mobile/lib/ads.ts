@@ -51,12 +51,23 @@ type GoogleMobileAdsModule = {
   TestIds: { REWARDED: string; INTERSTITIAL?: string; NATIVE?: string };
   AdEventType: Record<string, string>;
   RewardedAdEventType: Record<string, string>;
-  default?: { initialize: () => Promise<unknown> };
+  AdsConsent?: {
+    gatherConsent: (options?: { tagForUnderAgeOfConsent?: boolean }) => Promise<{ canRequestAds: boolean }>;
+    showPrivacyOptionsForm: () => Promise<{ canRequestAds: boolean }>;
+  };
+  MobileAds?: () => GoogleMobileAdsClient;
+  default?: () => GoogleMobileAdsClient;
+};
+
+type GoogleMobileAdsClient = {
+  initialize: () => Promise<Record<string, unknown>>;
+  openAdInspector: () => Promise<void>;
 };
 
 let mod: GoogleMobileAdsModule | null = null;
 let modTried = false;
 let initialized = false;
+let initializationPromise: Promise<boolean> | null = null;
 
 const IS_DEV = process.env.NODE_ENV !== "production";
 const USE_TEST_ADS = process.env.EXPO_PUBLIC_ADMOB_USE_TEST_ADS === "true";
@@ -136,6 +147,12 @@ function interstitialUnitId(): string | null {
   return null;
 }
 
+function mobileAdsClient(m: GoogleMobileAdsModule): GoogleMobileAdsClient | null {
+  const factory = m.default ?? m.MobileAds;
+  if (typeof factory !== "function") return null;
+  return factory();
+}
+
 function nativeMidsetUnitId(): string | null {
   const m = loadModule();
   if (!m) return null;
@@ -175,13 +192,57 @@ export async function initAds(): Promise<boolean> {
   const m = loadModule();
   if (!m) return false;
   if (initialized) return true;
+  if (initializationPromise) return initializationPromise;
+
+  initializationPromise = (async () => {
+    try {
+      const client = mobileAdsClient(m);
+      if (!client) return false;
+
+      const consentInfo = await m.AdsConsent?.gatherConsent({ tagForUnderAgeOfConsent: false });
+      if (consentInfo && !consentInfo.canRequestAds) {
+        console.log("[ads] consent does not currently allow ad requests");
+        return false;
+      }
+
+      const adapterStatuses = await client.initialize();
+      if (IS_DEV) console.log("[ads] adapter initialization status", adapterStatuses);
+      initialized = true;
+      return true;
+    } catch (err) {
+      console.log("[ads] init failed", err);
+      return false;
+    } finally {
+      initializationPromise = null;
+    }
+  })();
+
+  return initializationPromise;
+}
+
+export async function openAdInspector(): Promise<boolean> {
+  const m = loadModule();
+  const client = m ? mobileAdsClient(m) : null;
+  if (!client || !(await initAds())) return false;
+
   try {
-    const init = (m as any).default?.initialize ?? (m as any).initialize;
-    if (typeof init === "function") await init();
-    initialized = true;
+    await client.openAdInspector();
     return true;
   } catch (err) {
-    console.log("[ads] init failed", err);
+    console.log("[ads] could not open Ad Inspector", err);
+    return false;
+  }
+}
+
+export async function openAdsPrivacyOptions(): Promise<boolean> {
+  const consent = loadModule()?.AdsConsent;
+  if (!consent) return false;
+
+  try {
+    await consent.showPrivacyOptionsForm();
+    return true;
+  } catch (err) {
+    console.log("[ads] privacy options form unavailable", err);
     return false;
   }
 }
@@ -240,7 +301,7 @@ export async function showRewardedAd(): Promise<number> {
     return 0;
   }
 
-  await initAds();
+  if (!(await initAds())) return 0;
 
   return new Promise<number>((resolve) => {
     try {
@@ -315,7 +376,7 @@ export async function showInterstitialAd(): Promise<boolean> {
     return false;
   }
 
-  await initAds();
+  if (!(await initAds())) return false;
 
   return new Promise<boolean>((resolve) => {
     try {

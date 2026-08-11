@@ -94,6 +94,8 @@ import { loadAccountSession, setAccountSignedIn } from "../lib/account-session";
 import {
   initAds,
   loadSwipeMidsetNativeAd,
+  openAdInspector,
+  openAdsPrivacyOptions,
   showInterstitialAd,
   showRewardedAd,
   type LoadedSwipeMidsetNativeAd,
@@ -903,11 +905,15 @@ export function NativeTrimSwipeApp() {
         // Do not risk showing an ad to a Pro user when entitlement lookup failed.
         setPurchaseAccessReady(false);
       });
-    void initAds().catch(() => {});
     void registerCleanupBackgroundTask();
     void ensureCleanupNotifications();
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    if (!purchaseAccessReady || isPro) return;
+    void initAds().catch(() => {});
+  }, [isPro, purchaseAccessReady]);
 
   async function handleWatchAd() {
     if (adBusy) return;
@@ -5303,6 +5309,10 @@ function SettingsScreen({
   const [reloading, setReloading] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [openingAdInspector, setOpeningAdInspector] = useState(false);
+  const [adInspectorMessage, setAdInspectorMessage] = useState("");
+  const [openingPrivacyOptions, setOpeningPrivacyOptions] = useState(false);
+  const [privacyOptionsMessage, setPrivacyOptionsMessage] = useState("");
   const showsThresholds =
     settings.targetMode === "big-or-old" ||
     settings.targetMode === "big-only" ||
@@ -5333,6 +5343,28 @@ function SettingsScreen({
       await onSignOut();
     } finally {
       setSigningOut(false);
+    }
+  }
+
+  async function handleOpenAdInspector() {
+    setOpeningAdInspector(true);
+    setAdInspectorMessage("");
+    try {
+      const opened = await openAdInspector();
+      if (!opened) setAdInspectorMessage("Ad Inspector is unavailable in this build.");
+    } finally {
+      setOpeningAdInspector(false);
+    }
+  }
+
+  async function handleOpenPrivacyOptions() {
+    setOpeningPrivacyOptions(true);
+    setPrivacyOptionsMessage("");
+    try {
+      const opened = await openAdsPrivacyOptions();
+      if (!opened) setPrivacyOptionsMessage("Privacy choices are not required for this location or are temporarily unavailable.");
+    } finally {
+      setOpeningPrivacyOptions(false);
     }
   }
 
@@ -5457,6 +5489,48 @@ function SettingsScreen({
               <Text style={styles.reportButtonText}>Monthly</Text>
             </Pressable>
           </View>
+        </View>
+      ) : null}
+      {!isPro ? (
+        <View style={[styles.settingCardVertical, themed.card]}>
+          <Text style={[styles.settingLabel, themed.label]}>Advertising privacy</Text>
+          <Text style={[styles.mutedSmall, themed.muted]}>
+            Review or change the privacy choices used for ads in TrimSwipe.
+          </Text>
+          <Pressable
+            disabled={openingPrivacyOptions}
+            style={[styles.accountSecondaryButton, themed.secondaryButton]}
+            onPress={() => void handleOpenPrivacyOptions()}
+          >
+            {openingPrivacyOptions ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <Ionicons name="shield-checkmark-outline" size={17} color={colors.primary} />
+            )}
+            <Text style={[styles.accountSecondaryText, { color: theme.primary }]}>Privacy choices</Text>
+          </Pressable>
+          {privacyOptionsMessage ? <Text style={[styles.mutedSmall, themed.muted]}>{privacyOptionsMessage}</Text> : null}
+        </View>
+      ) : null}
+      {(__DEV__ || process.env.EXPO_PUBLIC_ADMOB_ENABLE_INSPECTOR === "true") ? (
+        <View style={[styles.settingCardVertical, themed.card]}>
+          <Text style={[styles.settingLabel, themed.label]}>Ad mediation diagnostics</Text>
+          <Text style={[styles.mutedSmall, themed.muted]}>
+            Inspect adapter readiness and test Meta or Unity as a single ad source.
+          </Text>
+          <Pressable
+            disabled={openingAdInspector}
+            style={[styles.accountSecondaryButton, themed.secondaryButton]}
+            onPress={() => void handleOpenAdInspector()}
+          >
+            {openingAdInspector ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <Ionicons name="analytics-outline" size={17} color={colors.primary} />
+            )}
+            <Text style={[styles.accountSecondaryText, { color: theme.primary }]}>Open Ad Inspector</Text>
+          </Pressable>
+          {adInspectorMessage ? <Text style={[styles.mutedSmall, themed.muted]}>{adInspectorMessage}</Text> : null}
         </View>
       ) : null}
       <SettingStepper label="Cards per round" value={settings.cardsPerRound} suffix="cards" min={5} max={30} step={1} onChange={(cardsPerRound) => onChange({ cardsPerRound })} />
