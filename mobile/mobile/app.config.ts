@@ -113,7 +113,7 @@ const config: ExpoConfig = {
     ],
     "expo-web-browser",
     "expo-localization",
-    "./plugins/withLocalizedPermissions",
+    "./plugins/withLocalizedPermissions.js",
     "expo-notifications",
     "expo-background-task",
     [
