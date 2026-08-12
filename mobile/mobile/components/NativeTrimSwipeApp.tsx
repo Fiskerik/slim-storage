@@ -24,11 +24,13 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
   type ImageSourcePropType,
   type ViewStyle,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { captureRef } from "react-native-view-shot";
 import {
@@ -79,7 +81,7 @@ import {
   type NativeTargetMode,
   type NativeTrimKind,
 } from "../lib/native-store";
-import i18n, { APP_LANGUAGES, t } from "../lib/i18n";
+import { APP_LANGUAGES, t } from "../lib/i18n";
 import { HomeDashboard } from "./HomeDashboard";
 import type { DailyRewardState } from "./HomeDashboard";
 import { StatsDashboard } from "./StatsDashboard";
@@ -785,6 +787,10 @@ function CelebrationBurst({ visible }: { visible: boolean }) {
 }
 
 export function NativeTrimSwipeApp() {
+  // Subscribe the app shell to i18next's languageChanged event. Most native
+  // screens use the shared `t` helper, so the shell subscription ensures the
+  // whole tree re-renders immediately after a language switch.
+  const { i18n: translationI18n } = useTranslation();
   const [screen, setScreen] = useState<Screen>("home");
   const [stats, setStats] = useState<NativeStats>(DEFAULT_NATIVE_STATS);
   const [reviewLedger, setReviewLedger] = useState<NativePhotoReviewLedger | null>(null);
@@ -844,7 +850,9 @@ export function NativeTrimSwipeApp() {
   const reportCardRef = useRef<View>(null);
 
   const settings = roundSettings(stats.settings);
-  useEffect(() => { void i18n.changeLanguage(settings.appLanguage); }, [settings.appLanguage]);
+  useEffect(() => {
+    void translationI18n.changeLanguage(settings.appLanguage);
+  }, [settings.appLanguage, translationI18n]);
   const backgroundSchedulesRef = useRef(settings.backgroundScanSchedules);
   backgroundSchedulesRef.current = settings.backgroundScanSchedules;
   isProRef.current = isPro;
@@ -3052,6 +3060,13 @@ function SwipeScreen({
 }) {
   const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
   const [midsetAd, setMidsetAd] = useState<LoadedSwipeMidsetNativeAd | null>(null);
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  // Keep the photo card within the visible area on 4.7-inch and 5.4-inch
+  // iPhones while retaining the larger card on modern Max-sized devices.
+  const deckHeight = Math.max(
+    330,
+    Math.min(492, Math.round(Math.min(windowHeight * 0.52, windowWidth * 1.15))),
+  );
   const showMidsetAd = shouldPresentMidsetAd({
     initialCount: roundInitialCount,
     remainingCount: queueCount,
@@ -3162,7 +3177,7 @@ function SwipeScreen({
         </View>
       </View>
       {permissionLimited ? <Text style={styles.warning}>{t("ui.limited-photo-access-is-enabled-some-photos-may-")}</Text> : null}
-      <View style={styles.deck}>
+      <View style={[styles.deck, { height: deckHeight }]}>
         {showMidsetAd
           ? top ? <PhotoCard photo={top} settings={settings} stacked /> : null
           : next ? <PhotoCard photo={next} settings={settings} stacked /> : null}
@@ -5731,6 +5746,8 @@ function SettingsScreen({
   const [privacyOptionsMessage, setPrivacyOptionsMessage] = useState("");
   const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
   const [languageQuery, setLanguageQuery] = useState("");
+  const { width: windowWidth } = useWindowDimensions();
+  const compactLayout = windowWidth <= 390;
   const showsThresholds =
     settings.targetMode === "big-or-old" ||
     settings.targetMode === "big-only" ||
@@ -5809,7 +5826,14 @@ function SettingsScreen({
         <Text style={[styles.settingLabel, themed.label]}>{t("ui.language")}</Text>
         <Text style={[styles.mutedSmall, themed.muted]}>{t("ui.choose-the-language-used-throughout-trimswipe")}</Text>
         <Pressable accessibilityRole="button" onPress={() => setLanguagePickerOpen(true)} style={[styles.languagePickerButton, { borderColor: theme.border, backgroundColor: theme.cardSoft }]}>
-          <Text style={[styles.languagePickerText, { color: theme.text }]}>{selectedLanguage[1]} · {selectedLanguage[2]}</Text>
+          <Text
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.78}
+            style={[styles.languagePickerText, compactLayout && styles.languagePickerTextCompact, { color: theme.text }]}
+          >
+            {selectedLanguage[1]} · {selectedLanguage[2]}
+          </Text>
           <Ionicons name="chevron-down" size={18} color={theme.textMuted} />
         </Pressable>
       </View>
@@ -5817,7 +5841,25 @@ function SettingsScreen({
         <SafeAreaView style={[styles.languageModal, { backgroundColor: theme.background }]}>
           <View style={styles.languageModalHeader}><Text style={[styles.settingLabel, { color: theme.text }]}>{t("ui.choose-language")}</Text><Pressable onPress={() => setLanguagePickerOpen(false)}><Text style={{ color: theme.primary, fontWeight: "800" }}>{t("ui.done")}</Text></Pressable></View>
           <TextInput value={languageQuery} onChangeText={setLanguageQuery} placeholder={t("ui.search-languages")} placeholderTextColor={theme.textMuted} style={[styles.languageSearch, { color: theme.text, borderColor: theme.border, backgroundColor: theme.card }]} />
-          <ScrollView contentContainerStyle={styles.languageList}>{visibleLanguages.map(([code, nativeName, englishName]) => <Pressable key={code} onPress={() => { onChange({ appLanguage: code }); I18nManager.forceRTL(code === "ar"); setLanguagePickerOpen(false); setLanguageQuery(""); void onReload(); }} style={[styles.languageRow, { borderBottomColor: theme.border }]}><Text style={[styles.languageNative, { color: theme.text }]}>{nativeName}</Text><Text style={[styles.languageEnglish, { color: theme.textMuted }]}>{englishName}</Text>{code === settings.appLanguage ? <Ionicons name="checkmark" size={20} color={theme.primary} /> : null}</Pressable>)}</ScrollView>
+          <ScrollView contentContainerStyle={styles.languageList} keyboardShouldPersistTaps="handled">
+            {visibleLanguages.map(([code, nativeName, englishName]) => (
+              <Pressable
+                key={code}
+                onPress={() => {
+                  onChange({ appLanguage: code });
+                  I18nManager.forceRTL(code === "ar");
+                  setLanguagePickerOpen(false);
+                  setLanguageQuery("");
+                  void onReload();
+                }}
+                style={[styles.languageRow, compactLayout && styles.languageRowCompact, { borderBottomColor: theme.border }]}
+              >
+                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78} style={[styles.languageNative, compactLayout && styles.languageNativeCompact, { color: theme.text }]}>{nativeName}</Text>
+                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78} style={[styles.languageEnglish, compactLayout && styles.languageEnglishCompact, { color: theme.textMuted }]}>{englishName}</Text>
+                {code === settings.appLanguage ? <Ionicons name="checkmark" size={20} color={theme.primary} /> : null}
+              </Pressable>
+            ))}
+          </ScrollView>
         </SafeAreaView>
       </Modal>
       <View style={[styles.settingCardVertical, themed.card]}>
@@ -6635,14 +6677,18 @@ const styles = StyleSheet.create({
   reminderToggle: { width: 42, height: 24, borderRadius: 14, justifyContent: "center" },
   reminderToggleKnob: { width: 20, height: 20, borderRadius: 10 },
   languagePickerButton: { minHeight: 50, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10 },
-  languagePickerText: { fontSize: 15, fontWeight: "800" },
+  languagePickerText: { flex: 1, flexShrink: 1, fontSize: 15, fontWeight: "800" },
+  languagePickerTextCompact: { fontSize: 14 },
   languageModal: { flex: 1, paddingHorizontal: 20 },
   languageModalHeader: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   languageSearch: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, minHeight: 48, fontSize: 16 },
   languageList: { paddingVertical: 10 },
   languageRow: { minHeight: 58, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", gap: 10 },
-  languageNative: { flex: 1, fontSize: 16, fontWeight: "800" },
-  languageEnglish: { fontSize: 13 },
+  languageRowCompact: { minHeight: 54, gap: 7 },
+  languageNative: { flex: 1, minWidth: 0, fontSize: 16, fontWeight: "800" },
+  languageNativeCompact: { fontSize: 15 },
+  languageEnglish: { flexShrink: 1, maxWidth: 160, fontSize: 13, textAlign: "right" },
+  languageEnglishCompact: { maxWidth: 122, fontSize: 12 },
   automationTimes: { gap: 8 },
   automationTimeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   timeAdjustButton: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: "#e5ebef" },

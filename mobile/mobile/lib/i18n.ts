@@ -34,6 +34,42 @@ export const APP_LANGUAGES = [
 export type AppLanguage = typeof APP_LANGUAGES[number][0];
 export const resources = { en, "zh-Hans": zhHans, es, hi, ar, "pt-BR": ptBR, fr, de, ja, ko, ru, id, tr, it, vi, "zh-Hant": zhHant, cs, nl, fi, ms, no, pl, sv, th, uk, da, ta } as const;
 
-void i18n.use(initReactI18next).init({ resources: Object.fromEntries(Object.entries(resources).map(([key, value]) => [key, { translation: value }])), lng: "en", fallbackLng: "en", interpolation: { escapeValue: false }, returnNull: false });
+type CatalogValue = Record<string, unknown>;
+
+/**
+ * The generated catalogs keep the legacy `strings` object for tooling, while
+ * the app uses flat keys such as `ui.choose-language`. Expose both the
+ * flattened top-level keys and the structured keys to i18next. `keySeparator`
+ * is disabled because the dots in `ui.*` are part of the key, not nesting.
+ */
+function flattenCatalog(value: CatalogValue, prefix = "", result: Record<string, unknown> = {}) {
+  for (const [key, child] of Object.entries(value)) {
+    const fullKey = prefix ? `${prefix}.${key}` : key;
+    if (child && typeof child === "object" && !Array.isArray(child)) {
+      flattenCatalog(child as CatalogValue, fullKey, result);
+      if (key === "strings") Object.assign(result, child);
+    } else {
+      result[fullKey] = child;
+    }
+  }
+  return result;
+}
+
+const normalizedResources = Object.fromEntries(
+  Object.entries(resources).map(([key, value]) => [key, { translation: flattenCatalog(value as CatalogValue) }]),
+);
+
+void i18n.use(initReactI18next).init({
+  resources: normalizedResources,
+  lng: "en",
+  fallbackLng: "en",
+  initImmediate: false,
+  keySeparator: false,
+  nsSeparator: false,
+  interpolation: { escapeValue: false },
+  returnNull: false,
+  returnEmptyString: false,
+  react: { useSuspense: false },
+});
 export const t = (key: string, options?: Record<string, unknown>) => i18n.t(key, options);
 export default i18n;
