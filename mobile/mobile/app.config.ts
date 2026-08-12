@@ -3,6 +3,10 @@ import type { ExpoConfig } from "expo/config";
 const DEFAULT_ADMOB_IOS_APP_ID = "ca-app-pub-8854735603167656~1027546750";
 const DEFAULT_ADMOB_ANDROID_APP_ID = "ca-app-pub-3940256099942544~3347511713";
 const ADMOB_APP_ID_PATTERN = /^ca-app-pub-\d+~\d+$/;
+const SUPPORTED_LOCALES = [
+  "en", "zh-Hans", "zh-Hant", "es", "hi", "ar", "pt-BR", "fr", "de", "ja", "ko", "ru", "id", "tr",
+  "it", "vi", "cs", "nl", "fi", "ms", "no", "pl", "sv", "th", "uk", "da", "ta",
+];
 const IOS_SK_AD_NETWORK_ITEMS = [
   "cstr6suwn9.skadnetwork",
   "4fzdc2evr5.skadnetwork",
@@ -64,7 +68,7 @@ function adMobAppId(value: string | undefined, fallback: string, name: string): 
 }
 
 const config: ExpoConfig = {
-  name: "Trimswipe",
+  name: "TrimSwipe",
   slug: "slim-storage",
   version: "1.1.3",
   icon: "./assets/images/icon.png",
@@ -76,12 +80,12 @@ const config: ExpoConfig = {
     buildNumber: "70",
     supportsTablet: true,
     infoPlist: {
-      CFBundleLocalizations: ["en", "zh-Hans", "zh-Hant", "es", "hi", "ar", "pt-BR", "fr", "de", "ja", "ko", "ru", "id", "tr", "it", "vi", "cs", "nl", "fi", "ms", "no", "pl", "sv", "th", "uk", "da", "ta"],
-      NSCameraUsageDescription: "Needed to find your pictures.",
+      CFBundleAllowMixedLocalizations: true,
+      CFBundleLocalizations: SUPPORTED_LOCALES,
       NSPhotoLibraryUsageDescription:
-        "Trimswipe needs access to your photo library so you can swipe through your photos and free up storage.",
+        "TrimSwipe needs access to your photo library so you can swipe through your photos and free up storage.",
       NSPhotoLibraryAddUsageDescription:
-        "Trimswipe may save optimized versions of your photos.",
+        "TrimSwipe may save optimized versions of your photos.",
       ITSAppUsesNonExemptEncryption: false,
       UIBackgroundModes: ["processing"],
       BGTaskSchedulerPermittedIdentifiers: ["trimswipe-cleanup-maintenance"],
@@ -106,13 +110,25 @@ const config: ExpoConfig = {
       "expo-media-library",
       {
         photosPermission:
-          "Trimswipe needs access to your photos so you can review and clean up your camera roll.",
-        savePhotosPermission: "Trimswipe may save optimized versions of your photos.",
+          "TrimSwipe needs access to your photos so you can review and clean up your camera roll.",
+        savePhotosPermission: "TrimSwipe may save optimized versions of your photos.",
         isAccessMediaLocationEnabled: true,
       },
     ],
     "expo-web-browser",
-    "expo-localization",
+    [
+      "expo-localization",
+      {
+        // Declare every in-app language to iOS and Android while leaving the
+        // display name unchanged. `forcesRTL` must stay unset because Arabic
+        // can be selected alongside left-to-right languages.
+        supportsRTL: true,
+        supportedLocales: {
+          ios: SUPPORTED_LOCALES,
+          android: SUPPORTED_LOCALES,
+        },
+      },
+    ],
     "./plugins/withLocalizedPermissions.js",
     "expo-notifications",
     "expo-background-task",

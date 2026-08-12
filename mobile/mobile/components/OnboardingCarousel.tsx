@@ -117,7 +117,7 @@ function SlideLoad({ width, height, compact }: { width: number; height: number; 
       </Animated.View>
       <Text style={[styles.slideTitle, compact && styles.slideTitleCompact]}>{t("ui.clean-by-swiping")}</Text>
       <Text style={styles.slideBody} adjustsFontSizeToFit minimumFontScale={0.86}>
-        TrimSwipe finds photos worth reviewing, then lets you keep, trim, delete, or skip them before anything changes.
+        {t("ui.onboarding-load-body")}
       </Text>
       <View style={styles.previewCard}>
         <Ionicons name="checkmark-circle-outline" size={16} color={colors.sageDeep} />
@@ -138,7 +138,7 @@ function SlidePick({ width, height, compact }: { width: number; height: number; 
       </View>
       <Text style={[styles.slideTitle, compact && styles.slideTitleCompact]}>{t("ui.what-trim-can-change")}</Text>
       <Text style={styles.slideBody} adjustsFontSizeToFit minimumFontScale={0.86}>
-        Trim can strip metadata, location, and extra weight. In replace mode, the original is deleted after a smaller copy is saved.
+        {t("ui.onboarding-pick-body")}
       </Text>
     </View>
   );
@@ -166,7 +166,7 @@ function SlideProfit({ width, height, compact }: { width: number; height: number
       </ProgressRing>
       <Text style={[styles.slideTitle, compact && styles.slideTitleCompact, { marginTop: compact ? spacing.lg : spacing.xxl }]}>{t("ui.cloud-backup-window")}</Text>
       <Text style={styles.slideBody} adjustsFontSizeToFit minimumFontScale={0.86}>
-        Deleted originals and replaced photos can usually be recovered from Recently Deleted or cloud backup for up to 39 days.
+        {t("ui.onboarding-profit-body")}
       </Text>
       <View style={styles.previewCard}>
         <Ionicons name="cloud-done-outline" size={16} color={colors.sageDeep} />

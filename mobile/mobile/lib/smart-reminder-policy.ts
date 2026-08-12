@@ -43,6 +43,7 @@ export function chooseSmartReminder(
   const streak = currentStreak(stats, now);
   const lastAction = stats.actionLog[0]?.createdAt;
   const daysSinceCleanup = daysSince(lastAction, now);
+  const daysSinceActive = daysSince(stats.lastActiveAt, now);
 
   if (preferences.storage && freeRatio != null && freeRatio < 0.10) {
     candidates.push({ trigger: "low-storage", priority: freeRatio < 0.05 ? 100 : 90, reason: "Your iPhone is running low on free space." });
@@ -58,7 +59,7 @@ export function chooseSmartReminder(
   if (preferences.cleanup && daysSinceCleanup >= 7 && (cleanupMB >= 500 || snapshot.screenshotsCount >= 50 || snapshot.similarCount >= 20)) {
     candidates.push({ trigger: "cleanup-opportunity", priority: 60, reason: "TrimSwipe found a useful cleanup opportunity." });
   }
-  if (preferences.cleanup && daysSinceCleanup >= 7 && cleanupMB >= 500) {
+  if (preferences.cleanup && daysSinceActive >= 7 && cleanupMB >= 500) {
     candidates.push({ trigger: "inactivity", priority: 50, reason: "Your photo library may be ready for a quick refresh." });
   }
   if (preferences.weekly && now.getDay() === 0 && now.getHours() >= 18 && today === 0 && stats.reviewed > 0) {

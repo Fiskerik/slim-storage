@@ -34,7 +34,9 @@ export type DuplicateClusterReviewProps = {
 type Filter = "all" | "keep" | "remove";
 
 function formatMB(value: number): string {
-  return value >= 1024 ? `${(value / 1024).toFixed(2)} GB` : `${value.toFixed(1)} MB`;
+  return value >= 1024
+    ? t("ui.storage-gb", { value: (value / 1024).toFixed(2) })
+    : t("ui.storage-mb", { value: value.toFixed(1) });
 }
 
 function confidenceLabel(confidence?: number): string | null {
@@ -145,12 +147,12 @@ export function DuplicateClusterReview({
           </Text>
           <Text style={styles.reason} numberOfLines={2}>
             {keeper.suggestionReasons?.length
-              ? keeper.suggestionReasons.join(" · ")
+              ? keeper.suggestionReasons.join(t("ui.list-separator"))
               : t("ui.based-on-available-image-quality-signals")}
           </Text>
           {confidenceLabel(keeper.suggestionConfidence) ? (
             <Text style={styles.confidence}>
-              {confidenceLabel(keeper.suggestionConfidence)} — please compare before removing.
+              {t("ui.confidence-compare-before-removing", { confidence: confidenceLabel(keeper.suggestionConfidence) })}
             </Text>
           ) : null}
         </View>
@@ -182,7 +184,14 @@ export function DuplicateClusterReview({
             <View key={photo.id} style={styles.photoCell}>
               <Pressable
                 accessibilityRole={"imagebutton" as AccessibilityRole}
-                accessibilityLabel={`${photo.title || "Photo"}, ${isKeeper ? "suggested to keep" : isSelectedForRemoval ? "selected for removal" : "not selected for removal"}. Long press for preview.`}
+                accessibilityLabel={t("ui.photo-preview-accessibility", {
+                  title: photo.title || t("ui.photo"),
+                  status: isKeeper
+                    ? t("ui.suggested-to-keep")
+                    : isSelectedForRemoval
+                      ? t("ui.selected-for-removal")
+                      : t("ui.not-selected-for-removal"),
+                })}
                 onLongPress={() => onPreviewPhoto?.(photo)}
                 delayLongPress={350}
                 onPress={() => onPreviewPhoto?.(photo)}
@@ -212,8 +221,8 @@ export function DuplicateClusterReview({
                   isKeeper
                     ? t("ui.choose-a-different-photo-to-keep")
                     : isSelectedForRemoval
-                      ? `Keep ${photo.title || "this photo"}`
-                      : `Select ${photo.title || "this photo"} for removal`
+                      ? t("ui.keep-photo", { title: photo.title || t("ui.this-photo") })
+                      : t("ui.select-photo-for-removal", { title: photo.title || t("ui.this-photo") })
                 }
                 onPress={() => toggleRemoval(photo)}
                 disabled={isKeeper}
@@ -229,13 +238,13 @@ export function DuplicateClusterReview({
                     isSelectedForRemoval && styles.selectionButtonTextRemove,
                   ]}
                 >
-                  {isKeeper ? "Keeper" : isSelectedForRemoval ? "Remove" : "Keep"}
+                  {isKeeper ? t("ui.keeper") : isSelectedForRemoval ? t("ui.remove") : t("ui.keep")}
                 </Text>
               </Pressable>
               {!isKeeper ? (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`Make ${photo.title || "this photo"} the keeper`}
+                  accessibilityLabel={t("ui.make-photo-keeper", { title: photo.title || t("ui.this-photo") })}
                   onPress={() => chooseKeeper(photo)}
                   hitSlop={8}
                 >
@@ -247,20 +256,22 @@ export function DuplicateClusterReview({
         })}
       </View>
 
-      <Text style={styles.disclaimer}>
-        Suggestions use on-device image signals and can be wrong. You choose what stays.
-      </Text>
+      <Text style={styles.disclaimer}>{t("ui.duplicate-suggestions-disclaimer")}</Text>
       {onConfirmRemovals ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`${confirmLabel}. ${removalIds.length} photos selected, about ${formatMB(selectedSavings)}.`}
+          accessibilityLabel={t("ui.confirm-removals-accessibility", {
+            label: confirmLabel,
+            count: removalIds.length,
+            value: formatMB(selectedSavings),
+          })}
           disabled={removalIds.length === 0}
           onPress={() => onConfirmRemovals({ keeperId: keeper.id, removalIds })}
           style={[styles.confirmButton, removalIds.length === 0 && styles.confirmButtonDisabled]}
         >
           <Ionicons name="trash-outline" size={18} color={colors.white} />
           <Text style={styles.confirmText}>
-            {confirmLabel} · {removalIds.length}
+            {t("ui.confirm-removals-count", { label: confirmLabel, count: removalIds.length })}
           </Text>
         </Pressable>
       ) : null}

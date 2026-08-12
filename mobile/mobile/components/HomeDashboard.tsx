@@ -195,7 +195,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
           <View style={styles.headerActions}>
             <Pressable onPress={onOpenShop} hitSlop={10} style={styles.tokenChip}>
               <Ionicons name="flash" size={14} color={colors.honey} />
-              <Text style={styles.tokenChipValue}>{hasUnlimitedTrims ? "∞" : tokens}</Text>
+              <Text style={styles.tokenChipValue}>{hasUnlimitedTrims ? String.fromCharCode(8734) : tokens}</Text>
             </Pressable>
             <Pressable onPress={() => setDetailsOpen(true)} hitSlop={10} style={styles.shareBtn}>
               <Ionicons name="search-outline" size={18} color={colors.primary} />
@@ -504,7 +504,7 @@ function RecentList({ entries, onOpenRecentlyDeleted }: { entries: NativeActionL
               {actionLabel(e.action)} {e.title}
             </Text>
             <Text style={styles.recentMeta}>
-              {e.mbFreed > 0 ? t("ui.home-saved", { value: formatMB(e.mbFreed) }) : t("ui.home-kept")} ·{" "}
+              {e.mbFreed > 0 ? t("ui.home-saved", { value: formatMB(e.mbFreed) }) : t("ui.home-kept")} {t("ui.list-separator")}{" "}
               {timeAgo(e.createdAt)}
             </Text>
           </View>
@@ -526,14 +526,16 @@ function RecentList({ entries, onOpenRecentlyDeleted }: { entries: NativeActionL
   );
 }
 
-// ── helpers ─────────────────────────────────────────────────────────────────
+// Helpers
 
 function formatMB(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return t("ui.0-mb");
-  return value >= 1024 ? `${(value / 1024).toFixed(2)} GB` : `${value.toFixed(1)} MB`;
+  return value >= 1024
+    ? t("ui.storage-gb", { value: (value / 1024).toFixed(2) })
+    : t("ui.storage-mb", { value: value.toFixed(1) });
 }
 function formatThresholdMB(value: number): string {
-  return `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)}MB`;
+  return t("ui.threshold-mb", { value: Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1) });
 }
 function ageYears(createdAt: number): number {
   return (Date.now() - createdAt) / (365.25 * 24 * 3600 * 1000);
@@ -566,21 +568,21 @@ function libraryHealthScore(stats: NativeStats, scan: NativeLibraryScan | null, 
   return Math.round(Math.max(32, Math.min(99, 46 - scanBurden + momentum + reclaimed)));
 }
 function actionLabel(a: string) {
-  if (a === "delete") return "Deleted";
-  if (a === "trim") return "Trimmed";
-  return "Kept";
+  if (a === "delete") return t("ui.action-deleted");
+  if (a === "trim") return t("ui.action-trimmed");
+  return t("ui.action-kept");
 }
 function timeAgo(iso: string) {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "—";
-  const diff = Date.now() - t;
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  return `${d}d ago`;
+  const timestamp = Date.parse(iso);
+  if (Number.isNaN(timestamp)) return t("ui.not-available");
+  const diff = Date.now() - timestamp;
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return t("ui.time-just-now");
+  if (minutes < 60) return t("ui.time-minutes-ago", { count: minutes });
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return t("ui.time-hours-ago", { count: hours });
+  const days = Math.floor(hours / 24);
+  return t("ui.time-days-ago", { count: days });
 }
 function streakOf(stats: NativeStats): number {
   const dayMs = 24 * 3600 * 1000;

@@ -106,7 +106,7 @@ export function StatsDashboard({
       {/* Weekly goal ring */}
       <Card style={styles.heroCard} tone="warm">
         <View style={styles.heroLeft}>
-          <Pill icon="trophy-outline" value={`Lv ${level.level}`} label={level.title} tone="primary" />
+          <Pill icon="trophy-outline" value={t("ui.level-short", { level: level.level })} label={level.title} tone="primary" />
           <Text style={styles.heroFreed}>{formatMB(week.mbFreed)}</Text>
           <Text style={styles.heroSub}>{t("ui.stats-this-week-goal", { value: formatMB(WEEKLY_TARGET_MB) })}</Text>
           <View style={styles.pillRow}>
@@ -460,7 +460,7 @@ function SplitRow({
       <View style={[styles.dotBlock, { backgroundColor: color }]} />
       <Text style={styles.splitLabel} numberOfLines={1}>{label}</Text>
       <Text style={styles.splitValue}>{value}{pct}</Text>
-      <Text style={styles.splitCount}>· {count}</Text>
+      <Text style={styles.splitCount}>{t("ui.split-count", { count })}</Text>
     </View>
   );
 }
@@ -635,7 +635,7 @@ function buildSavingsBuckets(stats: NativeStats, period: ChartPeriod): SavingsBu
       const monthLabel = new Date(year, month, startDay).toLocaleDateString(i18n.language, { month: "short" });
       return bucketFromStats(
         `${year}-${String(month + 1).padStart(2, "0")}-w${index + 1}`,
-        `W${index + 1}`,
+        t("ui.week-number", { count: index + 1 }),
         `${monthLabel} ${startDay}-${endDay}`,
         sum,
       );
@@ -676,7 +676,9 @@ function levelInfo(stats: NativeStats) {
 }
 function formatMB(v: number) {
   if (!Number.isFinite(v) || v <= 0) return t("ui.0-mb");
-  return v >= 1024 ? `${(v / 1024).toFixed(2)} GB` : `${v.toFixed(1)} MB`;
+  return v >= 1024
+    ? t("ui.storage-gb", { value: (v / 1024).toFixed(2) })
+    : t("ui.storage-mb", { value: v.toFixed(1) });
 }
 function formatCount(value: number) {
   if (!Number.isFinite(value)) return "0";
@@ -719,21 +721,21 @@ function buildBadges(stats: NativeStats) {
     },
     {
       title: t("ui.consistency-3"),
-      hint: `${Math.min(streak, 3)}/3 active days`,
+      hint: t("ui.badge-active-days", { count: Math.min(streak, 3), target: 3 }),
       icon: "calendar-outline" as const,
       progress: Math.min(1, streak / 3),
       unlocked: streak >= 3,
     },
     {
       title: t("ui.1-gb-freed"),
-      hint: `${formatMB(stats.mbFreed)} of 1 GB`,
+      hint: t("ui.badge-freed-of", { value: formatMB(stats.mbFreed), target: t("ui.storage-gb", { value: "1" }) }),
       icon: "rocket-outline" as const,
       progress: Math.min(1, stats.mbFreed / 1024),
       unlocked: stats.mbFreed >= 1024,
     },
     {
       title: t("ui.250-mb-freed"),
-      hint: `${formatMB(stats.mbFreed)} of 250 MB`,
+      hint: t("ui.badge-freed-of", { value: formatMB(stats.mbFreed), target: t("ui.storage-mb", { value: "250" }) }),
       icon: "sparkles-outline" as const,
       progress: Math.min(1, stats.mbFreed / 250),
       unlocked: stats.mbFreed >= 250,
@@ -768,7 +770,7 @@ function buildBadges(stats: NativeStats) {
     },
     {
       title: t("ui.weekly-saver"),
-      hint: `${formatMB(week.mbFreed)} of ${formatMB(WEEKLY_TARGET_MB)}`,
+      hint: t("ui.badge-freed-of", { value: formatMB(week.mbFreed), target: formatMB(WEEKLY_TARGET_MB) }),
       icon: "trophy-outline" as const,
       progress: Math.min(1, week.mbFreed / WEEKLY_TARGET_MB),
       unlocked: week.mbFreed >= WEEKLY_TARGET_MB,

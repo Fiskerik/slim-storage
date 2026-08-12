@@ -233,15 +233,15 @@ export function TrimScreen({
           <View style={{ flex: 1 }}>
             <Text style={styles.metaTitle} numberOfLines={1}>{photo.title}</Text>
             <Text style={styles.metaSub}>
-              {photo.month} {photo.year} · {photo.sizeMB.toFixed(1)} MB
+              {t("ui.photo-month-size", { month: photo.month, year: photo.year, value: photo.sizeMB.toFixed(1) })}
             </Text>
             <Text style={styles.metaMode}>
               {trimStatus?.canTrim
-                ? `Image size: ${photo.sizeMB.toFixed(1)} MB · Trim: -${estSaved.toFixed(1)} MB`
-                : `Cannot trim: ${blockedReason ?? t("ui.no-selected-trim-applies")}`}
+                ? t("ui.image-size-trim-savings", { size: photo.sizeMB.toFixed(1), saved: estSaved.toFixed(1) })
+                : t("ui.cannot-trim-reason", { reason: blockedReason ?? t("ui.no-selected-trim-applies") })}
             </Text>
           </View>
-          <Pill icon="sparkles-outline" value={trimStatus?.canTrim ? `~${estSaved.toFixed(1)} MB` : "Done"} label={t("ui.save")} tone="primary" />
+          <Pill icon="sparkles-outline" value={trimStatus?.canTrim ? t("ui.approximate-mb", { value: estSaved.toFixed(1) }) : t("ui.done")} label={t("ui.save")} tone="primary" />
         </View>
       ) : null}
 
@@ -250,7 +250,7 @@ export function TrimScreen({
         title={t("ui.presets")}
         action={
           <Text style={styles.actionLink}>
-            {isPro ? "tap to stack" : t("ui.pro-multi-select")}
+            {isPro ? t("ui.tap-to-stack") : t("ui.pro-multi-select")}
           </Text>
         }
       />
@@ -281,7 +281,7 @@ export function TrimScreen({
                 <Text style={[styles.presetLabel, active && { color: colors.primary }]}>{p.label}</Text>
                 <Text style={styles.presetHint}>{locked ? t("ui.lifetime-pro") : p.hint}</Text>
               </View>
-              <Text style={styles.presetSave}>~{saveMB.toFixed(1)} MB</Text>
+              <Text style={styles.presetSave}>{t("ui.approximate-mb", { value: saveMB.toFixed(1) })}</Text>
             </Pressable>
           );
         })}
@@ -310,7 +310,7 @@ export function TrimScreen({
             <>
               <Ionicons name="cut-outline" size={18} color={colors.white} />
               <Text style={styles.primaryText}>
-                {trimStatus?.canTrim ? `Trim - save ~${estSaved.toFixed(1)} MB` : (blockedReason ?? t("ui.cannot-trim"))}
+                {trimStatus?.canTrim ? t("ui.trim-save-estimate", { value: estSaved.toFixed(1) }) : (blockedReason ?? t("ui.cannot-trim"))}
               </Text>
             </>
           )}

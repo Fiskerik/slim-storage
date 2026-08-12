@@ -20,6 +20,7 @@ export type ReminderSyncPayload = {
   streak?: number;
   reviewedToday?: number;
   lastCleanupAt?: string | null;
+  lastActiveAt?: string | null;
 };
 
 Notifications.setNotificationHandler({
@@ -88,6 +89,7 @@ export async function syncRemoteCleanupReminders(
       streak: engagement?.streak ?? 0,
       reviewedToday: engagement?.reviewedToday ?? 0,
       lastCleanupAt: engagement?.lastCleanupAt ?? null,
+      lastActiveAt: engagement?.lastActiveAt ?? null,
     });
 
     return {

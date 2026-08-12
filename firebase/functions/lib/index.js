@@ -7,6 +7,7 @@ const params_1 = require("firebase-functions/params");
 const https_1 = require("firebase-functions/v2/https");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const luxon_1 = require("luxon");
+const notification_locales_js_1 = require("./notification-locales.js");
 (0, app_1.initializeApp)();
 const db = (0, firestore_1.getFirestore)();
 const REGION = "europe-west1";
@@ -74,20 +75,26 @@ function smartCandidate(value, now = luxon_1.DateTime.utc()) {
     const similar = Number(snapshot.similarCount) || 0;
     const cleanupMB = (Number(snapshot.trimSavingsMB) || 0) + (Number(snapshot.deleteSavingsMB) || 0);
     const candidates = [];
+    const addCandidate = (trigger, priority) => {
+        const copy = (0, notification_locales_js_1.getSmartReminderCopy)(value.locale, trigger);
+        candidates.push({ trigger, priority, ...copy, screen: "games" });
+    };
     if (value.smartReminders.storage && capacity > 0 && free / capacity < 0.1)
-        candidates.push({ trigger: "low-storage", priority: free / capacity < 0.05 ? 100 : 90, title: "Your iPhone is running low on space", body: "A quick TrimSwipe session could free up room.", screen: "games" });
+        addCandidate("low-storage", free / capacity < 0.05 ? 100 : 90);
     if (value.smartReminders.streak && (value.streak ?? 0) >= 2 && (value.reviewedToday ?? 0) === 0 && now.setZone(value.timezone).hour >= 18)
-        candidates.push({ trigger: "streak-at-risk", priority: 80, title: "Keep your cleanup streak going", body: "A few quick swipes are enough for today.", screen: "games" });
+        addCandidate("streak-at-risk", 80);
     const lastCleanup = value.lastCleanupAt ? luxon_1.DateTime.fromISO(value.lastCleanupAt) : null;
     const daysSinceCleanup = lastCleanup?.isValid ? now.diff(lastCleanup, "days").days : 999;
+    const lastActive = value.lastActiveAt ? luxon_1.DateTime.fromISO(value.lastActiveAt) : null;
+    const daysSinceActive = lastActive?.isValid ? now.diff(lastActive, "days").days : 0;
     if (value.smartReminders.newPhotos && (photoCount >= 25 || totalSize >= 250) && daysSinceCleanup >= 3)
-        candidates.push({ trigger: "new-photos", priority: 70, title: "Your camera roll has grown", body: "TrimSwipe can help you clear a little space.", screen: "games" });
+        addCandidate("new-photos", 70);
     if (value.smartReminders.cleanup && daysSinceCleanup >= 7 && (cleanupMB >= 500 || screenshots >= 50 || similar >= 20))
-        candidates.push({ trigger: "cleanup-opportunity", priority: 60, title: "A useful cleanup is waiting", body: "TrimSwipe found photos you may want to review.", screen: "games" });
-    if (value.smartReminders.cleanup && daysSinceCleanup >= 7 && cleanupMB >= 500)
-        candidates.push({ trigger: "inactivity", priority: 50, title: "Ready for a fresh start?", body: "Your photo library may be ready for a quick refresh.", screen: "games" });
+        addCandidate("cleanup-opportunity", 60);
+    if (value.smartReminders.cleanup && daysSinceActive >= 7 && cleanupMB >= 500)
+        addCandidate("inactivity", 50);
     if (value.smartReminders.weekly && now.setZone(value.timezone).weekday === 7 && now.setZone(value.timezone).hour >= 18 && (value.reviewedToday ?? 0) === 0 && (value.streak ?? 0) > 0)
-        candidates.push({ trigger: "weekly-progress", priority: 40, title: "Make a little progress this week", body: "Open TrimSwipe for a short cleanup session.", screen: "games" });
+        addCandidate("weekly-progress", 40);
     return candidates.sort((a, b) => b.priority - a.priority)[0] ?? null;
 }
 function nextReminderAt(schedules, timezone, after = luxon_1.DateTime.utc()) {
@@ -149,6 +156,7 @@ exports.syncReminderInstallation = (0, https_1.onCall)({ region: REGION, enforce
         streak: Math.max(0, Math.min(365, Number(data.streak) || 0)),
         reviewedToday: Math.max(0, Math.min(10000, Number(data.reviewedToday) || 0)),
         lastCleanupAt: typeof data.lastCleanupAt === "string" ? data.lastCleanupAt.slice(0, 40) : null,
+        lastActiveAt: typeof data.lastActiveAt === "string" ? data.lastActiveAt.slice(0, 40) : null,
         updatedAt: firestore_1.FieldValue.serverTimestamp(),
         expiresAt: firestore_1.Timestamp.fromDate(now.plus({ days: 90 }).toJSDate()),
         leaseUntil: firestore_1.FieldValue.delete(),
@@ -209,12 +217,11 @@ exports.sendDueCleanupReminders = (0, scheduler_1.onSchedule)({
                 ? luxon_1.DateTime.fromJSDate(value.nextSendAt.toDate(), { zone: "utc" })
                 : luxon_1.DateTime.utc();
             const schedule = scheduleDueAt(value.schedules, value.timezone, dueAt);
+            const copy = (0, notification_locales_js_1.getScheduledReminderCopy)(value.locale, schedule?.label, schedule?.targetMB);
             return {
                 to: value.expoPushToken,
-                title: "Time for a quick cleanup?",
-                body: schedule
-                    ? `${schedule.label}: your ${schedule.targetMB} MB cleanup goal is ready.`
-                    : "A few swipes can make your camera roll lighter.",
+                title: copy.title,
+                body: copy.body,
                 sound: "default",
                 data: { type: "cleanup-reminder", screen: "automation", scheduleId: schedule?.id ?? null },
             };

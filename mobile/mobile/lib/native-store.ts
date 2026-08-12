@@ -113,6 +113,9 @@ export type NativeStats = {
   onboardingComplete: boolean;
   onboardingVersion: string | null;
   shareCount: number;
+  /** Last time the user actively opened or used TrimSwipe. Only an ISO date is
+   * synced for the gentle inactivity reminder; no photo data is involved. */
+  lastActiveAt: string;
   dailyActivity: Record<string, NativeDailyStats>;
   dailyRewardClaims: Record<string, number>;
   actionLog: NativeActionLogEntry[];
@@ -192,6 +195,7 @@ export const DEFAULT_NATIVE_STATS: NativeStats = {
   onboardingComplete: false,
   onboardingVersion: null,
   shareCount: 0,
+  lastActiveAt: new Date().toISOString(),
   dailyActivity: {},
   dailyRewardClaims: {},
   actionLog: [],
@@ -389,6 +393,9 @@ function normalizeStats(value: unknown): NativeStats {
     onboardingComplete: raw.onboardingComplete === undefined ? safeNumber(raw.reviewed) > 0 : Boolean(raw.onboardingComplete),
     onboardingVersion: typeof raw.onboardingVersion === "string" ? raw.onboardingVersion : null,
     shareCount: Math.max(0, safeNumber(raw.shareCount)),
+    lastActiveAt: typeof raw.lastActiveAt === "string" && !Number.isNaN(Date.parse(raw.lastActiveAt))
+      ? raw.lastActiveAt
+      : new Date().toISOString(),
     dailyActivity: normalizeDailyActivity(raw.dailyActivity),
     dailyRewardClaims: normalizeRewardClaims(raw.dailyRewardClaims),
     actionLog: normalizeActionLog(raw.actionLog),
