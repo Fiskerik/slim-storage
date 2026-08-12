@@ -195,7 +195,15 @@ const GAME_IMAGES = {
 const BUDGET_MIN_POOL_MB = 60;
 const BUDGET_MAX_POOL_MB = 75;
 const BUDGET_KEEP_LIMIT_MB = 50;
-const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAY_LABELS = [
+  "ui.weekday-sun",
+  "ui.weekday-mon",
+  "ui.weekday-tue",
+  "ui.weekday-wed",
+  "ui.weekday-thu",
+  "ui.weekday-fri",
+  "ui.weekday-sat",
+];
 const REPORT_PERIODS = ["weekly", "monthly"] as const;
 const FALLBACK_TARGET_MODES: NativeTargetMode[] = [
   "big-only",
@@ -217,11 +225,11 @@ function formatScanProgress(progress: NativeLibraryScanProgress): string {
   if (progress.phase === "similarity") {
     const analyzed = progress.analyzed ?? 0;
     const total = progress.analysisTotal ?? 0;
-    return total > 0 ? `Verifying similarity ${analyzed}/${total}` : t("ui.verifying-similarity");
+    return total > 0 ? t("ui.scan-verifying", { analyzed, total }) : t("ui.verifying-similarity");
   }
   return progress.total
-    ? `Scanning ${progress.scanned}/${progress.total}`
-    : `Scanning ${progress.scanned}`;
+    ? t("ui.scan-progress", { scanned: progress.scanned, total: progress.total })
+    : t("ui.scan-progress-count", { scanned: progress.scanned });
 }
 
 function cleanupPlanSavings(plan: NativeCleanupPlan): number {
@@ -233,15 +241,15 @@ function cleanupPlanActionCount(plan: NativeCleanupPlan): number {
 }
 
 function scheduleTimeLabel(times: string[]): string {
-  return times.length === 1 ? times[0] : `${times.length} times/day`;
+  return times.length === 1 ? times[0] : t("ui.times-per-day", { count: times.length });
 }
 
 function scheduleDaysLabel(days: number[]): string {
   if (days.length === 7) return t("ui.every-day");
   const ordered = [...days].sort((a, b) => a - b);
-  if (ordered.join(",") === "1,2,3,4,5") return "Weekdays";
-  if (ordered.join(",") === "0,6") return "Weekends";
-  return ordered.map((day) => WEEKDAY_LABELS[day] ?? "").filter(Boolean).join(", ");
+  if (ordered.join(",") === "1,2,3,4,5") return t("ui.weekdays");
+  if (ordered.join(",") === "0,6") return t("ui.weekends");
+  return ordered.map((day) => WEEKDAY_LABELS[day] ? t(WEEKDAY_LABELS[day]) : "").filter(Boolean).join(", ");
 }
 
 function localTimeKey(date = new Date()): string {
@@ -425,12 +433,12 @@ function formatSizeThreshold(value: number): string {
 }
 
 function formatAgeThreshold(years: number): string {
-  if (years <= 0) return "today";
+  if (years <= 0) return t("ui.age-today");
   if (years < 1) {
     const months = Math.max(1, Math.round(years * 12));
-    return `${months}+ mo`;
+    return t("ui.age-months-plus", { count: months });
   }
-  return `${Number.isInteger(years) ? years.toFixed(0) : years.toFixed(1)}+ ${years === 1 ? "year" : "yrs"}`;
+  return t("ui.age-years-plus", { count: Number.isInteger(years) ? years.toFixed(0) : years.toFixed(1) });
 }
 
 function formatGameSizeThreshold(value: number): string {
@@ -438,12 +446,12 @@ function formatGameSizeThreshold(value: number): string {
 }
 
 function formatGameAgeThreshold(years: number): string {
-  if (years <= 0) return "today";
+  if (years <= 0) return t("ui.age-today");
   if (years < 1) {
     const months = Math.max(1, Math.round(years * 12));
-    return `${months} mo`;
+    return t("ui.age-months", { count: months });
   }
-  return `${Number.isInteger(years) ? years.toFixed(0) : years.toFixed(1)} ${years === 1 ? "year" : "yrs"}`;
+  return t("ui.age-years", { count: Number.isInteger(years) ? years.toFixed(0) : years.toFixed(1) });
 }
 
 function gameAgeYears(createdAt: number): number {
@@ -4038,19 +4046,19 @@ const GAME_SMART_FOLDER_DEFS: Array<{
   match: (photo: NativePhoto, settings: NativeSettings) => boolean;
 }> = [
   { key: "large", label: (settings) => `≥${formatGameSizeThreshold(settings.minSizeMB)}`, icon: "albums-outline", match: (photo, settings) => photo.sizeMB >= settings.minSizeMB },
-  { key: "old", label: (settings) => settings.minAgeYears <= 0 ? t("ui.any-age") : `≥${formatGameAgeThreshold(settings.minAgeYears)} old`, icon: "time-outline", match: (photo, settings) => gameAgeYears(photo.creationTime) >= settings.minAgeYears },
-  { key: "screenshots", label: () => "Screens", icon: "phone-portrait-outline", match: (photo) => photo.cleanupReasons.includes("Screenshot") || photo.title.toLowerCase().includes("screen") },
-  { key: "live", label: () => "Live", icon: "radio-button-on-outline", match: (photo) => photo.cleanupReasons.includes(t("ui.live-photo")) },
+  { key: "old", label: (settings) => settings.minAgeYears <= 0 ? t("ui.any-age") : t("ui.game-old", { value: `≥${formatGameAgeThreshold(settings.minAgeYears)}` }), icon: "time-outline", match: (photo, settings) => gameAgeYears(photo.creationTime) >= settings.minAgeYears },
+  { key: "screenshots", label: () => t("ui.home-screens"), icon: "phone-portrait-outline", match: (photo) => photo.cleanupReasons.includes("Screenshot") || photo.title.toLowerCase().includes("screen") },
+  { key: "live", label: () => t("ui.home-live"), icon: "radio-button-on-outline", match: (photo) => photo.cleanupReasons.includes(t("ui.live-photo")) },
   { key: "duplicates", label: () => t("ui.similar-photos"), icon: "copy-outline", match: (photo) => photo.cleanupReasons.includes("Similar") },
-  { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (photo) => photo.cleanupReasons.includes("Burst") },
+  { key: "bursts", label: () => t("ui.home-bursts"), icon: "sparkles-outline", match: (photo) => photo.cleanupReasons.includes("Burst") },
 ];
 
 function photoAccessLabel(permission: NativePhotoPermission | null): string {
-  if (!permission) return "Checking...";
+  if (!permission) return t("ui.game-checking");
   if (!permission.granted || permission.accessLevel === "none") return t("ui.not-allowed");
   if (permission.accessLevel === "all") return t("ui.all-photos");
-  if (permission.accessLevel === "selected") return "Selected";
-  return "Limited";
+  if (permission.accessLevel === "selected") return t("ui.game-selected");
+  return t("ui.game-limited");
 }
 
 function GamesScreen({ stats, settings, queue, scan, tokens, hasUnlimitedTrims, onStartGame, onPickCategory, onChangeSettings, onOpenThisOrThat, onOpenStorageBudget, onOpenMemoryLane }: {
@@ -4061,7 +4069,7 @@ function GamesScreen({ stats, settings, queue, scan, tokens, hasUnlimitedTrims, 
 }) {
   const [photoPermission, setPhotoPermission] = useState<NativePhotoPermission | null>(null);
   const today = dailyFor(stats, dateKey());
-  const todayLabel = today.mbFreed > 0 ? `${formatMB(today.mbFreed)} today` : t("ui.ready-to-clean");
+  const todayLabel = today.mbFreed > 0 ? `${formatMB(today.mbFreed)} ${t("ui.today").toLocaleLowerCase()}` : t("ui.ready-to-clean");
   const largestPhotoMB = Math.max(0.5, scan?.largestPhotoMB ?? 0, ...queue.map((photo) => photo.sizeMB));
   const oldestPhotoAgeYears = Math.max(0, scan?.oldestPhotoAgeYears ?? 0, ...queue.map((photo) => gameAgeYears(photo.creationTime)));
   // Keep a useful tuning range even when the current library happens to contain
@@ -4072,11 +4080,11 @@ function GamesScreen({ stats, settings, queue, scan, tokens, hasUnlimitedTrims, 
   const oldSliderValue = Math.min(settings.minAgeYears, oldSliderMax);
   const displayedSettings = { ...settings, minSizeMB: largeSliderValue, minAgeYears: oldSliderValue };
   const largeMaxText = scan && largeSliderMax === largestPhotoMB
-    ? `Largest photo (${formatGameSizeThreshold(largestPhotoMB)})`
-    : `Range up to ${formatGameSizeThreshold(largeSliderMax)}`;
+    ? t("ui.game-largest-photo", { value: formatGameSizeThreshold(largestPhotoMB) })
+    : t("ui.game-range-up-to", { value: formatGameSizeThreshold(largeSliderMax) });
   const oldMaxText = scan && oldSliderMax === oldestPhotoAgeYears
-    ? `Oldest photo (${formatGameAgeThreshold(oldestPhotoAgeYears)})`
-    : `Range up to ${formatGameAgeThreshold(oldSliderMax)}`;
+    ? t("ui.game-oldest-photo", { value: formatGameAgeThreshold(oldestPhotoAgeYears) })
+    : t("ui.game-range-up-to", { value: formatGameAgeThreshold(oldSliderMax) });
   const smartFolders: GameSmartFolder[] = GAME_SMART_FOLDER_DEFS.map((def) => {
     const matched = queue.filter((photo) => def.match(photo, displayedSettings));
     const queueEstMB = matched.reduce((sum, photo) => sum + (def.key === "screenshots" || def.key === "duplicates" || def.key === "bursts" ? photo.sizeMB : estimateTrimSavingsForSettings(photo, displayedSettings)), 0);
@@ -4141,7 +4149,7 @@ function GamesScreen({ stats, settings, queue, scan, tokens, hasUnlimitedTrims, 
           <View style={styles.gamesHeroCopy}>
             <Text style={styles.eyebrow}>{t("ui.review-modes")}</Text>
             <Text style={styles.heroTitle}>{t("ui.choose-how-to-clean")}</Text>
-            <Text style={styles.dashboardCopy}>{todayLabel} · {stats.reviewed} photos reviewed</Text>
+            <Text style={styles.dashboardCopy}>{todayLabel} · {t("ui.game-photos-reviewed", { count: stats.reviewed })}</Text>
           </View>
           <TokenPill tokens={tokens} hasUnlimitedTrims={hasUnlimitedTrims} />
         </View>
@@ -4164,7 +4172,7 @@ function GamesScreen({ stats, settings, queue, scan, tokens, hasUnlimitedTrims, 
           <Text style={styles.photoAccessLabel}>{t("ui.photo-access")}</Text>
           <Text style={styles.photoAccessValue}>{photoAccessLabel(photoPermission)}</Text>
         </View>
-        <Text style={styles.photoAccessButton}>{photoPermission?.accessLevel === "all" ? "Settings" : "Permit"}</Text>
+        <Text style={styles.photoAccessButton}>{photoPermission?.accessLevel === "all" ? t("ui.game-settings") : t("ui.game-permit")}</Text>
       </Pressable>
       <Pressable onPress={() => onStartGame({ sessionMode: "classic" })} style={styles.primaryGameVisualCard}>
         <Image source={GAME_IMAGES.swipe} style={styles.primaryGameArt} resizeMode="cover" />
@@ -4182,7 +4190,7 @@ function GamesScreen({ stats, settings, queue, scan, tokens, hasUnlimitedTrims, 
       <View style={styles.gameGrid}>
         <VisualGameCard icon="swap-horizontal-outline" title={t("ui.compare-similar")} detail={t("ui.review-a-full-group")} image={GAME_IMAGES.choice} active={settings.targetMode === "similar"} onPress={onOpenThisOrThat} />
         <VisualGameCard icon="speedometer-outline" title={t("ui.free-space-plan")} detail={t("ui.stay-under-50-mb")} image={GAME_IMAGES.budget} onPress={onOpenStorageBudget} />
-        <VisualGameCard icon="timer-outline" title={t("ui.quick-review")} detail="60 seconds" image={GAME_IMAGES.speed} active={settings.sessionMode === "time-attack"} onPress={() => onStartGame({ sessionMode: "time-attack" })} />
+        <VisualGameCard icon="timer-outline" title={t("ui.quick-review")} detail={t("ui.game-quick-review-time")} image={GAME_IMAGES.speed} active={settings.sessionMode === "time-attack"} onPress={() => onStartGame({ sessionMode: "time-attack" })} />
         <VisualGameCard icon="calendar-outline" title={t("ui.past-moments")} detail={t("ui.old-photos-first")} image={GAME_IMAGES.memory} active={settings.targetMode === "old-only"} onPress={onOpenMemoryLane} />
       </View>
       <View style={styles.focusPanel}>
@@ -4210,7 +4218,7 @@ function GamesScreen({ stats, settings, queue, scan, tokens, hasUnlimitedTrims, 
           min={0}
           max={oldSliderMax}
           step={1 / 12}
-          formatValue={(sliderValue) => sliderValue <= 0 ? t("ui.any-age") : `≥${formatGameAgeThreshold(sliderValue)} old`}
+          formatValue={(sliderValue) => sliderValue <= 0 ? t("ui.any-age") : t("ui.game-old", { value: `≥${formatGameAgeThreshold(sliderValue)}` })}
           minText={t("ui.any-age")}
           maxText={oldMaxText}
           onChange={(minAgeYears) => onChangeSettings({ minAgeYears })}
@@ -5134,13 +5142,13 @@ function EmptyPanel({ title, detail, actionLabel, onAction }: { title: string; d
 // ─── Settings ────────────────────────────────────────────────────────────────
 
 const FOCUS_OPTIONS: [NativeTargetMode, string, string][] = [
-  ["big-or-old", t("ui.large-or-old"), t("ui.photos-over-either-threshold")],
-  ["big-only", "Large", t("ui.photos-over-the-size-threshold")],
-  ["old-only", "Old", t("ui.older-memories-first")],
-  ["similar", t("ui.similar-photos"), t("ui.visually-related-photos-to-compare-together")],
-  ["blurry", "Blurry", t("ui.likely-blurry-dark-or-accidental-shots")],
-  ["multibursts", "Bursts", t("ui.rapid-fire-photo-groups")],
-  ["screenshots", "Screens", t("ui.screenshots-and-screen-grabs")],
+  ["big-or-old", "ui.large-or-old", "ui.photos-over-either-threshold"],
+  ["big-only", "ui.focus-large", "ui.photos-over-the-size-threshold"],
+  ["old-only", "ui.focus-old", "ui.older-memories-first"],
+  ["similar", "ui.similar-photos", "ui.visually-related-photos-to-compare-together"],
+  ["blurry", "ui.focus-blurry", "ui.likely-blurry-dark-or-accidental-shots"],
+  ["multibursts", "ui.focus-bursts", "ui.rapid-fire-photo-groups"],
+  ["screenshots", "ui.focus-screens", "ui.screenshots-and-screen-grabs"],
 ];
 
 function FocusDropdown({ value, onChange }: { value: NativeTargetMode; onChange: (value: NativeTargetMode) => void }) {
@@ -5152,7 +5160,7 @@ function FocusDropdown({ value, onChange }: { value: NativeTargetMode; onChange:
           <Text style={styles.settingLabel}>{t("ui.focus-mode")}</Text>
           <Text style={styles.mutedSmall}>{t("ui.one-active-filter-keeps-cleanup-rounds-predictab")}</Text>
         </View>
-        <Text style={styles.proPill}>{selected[1]}</Text>
+        <Text style={styles.proPill}>{t(selected[1])}</Text>
       </View>
       <View style={styles.dropdownList}>
         {FOCUS_OPTIONS.map(([option, label, detail]) => {
@@ -5170,8 +5178,8 @@ function FocusDropdown({ value, onChange }: { value: NativeTargetMode; onChange:
                   {active ? <View style={styles.radioInner} /> : null}
                 </View>
                 <View style={styles.reviewCopy}>
-                  <Text style={[styles.dropdownOptionTitle, active && styles.dropdownOptionTitleActive]}>{label}</Text>
-                  <Text style={styles.mutedSmall}>{detail}</Text>
+                  <Text style={[styles.dropdownOptionTitle, active && styles.dropdownOptionTitleActive]}>{t(label)}</Text>
+                  <Text style={styles.mutedSmall}>{t(detail)}</Text>
                 </View>
               </View>
             </Pressable>
@@ -5338,7 +5346,12 @@ function EnhancedQualityPreview({ photo, currentQuality }: { photo?: NativePhoto
               <View style={[styles.qualityFill, { width: progressWidth(variant.sizeMB / baseSize), backgroundColor: variant.color }]} />
             </View>
             <Text style={styles.mutedSmall}>
-              {formatMB(variant.sizeMB)} - save {formatMB(saved)} ({Math.round((saved / Math.max(baseSize, 0.01)) * 100)}%){variant.generated ? "" : " est."}
+              {t("ui.quality-save", {
+                size: formatMB(variant.sizeMB),
+                saved: formatMB(saved),
+                percent: Math.round((saved / Math.max(baseSize, 0.01)) * 100),
+                estimated: variant.generated ? "" : t("ui.estimated-short"),
+              })}
             </Text>
           </Pressable>
         );
@@ -5371,17 +5384,18 @@ function EnhancedQualityPreview({ photo, currentQuality }: { photo?: NativePhoto
   );
 }
 
-const TRIM_KIND_OPTIONS: Array<{ kind: NativeTrimKind; label: string; detail: string; icon: keyof typeof Ionicons.glyphMap }> = [
-  { kind: "metadata", label: "Metadata", detail: t("ui.camera-lens-edits-app-notes"), icon: "document-text-outline" },
-  { kind: "location", label: "Location", detail: t("ui.gps-coordinates-when-present"), icon: "location-outline" },
-  { kind: "compression", label: "Compression", detail: t("ui.final-shrink-pass-for-already-stripped-photos"), icon: "contract-outline" },
+const TRIM_KIND_OPTIONS: Array<{ kind: NativeTrimKind; labelKey: string; detailKey: string; icon: keyof typeof Ionicons.glyphMap }> = [
+  { kind: "metadata", labelKey: "ui.metadata", detailKey: "ui.camera-lens-edits-app-notes", icon: "document-text-outline" },
+  { kind: "location", labelKey: "ui.location", detailKey: "ui.gps-coordinates-when-present", icon: "location-outline" },
+  { kind: "compression", labelKey: "ui.compression", detailKey: "ui.final-shrink-pass-for-already-stripped-photos", icon: "contract-outline" },
 ];
 
 function trimKindDetail(option: (typeof TRIM_KIND_OPTIONS)[number], quality: number): string {
-  if (option.kind === "metadata") return `${option.detail} - roughly 1-8%`;
-  if (option.kind === "location") return `${option.detail} - roughly 0.1-0.5 MB`;
+  const detail = t(option.detailKey);
+  if (option.kind === "metadata") return t("ui.trim-detail-percent", { detail });
+  if (option.kind === "location") return t("ui.trim-detail-location", { detail });
   const savedPercent = Math.max(0, Math.round((1 - projectedQualitySize(1, quality)) * 100));
-  return `${option.detail} - roughly ${savedPercent}% at ${Math.round(quality * 100)}% quality`;
+  return t("ui.trim-detail-quality", { detail, saved: savedPercent, quality: Math.round(quality * 100) });
 }
 
 function TrimKindSettings({
@@ -5427,7 +5441,7 @@ function TrimKindSettings({
             >
               <Ionicons name={isPro ? option.icon : "lock-closed-outline"} size={17} color={active ? "#315f7d" : "#64748b"} />
               <View style={styles.reviewCopy}>
-                <Text style={[styles.trimKindLabel, active && styles.trimKindLabelActive]}>{option.label}</Text>
+                <Text style={[styles.trimKindLabel, active && styles.trimKindLabelActive]}>{t(option.labelKey)}</Text>
                 {!compact ? <Text style={styles.mutedSmall}>{trimKindDetail(option, settings.trimQuality)}</Text> : null}
               </View>
               <View style={[styles.checkbox, active && styles.checkboxOn]}>
@@ -5555,9 +5569,7 @@ function ProAutomationScreen({
             <Ionicons name="alarm-outline" size={23} color="#315f7d" />
           </View>
         </View>
-        <Text style={styles.dashboardCopy}>
-          Run background-style scans on chosen days and times. TrimSwipe prepares suggestions, then waits for you to confirm every trim or delete.
-        </Text>
+        <Text style={styles.dashboardCopy}>{t("ui.automation-copy")}</Text>
       </View>
 
       {schedules.map((schedule) => (
@@ -5587,7 +5599,16 @@ function AutomationScheduleCard({
   onUpdate: (updater: (schedule: NativeBackgroundScanSchedule) => NativeBackgroundScanSchedule) => void;
 }) {
   const lastSuggestion = schedule.lastSuggestionAt ? new Date(schedule.lastSuggestionAt) : null;
-  const summary = `${scheduleDaysLabel(schedule.days)} at ${scheduleTimeLabel(schedule.times)} - ${formatMB(schedule.targetMB)} target`;
+  const summary = t("ui.automation-summary", {
+    days: scheduleDaysLabel(schedule.days),
+    time: scheduleTimeLabel(schedule.times),
+    value: formatMB(schedule.targetMB),
+  });
+  const scheduleLabel = schedule.label === "Daily cleanup check"
+    ? t("ui.automation-daily-check")
+    : /^Cleanup check \d+$/.test(schedule.label)
+      ? t("ui.automation-check-number", { count: schedule.label.replace(/\D/g, "") })
+      : schedule.label;
 
   function toggleDay(day: number) {
     onUpdate((current) => {
@@ -5623,8 +5644,8 @@ function AutomationScheduleCard({
     <View style={styles.automationCard}>
       <View style={styles.dashboardHeroTop}>
         <View style={styles.automationTitleBlock}>
-          <Text style={styles.settingLabel}>{schedule.label}</Text>
-          <Text style={styles.settingValue}>{schedule.active ? "Active" : "Inactive"}</Text>
+          <Text style={styles.settingLabel}>{scheduleLabel}</Text>
+          <Text style={styles.settingValue}>{schedule.active ? t("ui.automation-active") : t("ui.automation-inactive")}</Text>
           <Text style={styles.mutedSmall}>{summary}</Text>
         </View>
         <Pressable
@@ -5642,7 +5663,7 @@ function AutomationScheduleCard({
           const active = schedule.days.includes(index);
           return (
             <Pressable key={label} onPress={() => toggleDay(index)} style={[styles.dayToggle, active && styles.dayToggleActive]}>
-              <Text style={[styles.dayToggleText, active && styles.dayToggleTextActive]}>{label.slice(0, 1)}</Text>
+              <Text style={[styles.dayToggleText, active && styles.dayToggleTextActive]}>{t(label).slice(0, 1)}</Text>
             </Pressable>
           );
         })}
@@ -5694,13 +5715,13 @@ function AutomationScheduleCard({
 
       {lastSuggestion ? (
         <Text style={styles.mutedSmall}>
-          Last suggestion: {lastSuggestion.toLocaleDateString()} {lastSuggestion.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          {t("ui.automation-last-suggestion", { date: `${lastSuggestion.toLocaleDateString()} ${lastSuggestion.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` })}
         </Text>
       ) : (
         <Text style={styles.mutedSmall}>{t("ui.no-completed-suggestion-yet")}</Text>
       )}
 
-      <PrimaryButton label={busy ? "Scanning..." : t("ui.run-now")} disabled={busy} onPress={() => onRunNow(schedule)} />
+      <PrimaryButton label={busy ? t("ui.automation-scanning") : t("ui.run-now")} disabled={busy} onPress={() => onRunNow(schedule)} />
     </View>
   );
 }
@@ -5880,7 +5901,7 @@ function SettingsScreen({
                 <View style={[styles.themeSwatch, { backgroundColor: optionTheme.background, borderColor: optionTheme.border }]}>
                   <View style={[styles.themeSwatchAccent, { backgroundColor: optionTheme.primaryBright }]} />
                 </View>
-                <Text style={[styles.themeOptionText, { color: theme.text }, selected && { color: theme.primary, fontWeight: "900" }]}>{option.label}</Text>
+                <Text style={[styles.themeOptionText, { color: theme.text }, selected && { color: theme.primary, fontWeight: "900" }]}>{t(`ui.theme-${option.id}`)}</Text>
               </Pressable>
             );
           })}
@@ -5955,7 +5976,7 @@ function SettingsScreen({
             style={[styles.accountSignInButton, { backgroundColor: theme.primary }]}
           >
             {restoring ? <ActivityIndicator color={colors.white} /> : <Ionicons name="logo-apple" size={18} color={colors.white} />}
-            <Text style={styles.accountSignInText}>{restoring ? "Connecting..." : t("ui.sign-in-restore-purchases")}</Text>
+            <Text style={styles.accountSignInText}>{restoring ? t("ui.connecting") : t("ui.sign-in-restore-purchases")}</Text>
           </Pressable>
         )}
       </View>
@@ -5986,7 +6007,7 @@ function SettingsScreen({
         <View style={[styles.settingCardVertical, themed.card]}>
           <Text style={[styles.settingLabel, themed.label]}>{t("ui.advertising-privacy")}</Text>
           <Text style={[styles.mutedSmall, themed.muted]}>
-            Review or change the privacy choices used for ads in TrimSwipe.
+            {t("ui.advertising-privacy-copy")}
           </Text>
           <Pressable
             disabled={openingPrivacyOptions}
@@ -6007,7 +6028,7 @@ function SettingsScreen({
         <View style={[styles.settingCardVertical, themed.card]}>
           <Text style={[styles.settingLabel, themed.label]}>{t("ui.ad-mediation-diagnostics")}</Text>
           <Text style={[styles.mutedSmall, themed.muted]}>
-            Inspect adapter readiness and test Meta or Unity as a single ad source.
+            {t("ui.ad-mediation-copy")}
           </Text>
           <Pressable
             disabled={openingAdInspector}
@@ -6025,17 +6046,17 @@ function SettingsScreen({
         </View>
       ) : null}
       <SettingStepper label={t("ui.cards-per-round")} value={settings.cardsPerRound} suffix="cards" min={5} max={30} step={1} onChange={(cardsPerRound) => onChange({ cardsPerRound })} />
-      <Segmented label={t("ui.session-mode")} value={settings.sessionMode} options={[["classic", "Classic"], ["endless", "Endless"], ["time-attack", "60 sec"]]} onChange={(sessionMode) => onChange({ sessionMode })} />
+      <Segmented label={t("ui.session-mode")} value={settings.sessionMode} options={[["classic", t("ui.session-classic")], ["endless", t("ui.session-endless")], ["time-attack", t("ui.session-time")]]} onChange={(sessionMode) => onChange({ sessionMode })} />
       <Segmented
         label={t("ui.photo-pool")}
         value={settings.trimReviewMode}
-        options={[["normal", "Untrimmed"], ["trimmed-only", t("ui.trimmed-only")], ["all", t("ui.all-photos")]]}
+        options={[["normal", t("ui.pool-untrimmed")], ["trimmed-only", t("ui.trimmed-only")], ["all", t("ui.all-photos")]]}
         onChange={(trimReviewMode) => onChange({ trimReviewMode })}
       />
       <Segmented
         label={t("ui.previously-reviewed")}
         value={settings.includePreviouslyReviewed ? "include" : "hide"}
-        options={[["hide", t("ui.hide-by-default")], ["include", "Include"]]}
+        options={[["hide", t("ui.hide-by-default")], ["include", t("ui.include")]]}
         onChange={(value) => onChange({ includePreviouslyReviewed: value === "include" })}
       />
       <SettingStepper label={t("ui.daily-goal")} value={settings.dailyGoalMB} suffix="MB" min={5} max={500} step={5} onChange={(dailyGoalMB) => onChange({ dailyGoalMB })} />
@@ -6153,10 +6174,11 @@ function MiniStat({ label, value }: { label: string; value: number }) {
 }
 
 function SettingStepper({ label, value, suffix, min, max, step, onChange }: { label: string; value: number; suffix: string; min: number; max: number; step: number; onChange: (value: number) => void }) {
+  const localizedSuffix = suffix === "cards" ? t("ui.unit-cards") : suffix === "years" ? t("ui.unit-year") : suffix;
   const displayValue =
     suffix === "years" && value < 1
-      ? `${Math.max(1, Math.round(value * 12))} ${Math.max(1, Math.round(value * 12)) === 1 ? "month" : "months"}`
-      : `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)} ${suffix}`;
+      ? `${Math.max(1, Math.round(value * 12))} ${t("ui.unit-month")}`
+      : `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)} ${localizedSuffix}`;
   return (
     <View style={styles.settingCard}>
       <View>

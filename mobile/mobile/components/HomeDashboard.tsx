@@ -1,5 +1,6 @@
 import { t } from "../lib/i18n";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Animated,
   Easing,
@@ -87,13 +88,14 @@ const CAT_DEFS: Array<{
 }> = [
   { key: "large", label: (s) => `>${formatThresholdMB(s.minSizeMB)}`, icon: "albums-outline", match: (p, s) => p.sizeMB >= s.minSizeMB },
   { key: "old", label: (s) => `>${formatAgeThreshold(s.minAgeYears)}`, icon: "time-outline", match: (p, s) => ageYears(p.creationTime) >= s.minAgeYears },
-  { key: "screenshots", label: () => "Screens", icon: "phone-portrait-outline", match: (p) => p.cleanupReasons.includes("Screenshot") || p.title.toLowerCase().includes("screen") },
-  { key: "live", label: () => "Live", icon: "radio-button-on-outline", match: (p) => p.cleanupReasons.includes(t("ui.live-photo")) },
+  { key: "screenshots", label: () => t("ui.home-screens"), icon: "phone-portrait-outline", match: (p) => p.cleanupReasons.includes("Screenshot") || p.title.toLowerCase().includes("screen") },
+  { key: "live", label: () => t("ui.home-live"), icon: "radio-button-on-outline", match: (p) => p.cleanupReasons.includes(t("ui.live-photo")) },
   { key: "duplicates", label: () => t("ui.similar-photos"), icon: "copy-outline", match: (p) => p.cleanupReasons.includes("Similar") },
-  { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (p) => p.cleanupReasons.includes("Burst") },
+  { key: "bursts", label: () => t("ui.home-bursts"), icon: "sparkles-outline", match: (p) => p.cleanupReasons.includes("Burst") },
 ];
 
 export function HomeDashboard(props: HomeDashboardProps) {
+  useTranslation();
   const {
     stats,
     today,
@@ -133,23 +135,19 @@ export function HomeDashboard(props: HomeDashboardProps) {
     ).start();
   }, [float]);
   const floatY = float.interpolate({ inputRange: [0, 1], outputRange: [0, -4] });
-  const categories: Category[] = useMemo(
-    () =>
-      CAT_DEFS.map((def) => {
-        const matched = queue.filter((photo) => def.match(photo, stats.settings));
-        const sumMB = matched.reduce((s, p) => s + p.sizeMB, 0);
-        const scanEstimate = scan ? estimateCategoryFromScan(scan, def.key) : null;
-        return {
-          key: def.key,
-          label: def.label(stats.settings),
-          icon: def.icon,
-          count: matched.length || scanEstimate?.count || estimateCountFor(stats, def.key),
-          estMB: sumMB || scanEstimate?.mb || estimateMBFor(stats, def.key),
-          thumb: matched[0]?.uri,
-        };
-      }),
-    [queue, scan, stats],
-  );
+  const categories: Category[] = CAT_DEFS.map((def) => {
+    const matched = queue.filter((photo) => def.match(photo, stats.settings));
+    const sumMB = matched.reduce((s, p) => s + p.sizeMB, 0);
+    const scanEstimate = scan ? estimateCategoryFromScan(scan, def.key) : null;
+    return {
+      key: def.key,
+      label: def.label(stats.settings),
+      icon: def.icon,
+      count: matched.length || scanEstimate?.count || estimateCountFor(stats, def.key),
+      estMB: sumMB || scanEstimate?.mb || estimateMBFor(stats, def.key),
+      thumb: matched[0]?.uri,
+    };
+  });
   const recommended =
     categories
       .filter((category) => category.count > 0)
@@ -166,7 +164,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
   const dailyGoalProgress = Math.min(1, today.mbFreed / dailyGoalMB);
   const dailyGoalComplete = dailyGoalProgress >= 1;
   const scanHint = scanBusy
-    ? props.scanInProgressText ?? "Scanning..."
+    ? props.scanInProgressText ?? t("ui.home-scanning")
     : scanComplete
       ? t("ui.scanning-completed")
       : t("ui.find-savings");
@@ -212,7 +210,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
         <SectionHeader
           title={t("ui.today")}
           action={
-            <Text style={styles.sectionAction}>{formatMB(today.mbFreed)} freed</Text>
+            <Text style={styles.sectionAction}>{t("ui.home-freed", { value: formatMB(today.mbFreed) })}</Text>
           }
         />
         <View style={styles.todayCard}>
@@ -240,7 +238,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
               />
             </View>
             <Text style={styles.goalHint}>
-              {dailyGoalComplete ? t("ui.goal-complete") : `${formatMB(Math.max(0, dailyGoalMB - today.mbFreed))} left today`}
+              {dailyGoalComplete ? t("ui.goal-complete") : t("ui.home-left-today", { value: formatMB(Math.max(0, dailyGoalMB - today.mbFreed)) })}
             </Text>
           </View>
         </View>
@@ -273,7 +271,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
           <View style={styles.recommendedCopy}>
             <Text style={styles.recommendedTitle}>{recommended?.label ?? t("ui.review-photos")}</Text>
             <Text style={styles.recommendedHint}>
-              {recommended ? `${recommended.count} photos - ~${formatMB(recommended.estMB)} possible` : t("ui.find-the-next-best-cleanup-set")}
+              {recommended ? t("ui.home-photos-possible", { count: recommended.count, value: formatMB(recommended.estMB) }) : t("ui.find-the-next-best-cleanup-set")}
             </Text>
           </View>
           <View style={styles.reviewButton}>
@@ -299,7 +297,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
             <IconTile
               icon="layers-outline"
               label={t("ui.swipe")}
-              hint={`${queue.length || "—"} in deck`}
+              hint={t("ui.home-in-deck", { count: queue.length })}
               bg={tiles.swipe.bg}
               accent={tiles.swipe.accent}
               onPress={() => {
@@ -341,7 +339,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
               <Ionicons name="trash-outline" size={21} color={colors.white} />
             </View>
             <Text style={styles.storageActionTitle}>{t("ui.nuke")}</Text>
-            <Text style={styles.storageActionHint}>{oneTapCount} items - ~{formatMB(oneTapSavings)}</Text>
+            <Text style={styles.storageActionHint}>{t("ui.home-items-possible", { count: oneTapCount, value: formatMB(oneTapSavings) })}</Text>
           </Pressable>
 
           <Pressable onPress={onOptimizeStorage} style={[styles.storageActionCard, styles.cloudActionCard]}>
@@ -373,7 +371,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                 <View style={styles.heroLeft}>
                   <Text style={styles.heroEyebrow}>{t("ui.reclaimed")}</Text>
                   <Text style={styles.heroFreed}>{freedDisplay}</Text>
-                  <Text style={styles.heroSub}>of ~{potentialDisplay} possible</Text>
+                  <Text style={styles.heroSub}>{t("ui.home-of-possible", { value: potentialDisplay })}</Text>
                   <View style={styles.pillRow}>
                     <Pill icon="flame" value={String(streakOf(stats))} label={t("ui.streak")} tone="honey" />
                     <Pill icon="checkmark-done" value={String(stats.reviewed)} label={t("ui.reviewed")} tone="sage" />
@@ -425,7 +423,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                     {healthScore >= 82 ? t("ui.looking-tidy") : t("ui.easy-wins-are-waiting")}
                   </Text>
                   <Text style={styles.goalHint}>
-                    Projected savings: {formatMB(projectedFreed)}. Top hogs: large photos, screenshots, and uncategorized groups.
+                    {t("ui.home-projected-savings", { value: formatMB(projectedFreed) })}
                   </Text>
                 </View>
               </Card>
@@ -506,7 +504,7 @@ function RecentList({ entries, onOpenRecentlyDeleted }: { entries: NativeActionL
               {actionLabel(e.action)} {e.title}
             </Text>
             <Text style={styles.recentMeta}>
-              {e.mbFreed > 0 ? `${formatMB(e.mbFreed)} saved` : "kept"} ·{" "}
+              {e.mbFreed > 0 ? t("ui.home-saved", { value: formatMB(e.mbFreed) }) : t("ui.home-kept")} ·{" "}
               {timeAgo(e.createdAt)}
             </Text>
           </View>
@@ -543,9 +541,9 @@ function ageYears(createdAt: number): number {
 function formatAgeThreshold(years: number): string {
   if (years < 1) {
     const months = Math.max(1, Math.round(years * 12));
-    return `${months} mo`;
+    return t("ui.age-months", { count: months });
   }
-  return `${Number.isInteger(years) ? years.toFixed(0) : years.toFixed(1)} ${years === 1 ? "year" : "yrs"}`;
+  return t("ui.age-years", { count: Number.isInteger(years) ? years.toFixed(0) : years.toFixed(1) });
 }
 function estimateCategoryFromScan(scan: NativeLibraryScan, key: NativeCleanupCategory): { count: number; mb: number } {
   const map: Record<NativeCleanupCategory, { count: number; mb: number }> = {

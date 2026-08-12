@@ -347,10 +347,10 @@ export function DonutSplit({
       fillColor={colors.sage}
     >
       <Text style={{ fontSize: 14, fontWeight: "700", color: colors.sage }}>
-        {Math.round(trimShare * 100)}% trim
+        {Math.round(trimShare * 100)}% {t("ui.trim-share")}
       </Text>
       <Text style={{ fontSize: 11, color: colors.danger, fontWeight: "700", marginTop: 2 }}>
-        {Math.round(deleteShare * 100)}% delete
+        {Math.round(deleteShare * 100)}% {t("ui.delete-share")}
       </Text>
     </ProgressRing>
   );

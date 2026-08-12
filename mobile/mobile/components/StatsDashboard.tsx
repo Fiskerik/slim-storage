@@ -1,5 +1,6 @@
-import { t } from "../lib/i18n";
+import i18n, { t } from "../lib/i18n";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Pressable,
@@ -63,6 +64,7 @@ export function StatsDashboard({
   onOpenTrimmable,
   onShare,
 }: StatsDashboardProps) {
+  useTranslation();
   const today = dailyFor(stats, dateKey());
   const week = sumDays(stats, 7);
   const weekRing = Math.min(1, week.mbFreed / WEEKLY_TARGET_MB);
@@ -71,12 +73,9 @@ export function StatsDashboard({
   const [chartPeriod, setChartPeriod] = useState<ChartPeriod>("week");
   const [selectedBucketKey, setSelectedBucketKey] = useState<string | undefined>(() => dateKey());
 
-  const chartData = useMemo(
-    () => buildSavingsBuckets(stats, chartPeriod),
-    [chartPeriod, stats],
-  );
+  const chartData = buildSavingsBuckets(stats, chartPeriod);
   const selectedBucket = chartData.find((item) => item.key === selectedBucketKey) ?? chartData[chartData.length - 1];
-  const chartTitle = chartPeriod === "week" ? "7-day savings" : chartPeriod === "month" ? t("ui.monthly-savings") : t("ui.yearly-savings");
+  const chartTitle = chartPeriod === "week" ? t("ui.stats-seven-day-savings") : chartPeriod === "month" ? t("ui.monthly-savings") : t("ui.yearly-savings");
   const removableMB = scan?.deleteSavingsMB ?? 0;
   const deviceStorage = scan ? buildDeviceStorageSegments(scan) : null;
   const photoStorage = scan ? buildPhotoStorageSegments(scan) : [];
@@ -90,7 +89,7 @@ export function StatsDashboard({
     [stats.actionLog],
   );
 
-  const badges = useMemo(() => buildBadges(stats), [stats]);
+  const badges = buildBadges(stats);
 
   return (
     <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -109,7 +108,7 @@ export function StatsDashboard({
         <View style={styles.heroLeft}>
           <Pill icon="trophy-outline" value={`Lv ${level.level}`} label={level.title} tone="primary" />
           <Text style={styles.heroFreed}>{formatMB(week.mbFreed)}</Text>
-          <Text style={styles.heroSub}>this week · goal {formatMB(WEEKLY_TARGET_MB)}</Text>
+          <Text style={styles.heroSub}>{t("ui.stats-this-week-goal", { value: formatMB(WEEKLY_TARGET_MB) })}</Text>
           <View style={styles.pillRow}>
             <Pill icon="flame" value={String(streak)} label={t("ui.streak")} tone="honey" />
             <Pill icon="aperture-outline" value={String(stats.reviewed)} label={t("ui.reviewed")} tone="sage" />
@@ -142,7 +141,7 @@ export function StatsDashboard({
               {scanBusy
                 ? scanInProgressText ?? t("ui.checking-photos")
                 : scan
-                  ? `Last checked ${new Date(scan.scannedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                  ? t("ui.stats-last-checked", { date: new Date(scan.scannedAt).toLocaleDateString(i18n.language, { month: "short", day: "numeric" }) })
                   : t("ui.estimate-library-size-trim-potential-screenshots")}
             </Text>
           </View>
@@ -151,7 +150,7 @@ export function StatsDashboard({
             disabled={scanBusy}
             style={[styles.scanButton, scanBusy && styles.scanButtonDisabled]}
           >
-            <Text style={styles.scanButtonText}>{scanBusy ? "Scanning" : t("ui.quick-scan")}</Text>
+            <Text style={styles.scanButtonText}>{scanBusy ? t("ui.stats-scanning") : t("ui.quick-scan")}</Text>
           </Pressable>
         </View>
         {scan ? (
@@ -166,20 +165,19 @@ export function StatsDashboard({
               {deviceStorage ? (
                 <StorageBreakdownBar
                   title={t("ui.device-storage")}
-                  totalLabel={`${formatMB(deviceStorage.capacityMB)} total`}
+                  totalLabel={t("ui.stats-total-value", { value: formatMB(deviceStorage.capacityMB) })}
                   segments={deviceStorage.segments}
                   formatValue={formatMB}
                 />
               ) : null}
               <StorageBreakdownBar
                 title={t("ui.photo-library-by-type")}
-                totalLabel={`${formatMB(scan.totalSizeMB)} total`}
+                totalLabel={t("ui.stats-total-value", { value: formatMB(scan.totalSizeMB) })}
                 segments={photoStorage}
                 formatValue={formatMB}
               />
               <Text style={styles.storageNote}>
-                Photo storage is estimated from the scanned library because iOS exposes device
-                capacity and free space, not an exact Photos category.{"\n"}
+                {t("ui.stats-storage-note")}{"\n"}
                 {scan.similarityAnalysis === "vision"
                   ? t("ui.similar-includes-only-on-device-vision-matches-a")
                   : t("ui.similar-photo-savings-are-omitted-because-on-dev")}
@@ -224,9 +222,9 @@ export function StatsDashboard({
       <Card>
         <View style={styles.chartTabs}>
           {([
-            ["week", "Week"],
-            ["month", "Month"],
-            ["year", "Year"],
+            ["week", t("ui.stats-week")],
+            ["month", t("ui.stats-month")],
+            ["year", t("ui.stats-year")],
           ] as const).map(([period, label]) => {
             const active = chartPeriod === period;
             return (
@@ -285,7 +283,7 @@ export function StatsDashboard({
       {/* Top space hogs */}
       <SectionHeader
         title={t("ui.top-space-hogs")}
-        action={topHogs.length > 0 ? <Text style={styles.action}>{topHogs.length} of last 60</Text> : undefined}
+        action={topHogs.length > 0 ? <Text style={styles.action}>{t("ui.stats-last-count", { count: topHogs.length })}</Text> : undefined}
       />
       {topHogs.length === 0 ? (
         <Card style={styles.empty}>
@@ -412,7 +410,7 @@ function buildDeviceStorageSegments(scan: NativeLibraryScan): {
     segments: [
       { key: "photos", label: t("ui.photos-est"), valueMB: photosMB, color: colors.honey },
       { key: "other-used", label: t("ui.other-used"), valueMB: otherUsedMB, color: colors.primaryBright },
-      { key: "available", label: "Available", valueMB: availableMB, color: colors.cardSoft },
+      { key: "available", label: t("ui.stats-available"), valueMB: availableMB, color: colors.cardSoft },
     ],
   };
 }
@@ -421,7 +419,7 @@ function buildPhotoStorageSegments(scan: NativeLibraryScan): StorageBreakdownSeg
   return [
     {
       key: "screenshots",
-      label: "Screenshots",
+      label: t("ui.stats-screenshots"),
       valueMB: scan.storageByType.screenshotsMB,
       color: colors.primaryBright,
     },
@@ -614,8 +612,8 @@ function buildSavingsBuckets(stats: NativeStats, period: ChartPeriod): SavingsBu
       const day = dailyFor(stats, key);
       return bucketFromStats(
         key,
-        d.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 1),
-        d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }),
+        d.toLocaleDateString(i18n.language, { weekday: "short" }).slice(0, 1),
+        d.toLocaleDateString(i18n.language, { weekday: "short", month: "short", day: "numeric" }),
         day,
       );
     });
@@ -634,7 +632,7 @@ function buildSavingsBuckets(stats: NativeStats, period: ChartPeriod): SavingsBu
       for (let day = startDay; day <= endDay; day += 1) {
         sum = addDailyStats(sum, dailyFor(stats, dateKey(new Date(year, month, day))));
       }
-      const monthLabel = new Date(year, month, startDay).toLocaleDateString(undefined, { month: "short" });
+      const monthLabel = new Date(year, month, startDay).toLocaleDateString(i18n.language, { month: "short" });
       return bucketFromStats(
         `${year}-${String(month + 1).padStart(2, "0")}-w${index + 1}`,
         `W${index + 1}`,
@@ -654,8 +652,8 @@ function buildSavingsBuckets(stats: NativeStats, period: ChartPeriod): SavingsBu
     const date = new Date(year, month, 1);
     return bucketFromStats(
       `${year}-${String(month + 1).padStart(2, "0")}`,
-      date.toLocaleDateString(undefined, { month: "short" }).slice(0, 1),
-      date.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
+      date.toLocaleDateString(i18n.language, { month: "short" }).slice(0, 1),
+      date.toLocaleDateString(i18n.language, { month: "long", year: "numeric" }),
       sum,
     );
   });
@@ -699,22 +697,22 @@ function buildBadges(stats: NativeStats) {
       unlocked: stats.trimmed >= 1,
     },
     {
-      title: "100 trimmed",
-      hint: `${Math.min(stats.trimmed, 100)}/100 trims`,
+      title: t("ui.stats-badge-trimmed"),
+      hint: t("ui.stats-badge-trimmed-hint", { count: Math.min(stats.trimmed, 100) }),
       icon: "albums-outline" as const,
       progress: Math.min(1, stats.trimmed / 100),
       unlocked: stats.trimmed >= 100,
     },
     {
-      title: "30 reviewed",
-      hint: `${Math.min(stats.reviewed, 30)}/30 photos`,
+      title: t("ui.stats-badge-reviewed-30"),
+      hint: t("ui.stats-badge-reviewed-hint", { count: Math.min(stats.reviewed, 30), target: 30 }),
       icon: "images-outline" as const,
       progress: Math.min(1, stats.reviewed / 30),
       unlocked: stats.reviewed >= 30,
     },
     {
-      title: "100 reviewed",
-      hint: `${Math.min(stats.reviewed, 100)}/100 photos`,
+      title: t("ui.stats-badge-reviewed-100"),
+      hint: t("ui.stats-badge-reviewed-hint", { count: Math.min(stats.reviewed, 100), target: 100 }),
       icon: "albums-outline" as const,
       progress: Math.min(1, stats.reviewed / 100),
       unlocked: stats.reviewed >= 100,
@@ -741,29 +739,29 @@ function buildBadges(stats: NativeStats) {
       unlocked: stats.mbFreed >= 250,
     },
     {
-      title: "7-day streak",
-      hint: `${streak}/7 days`,
+      title: t("ui.stats-badge-streak"),
+      hint: t("ui.stats-badge-days", { count: streak }),
       icon: "flame-outline" as const,
       progress: Math.min(1, streak / 7),
       unlocked: streak >= 7,
     },
     {
       title: t("ui.daily-10"),
-      hint: `${Math.min(today.reviewed, 10)}/10 today`,
+      hint: t("ui.stats-badge-today", { count: Math.min(today.reviewed, 10), target: 10 }),
       icon: "sunny-outline" as const,
       progress: Math.min(1, today.reviewed / 10),
       unlocked: today.reviewed >= 10,
     },
     {
       title: t("ui.daily-25"),
-      hint: `${Math.min(today.reviewed, 25)}/25 today`,
+      hint: t("ui.stats-badge-today", { count: Math.min(today.reviewed, 25), target: 25 }),
       icon: "sunny" as const,
       progress: Math.min(1, today.reviewed / 25),
       unlocked: today.reviewed >= 25,
     },
     {
       title: t("ui.cleanup-50"),
-      hint: `${Math.min(cleanups, 50)}/50 trims or deletes`,
+      hint: t("ui.stats-badge-cleanup", { count: Math.min(cleanups, 50) }),
       icon: "checkmark-done-outline" as const,
       progress: Math.min(1, cleanups / 50),
       unlocked: cleanups >= 50,
@@ -777,7 +775,7 @@ function buildBadges(stats: NativeStats) {
     },
     {
       title: t("ui.weekly-rhythm"),
-      hint: `${Math.min(week.reviewed, 50)}/50 this week`,
+      hint: t("ui.stats-badge-week", { count: Math.min(week.reviewed, 50), target: 50 }),
       icon: "pulse-outline" as const,
       progress: Math.min(1, week.reviewed / 50),
       unlocked: week.reviewed >= 50,
