@@ -163,11 +163,21 @@ workflows:
         script: |
           cd mobile/mobile
           npx expo prebuild --platform ios --no-install
+      - name: Set iOS marketing version
+        script: |
+          cd mobile/mobile/ios
+          # Apply the current App Store Connect marketing version before signing.
+          if [ -z "${APP_MARKETING_VERSION:-}" ]; then
+            echo "APP_MARKETING_VERSION is required."
+            exit 1
+          fi
+          agvtool new-marketing-version "$APP_MARKETING_VERSION"
+          echo "Set CFBundleShortVersionString to $APP_MARKETING_VERSION"
+          agvtool what-marketing-version
       - name: Set iOS build number
         script: |
           cd mobile/mobile/ios
-          # App Store Connect already contains 1.0.9 (67). The Codemagic
-          # project counter keeps concurrent or delayed uploads unique.
+          # Keep build numbers above the previously released train and unique across uploads.
           MINIMUM_BUILD_NUMBER=68
           BUILD_NUMBER_OFFSET=48
           if [[ "${PROJECT_BUILD_NUMBER:-}" =~ ^[0-9]+$ ]]; then
