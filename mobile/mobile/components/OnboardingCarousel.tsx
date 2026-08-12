@@ -125,10 +125,10 @@ function SlidePick({ width }: { width: number }) {
   return (
     <View style={[styles.slide, { width }]}>
       <View style={styles.gameGrid}>
-        <MiniGame icon="finger-print-outline" label="Metadata" tint={colors.primary} />
-        <MiniGame icon="location-outline" label="Location" tint={colors.info} />
-        <MiniGame icon="contract-outline" label="Compression" tint={colors.sageDeep} />
-        <MiniGame icon="resize-outline" label="Resize" tint={colors.honey} />
+        <MiniGame icon="finger-print-outline" label={t("ui.metadata")} tint={colors.primary} />
+        <MiniGame icon="location-outline" label={t("ui.location")} tint={colors.info} />
+        <MiniGame icon="contract-outline" label={t("ui.compression")} tint={colors.sageDeep} />
+        <MiniGame icon="resize-outline" label={t("ui.resize")} tint={colors.honey} />
       </View>
       <Text style={styles.slideTitle}>{t("ui.what-trim-can-change")}</Text>
       <Text style={styles.slideBody}>

@@ -88,8 +88,8 @@ const CAT_DEFS: Array<{
   { key: "large", label: (s) => `>${formatThresholdMB(s.minSizeMB)}`, icon: "albums-outline", match: (p, s) => p.sizeMB >= s.minSizeMB },
   { key: "old", label: (s) => `>${formatAgeThreshold(s.minAgeYears)}`, icon: "time-outline", match: (p, s) => ageYears(p.creationTime) >= s.minAgeYears },
   { key: "screenshots", label: () => "Screens", icon: "phone-portrait-outline", match: (p) => p.cleanupReasons.includes("Screenshot") || p.title.toLowerCase().includes("screen") },
-  { key: "live", label: () => "Live", icon: "radio-button-on-outline", match: (p) => p.cleanupReasons.includes("Live Photo") },
-  { key: "duplicates", label: () => "Similar Photos", icon: "copy-outline", match: (p) => p.cleanupReasons.includes("Similar") },
+  { key: "live", label: () => "Live", icon: "radio-button-on-outline", match: (p) => p.cleanupReasons.includes(t("ui.live-photo")) },
+  { key: "duplicates", label: () => t("ui.similar-photos"), icon: "copy-outline", match: (p) => p.cleanupReasons.includes("Similar") },
   { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (p) => p.cleanupReasons.includes("Burst") },
 ];
 
@@ -168,8 +168,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
   const scanHint = scanBusy
     ? props.scanInProgressText ?? "Scanning..."
     : scanComplete
-      ? "Scanning completed"
-      : "Find savings";
+      ? t("ui.scanning-completed")
+      : t("ui.find-savings");
   const scanBg = scanComplete ? colors.sageSoft : "#e3ebf0";
   const scanAccent = scanComplete ? colors.sageDeep : tiles.scan.accent;
   const healthScore = libraryHealthScore(stats, scan, today);
@@ -191,7 +191,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
         {/* Header */}
         <View style={styles.headerRow}>
           <View>
-            <Text style={styles.eyebrow}>Trimswipe</Text>
+            <Text style={styles.eyebrow}>{t("ui.trimswipe")}</Text>
             <Text style={styles.headerTitle}>{t("ui.hey")}</Text>
           </View>
           <View style={styles.headerActions}>
@@ -210,18 +210,18 @@ export function HomeDashboard(props: HomeDashboardProps) {
 
         {/* Today snapshot */}
         <SectionHeader
-          title="Today"
+          title={t("ui.today")}
           action={
             <Text style={styles.sectionAction}>{formatMB(today.mbFreed)} freed</Text>
           }
         />
         <View style={styles.todayCard}>
           <View style={styles.todayStatsRow}>
-            <TodayStat icon="checkmark-circle-outline" tint={colors.sage} value={today.kept} label="Kept" />
+            <TodayStat icon="checkmark-circle-outline" tint={colors.sage} value={today.kept} label={t("ui.kept")} />
             <View style={styles.todayDivider} />
-            <TodayStat icon="cut-outline" tint={colors.honey} value={today.trimmed} label="Trimmed" />
+            <TodayStat icon="cut-outline" tint={colors.honey} value={today.trimmed} label={t("ui.trimmed")} />
             <View style={styles.todayDivider} />
-            <TodayStat icon="trash-outline" tint={colors.danger} value={today.deleted} label="Deleted" />
+            <TodayStat icon="trash-outline" tint={colors.danger} value={today.deleted} label={t("ui.deleted")} />
           </View>
           <View style={styles.embeddedGoal}>
             <View style={styles.embeddedGoalTop}>
@@ -240,7 +240,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
               />
             </View>
             <Text style={styles.goalHint}>
-              {dailyGoalComplete ? "Goal complete" : `${formatMB(Math.max(0, dailyGoalMB - today.mbFreed))} left today`}
+              {dailyGoalComplete ? t("ui.goal-complete") : `${formatMB(Math.max(0, dailyGoalMB - today.mbFreed))} left today`}
             </Text>
           </View>
         </View>
@@ -262,7 +262,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
           </Pressable>
         ) : null}
 
-        <SectionHeader title="Recommended cleanup" />
+        <SectionHeader title={t("ui.recommended-cleanup")} />
         <Pressable
           onPress={() => recommended && onPickCategory(recommended.key)}
           style={styles.recommendedCard}
@@ -271,9 +271,9 @@ export function HomeDashboard(props: HomeDashboardProps) {
             <Ionicons name={recommended?.icon ?? "sparkles-outline"} size={22} color={colors.white} />
           </View>
           <View style={styles.recommendedCopy}>
-            <Text style={styles.recommendedTitle}>{recommended?.label ?? "Review photos"}</Text>
+            <Text style={styles.recommendedTitle}>{recommended?.label ?? t("ui.review-photos")}</Text>
             <Text style={styles.recommendedHint}>
-              {recommended ? `${recommended.count} photos - ~${formatMB(recommended.estMB)} possible` : "Find the next best cleanup set"}
+              {recommended ? `${recommended.count} photos - ~${formatMB(recommended.estMB)} possible` : t("ui.find-the-next-best-cleanup-set")}
             </Text>
           </View>
           <View style={styles.reviewButton}>
@@ -282,12 +282,12 @@ export function HomeDashboard(props: HomeDashboardProps) {
         </Pressable>
 
         {/* Quick actions 2x2 */}
-        <SectionHeader title="Quick actions" />
+        <SectionHeader title={t("ui.quick-actions")} />
         <View style={styles.tileGrid}>
           <View style={styles.tileRow}>
             <IconTile
               icon="search-outline"
-              label="Quick scan"
+              label={t("ui.quick-scan")}
               hint={scanHint}
               bg={scanBg}
               accent={scanAccent}
@@ -298,7 +298,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
             />
             <IconTile
               icon="layers-outline"
-              label="Swipe"
+              label={t("ui.swipe")}
               hint={`${queue.length || "—"} in deck`}
               bg={tiles.swipe.bg}
               accent={tiles.swipe.accent}
@@ -311,8 +311,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
           <View style={styles.tileRow}>
             <IconTile
               icon="bag-outline"
-              label="Deep Clean"
-              hint={isPro ? "Guided full scan" : "Pro guided scan"}
+              label={t("ui.deep-clean")}
+              hint={isPro ? t("ui.guided-full-scan") : t("ui.pro-guided-scan")}
               bg={tiles.trim.bg}
               accent={tiles.trim.accent}
               onPress={() => {
@@ -322,8 +322,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
             />
             <IconTile
               icon="game-controller-outline"
-              label="Games"
-              hint="Cleanup mini games"
+              label={t("ui.games")}
+              hint={t("ui.cleanup-mini-games")}
               bg={tiles.games.bg}
               accent={tiles.games.accent}
               onPress={() => {
@@ -334,7 +334,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
           </View>
         </View>
 
-        <SectionHeader title="Storage actions" />
+        <SectionHeader title={t("ui.storage-actions")} />
         <View style={styles.storageActionRow}>
           <Pressable onPress={() => onPickCategory("screenshots")} style={[styles.storageActionCard, styles.nukeActionCard]}>
             <View style={[styles.storageActionIcon, { backgroundColor: colors.danger }]}>
@@ -354,7 +354,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
         </View>
 
         {/* Recent activity */}
-        <SectionHeader title="Recent activity" />
+        <SectionHeader title={t("ui.recent-activity")} />
         <RecentList entries={stats.actionLog.slice(0, 5)} onOpenRecentlyDeleted={onOpenRecentlyDeleted} />
 
         <View style={{ height: 110 }} />
@@ -375,12 +375,12 @@ export function HomeDashboard(props: HomeDashboardProps) {
                   <Text style={styles.heroFreed}>{freedDisplay}</Text>
                   <Text style={styles.heroSub}>of ~{potentialDisplay} possible</Text>
                   <View style={styles.pillRow}>
-                    <Pill icon="flame" value={String(streakOf(stats))} label="streak" tone="honey" />
-                    <Pill icon="checkmark-done" value={String(stats.reviewed)} label="reviewed" tone="sage" />
+                    <Pill icon="flame" value={String(streakOf(stats))} label={t("ui.streak")} tone="honey" />
+                    <Pill icon="checkmark-done" value={String(stats.reviewed)} label={t("ui.reviewed")} tone="sage" />
                   </View>
                   <View style={styles.heroBreakdown}>
-                    <BreakdownLine color={colors.sage} label="Trim" value={formatMB(stats.trimMbFreed)} />
-                    <BreakdownLine color={colors.danger} label="Delete" value={formatMB(stats.deleteMbFreed)} />
+                    <BreakdownLine color={colors.sage} label={t("ui.trim")} value={formatMB(stats.trimMbFreed)} />
+                    <BreakdownLine color={colors.danger} label={t("ui.delete")} value={formatMB(stats.deleteMbFreed)} />
                   </View>
                 </View>
                 <Animated.View style={{ transform: [{ translateY: floatY }] }}>
@@ -422,7 +422,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                 </ProgressRing>
                 <View style={styles.healthCopy}>
                   <Text style={styles.goalTitle}>
-                    {healthScore >= 82 ? "Looking tidy" : "Easy wins are waiting"}
+                    {healthScore >= 82 ? t("ui.looking-tidy") : t("ui.easy-wins-are-waiting")}
                   </Text>
                   <Text style={styles.goalHint}>
                     Projected savings: {formatMB(projectedFreed)}. Top hogs: large photos, screenshots, and uncategorized groups.
@@ -531,7 +531,7 @@ function RecentList({ entries, onOpenRecentlyDeleted }: { entries: NativeActionL
 // ── helpers ─────────────────────────────────────────────────────────────────
 
 function formatMB(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "0 MB";
+  if (!Number.isFinite(value) || value <= 0) return t("ui.0-mb");
   return value >= 1024 ? `${(value / 1024).toFixed(2)} GB` : `${value.toFixed(1)} MB`;
 }
 function formatThresholdMB(value: number): string {

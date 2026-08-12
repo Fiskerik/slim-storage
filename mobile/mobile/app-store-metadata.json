@@ -1,12 +1,149 @@
 {
   "dryRun": true,
   "brand": "TrimSwipe",
-  "sharedScreenshotPaths": ["./assets/images/store/home.png", "./assets/images/store/games.png", "./assets/images/store/settings.png"],
-  "urls": {"support": "https://trimswipe.app/support", "marketing": "https://trimswipe.app", "privacy": "https://trimswipe.app/privacy"},
-  "privacyDataChecklist": ["anonymous Expo push token", "locale and timezone", "aggregate photo counts and sizes", "free-space ratio", "cleanup opportunity totals"],
-  "products": ["monthly", "yearly", "lifetime", "tokens-100", "tokens-500", "tokens-1200", "tokens-2500"],
+  "sharedScreenshotPaths": [
+    "./assets/images/store/home.png",
+    "./assets/images/store/games.png",
+    "./assets/images/store/settings.png"
+  ],
+  "urls": {
+    "support": "https://trimswipe.app/support",
+    "marketing": "https://trimswipe.app",
+    "privacy": "https://trimswipe.app/privacy"
+  },
+  "privacyDataChecklist": [
+    "anonymous Expo push token",
+    "locale and timezone",
+    "aggregate photo counts and sizes",
+    "free-space ratio",
+    "cleanup opportunity totals"
+  ],
+  "products": [
+    "monthly",
+    "yearly",
+    "lifetime",
+    "tokens-100",
+    "tokens-500",
+    "tokens-1200",
+    "tokens-2500"
+  ],
   "locales": [
-    {"id":"en-US","language":"English (US)"},{"id":"en-GB","language":"English (UK)"},{"id":"en-AU","language":"English (Australia)"},{"id":"zh-Hans","language":"简体中文"},{"id":"es","language":"Español"},{"id":"hi","language":"हिन्दी"},{"id":"ar","language":"العربية"},{"id":"pt-BR","language":"Português (Brasil)"},{"id":"fr","language":"Français"},{"id":"de","language":"Deutsch"},{"id":"ja","language":"日本語"},{"id":"ko","language":"한국어"},{"id":"ru","language":"Русский"},{"id":"id","language":"Bahasa Indonesia"},{"id":"tr","language":"Türkçe"},{"id":"it","language":"Italiano"},{"id":"vi","language":"Tiếng Việt"},{"id":"zh-Hant","language":"繁體中文"},{"id":"cs","language":"Čeština"},{"id":"nl","language":"Nederlands"},{"id":"fi","language":"Suomi"},{"id":"ms","language":"Bahasa Melayu"},{"id":"no","language":"Norsk"},{"id":"pl","language":"Polski"},{"id":"sv","language":"Svenska"},{"id":"th","language":"ไทย"},{"id":"uk","language":"Українська"},{"id":"da","language":"Dansk"},{"id":"ta","language":"தமிழ்"}
+    {
+      "id": "en-US",
+      "language": "English (US)"
+    },
+    {
+      "id": "en-GB",
+      "language": "English (UK)"
+    },
+    {
+      "id": "en-AU",
+      "language": "English (Australia)"
+    },
+    {
+      "id": "zh-Hans",
+      "language": "简体中文"
+    },
+    {
+      "id": "es",
+      "language": "Español"
+    },
+    {
+      "id": "hi",
+      "language": "हिन्दी"
+    },
+    {
+      "id": "ar",
+      "language": "العربية"
+    },
+    {
+      "id": "pt-BR",
+      "language": "Português (Brasil)"
+    },
+    {
+      "id": "fr",
+      "language": "Français"
+    },
+    {
+      "id": "de",
+      "language": "Deutsch"
+    },
+    {
+      "id": "ja",
+      "language": "日本語"
+    },
+    {
+      "id": "ko",
+      "language": "한국어"
+    },
+    {
+      "id": "ru",
+      "language": "Русский"
+    },
+    {
+      "id": "id",
+      "language": "Bahasa Indonesia"
+    },
+    {
+      "id": "tr",
+      "language": "Türkçe"
+    },
+    {
+      "id": "it",
+      "language": "Italiano"
+    },
+    {
+      "id": "vi",
+      "language": "Tiếng Việt"
+    },
+    {
+      "id": "zh-Hant",
+      "language": "繁體中文"
+    },
+    {
+      "id": "cs",
+      "language": "Čeština"
+    },
+    {
+      "id": "nl",
+      "language": "Nederlands"
+    },
+    {
+      "id": "fi",
+      "language": "Suomi"
+    },
+    {
+      "id": "ms",
+      "language": "Bahasa Melayu"
+    },
+    {
+      "id": "no",
+      "language": "Norsk"
+    },
+    {
+      "id": "pl",
+      "language": "Polski"
+    },
+    {
+      "id": "sv",
+      "language": "Svenska"
+    },
+    {
+      "id": "th",
+      "language": "ไทย"
+    },
+    {
+      "id": "uk",
+      "language": "Українська"
+    },
+    {
+      "id": "da",
+      "language": "Dansk"
+    },
+    {
+      "id": "ta",
+      "language": "தமிழ்"
+    }
   ],
   "template": {
     "name": "TrimSwipe: Photo Cleaner",
@@ -17,5 +154,1529 @@
     "reviewNotes": "Please review the cleanup flow, subscription products, photo permissions, and notification opt-in. Smart reminders are disabled until the user accepts the in-app invitation.",
     "releaseNotes": "Smarter reminders, language selection, and a calmer cleanup experience."
   },
-  "validation": {"nameMaxChars":30,"subtitleMaxChars":30,"promotionalTextMaxChars":170,"descriptionMaxChars":4000,"keywordsMaxBytes":100}
+  "validation": {
+    "nameMaxChars": 30,
+    "subtitleMaxChars": 30,
+    "promotionalTextMaxChars": 170,
+    "descriptionMaxChars": 4000,
+    "keywordsMaxBytes": 100
+  },
+  "localizedListings": [
+    {
+      "locale": "en-US",
+      "language": "English (US)",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Swipe, trim and free space",
+      "promotionalText": "A calmer camera roll starts with a few quick swipes.",
+      "description": "TrimSwipe is a thoughtful photo cleaner for finding clutter, reviewing similar photos and reclaiming storage with confidence. Keep what matters and make room for what is next.",
+      "keywords": "photo,cleaner,storage,swipe,duplicate,similar,organize",
+      "reviewNotes": "Please review the cleanup flow, subscription products, photo permissions, and notification opt-in. Smart reminders are disabled until the user accepts the in-app invitation.",
+      "releaseNotes": "Smarter reminders, language selection, and a calmer cleanup experience.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "en-GB",
+      "language": "English (UK)",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Swipe, trim and free space",
+      "promotionalText": "A calmer camera roll starts with a few quick swipes.",
+      "description": "TrimSwipe is a thoughtful photo cleaner for finding clutter, reviewing similar photos and reclaiming storage with confidence. Keep what matters and make room for what is next.",
+      "keywords": "photo,cleaner,storage,swipe,duplicate,similar,organize",
+      "reviewNotes": "Please review the cleanup flow, subscription products, photo permissions, and notification opt-in. Smart reminders are disabled until the user accepts the in-app invitation.",
+      "releaseNotes": "Smarter reminders, language selection, and a calmer cleanup experience.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "en-AU",
+      "language": "English (Australia)",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Swipe, trim and free space",
+      "promotionalText": "A calmer camera roll starts with a few quick swipes.",
+      "description": "TrimSwipe is a thoughtful photo cleaner for finding clutter, reviewing similar photos and reclaiming storage with confidence. Keep what matters and make room for what is next.",
+      "keywords": "photo,cleaner,storage,swipe,duplicate,similar,organize",
+      "reviewNotes": "Please review the cleanup flow, subscription products, photo permissions, and notification opt-in. Smart reminders are disabled until the user accepts the in-app invitation.",
+      "releaseNotes": "Smarter reminders, language selection, and a calmer cleanup experience.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "zh-Hans",
+      "language": "简体中文",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "滑动、修剪和释放空间",
+      "promotionalText": "快速滑动几下即可开始拍摄更平静的相机胶卷。",
+      "description": "TrimSwipe 是一款贴心的照片清理器，可自信地查找杂乱照片、查看相似照片并回收存储空间。保留重要的事情，为接下来的事情腾出空间。",
+      "keywords": "照片、清洁、存储、滑动、重复、相似、整理",
+      "reviewNotes": "请查看清理流程、订阅产品、照片权限和通知选择加入。在用户接受应用内邀请之前，智能提醒将被禁用。",
+      "releaseNotes": "更智能的提醒、语言选择和更平静的清洁体验。",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "es",
+      "language": "Español",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Desliza, recorta y libera espa",
+      "promotionalText": "Un carrete de cámara más tranquilo comienza con unos pocos movimientos rápidos.",
+      "description": "TrimSwipe es un limpiador de fotografías pensado para encontrar desorden, revisar fotografías similares y recuperar almacenamiento con confianza. Conserva lo que importa y deja espacio para lo que viene.",
+      "keywords": "foto, limpiador, almacenamiento, deslizar, duplicar, similar, organizar",
+      "reviewNotes": "Revise el flujo de limpieza, los productos de suscripción, los permisos de fotografías y la aceptación de notificaciones. Los recordatorios inteligentes están deshabilitados hasta que el usuario acepte la invitación en la aplicación.",
+      "releaseNotes": "Recordatorios más inteligentes, selección de idioma y una experiencia de limpieza más tranquila.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "hi",
+      "language": "हिन्दी",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "स्वाइप करें, ट्रिम करें और जगह",
+      "promotionalText": "एक शांत कैमरा रोल कुछ त्वरित स्वाइप के साथ शुरू होता है।",
+      "description": "TrimSwipe अव्यवस्था का पता लगाने, समान तस्वीरों की समीक्षा करने और आत्मविश्वास के साथ भंडारण को पुनः प्राप्त करने के लिए एक विचारशील फोटो क्लीनर है। जो मायने रखता है उसे रखें और आगे जो है उसके लिए जगह बनाएं।",
+      "keywords": "फ़ोटो, क्लीनर, भंडारण, स्वाइप, डुप्लिक",
+      "reviewNotes": "कृपया सफ़ाई प्रवाह, सदस्यता उत्पाद, फ़ोटो अनुमतियाँ और अधिसूचना ऑप्ट-इन की समीक्षा करें। जब तक उपयोगकर्ता इन-ऐप आमंत्रण स्वीकार नहीं कर लेता तब तक स्मार्ट रिमाइंडर अक्षम रहते हैं।",
+      "releaseNotes": "बेहतर अनुस्मारक, भाषा चयन और अधिक शांत सफाई अनुभव।",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "ar",
+      "language": "العربية",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "انتقد، وتقليم ومساحة حرة",
+      "promotionalText": "تبدأ لفة الكاميرا الأكثر هدوءًا ببضع تمريرات سريعة.",
+      "description": "TrimSwipe عبارة عن منظف صور مدروس للعثور على الفوضى ومراجعة الصور المشابهة واستعادة مساحة التخزين بثقة. احتفظ بما هو مهم وأفسح المجال لما هو قادم.",
+      "keywords": "صورة، منظف، تخزين، تمرير، تكرار، مشابه، تنظيم",
+      "reviewNotes": "يرجى مراجعة عملية التنظيف ومنتجات الاشتراك وأذونات الصور واشتراك الإشعارات. يتم تعطيل التذكيرات الذكية حتى يقبل المستخدم الدعوة داخل التطبيق.",
+      "releaseNotes": "تذكيرات أكثر ذكاءً واختيار اللغة وتجربة تنظيف أكثر هدوءًا.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "pt-BR",
+      "language": "Português (Brasil)",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Deslize, corte e libere espaço",
+      "promotionalText": "Um rolo de câmera mais calmo começa com alguns movimentos rápidos.",
+      "description": "TrimSwipe é um limpador de fotos cuidadoso para encontrar desordem, revisar fotos semelhantes e recuperar armazenamento com confiança. Mantenha o que importa e abra espaço para o que vem a seguir.",
+      "keywords": "foto, limpador, armazenamento, deslizar, duplicar, semelhante, organizar",
+      "reviewNotes": "Revise o fluxo de limpeza, produtos de assinatura, permissões de fotos e aceitação de notificações. Os lembretes inteligentes ficam desativados até que o usuário aceite o convite no aplicativo.",
+      "releaseNotes": "Lembretes mais inteligentes, seleção de idioma e uma experiência de limpeza mais tranquila.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "fr",
+      "language": "Français",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Glisser, découper et libérer d",
+      "promotionalText": "Une pellicule plus calme commence par quelques balayages rapides.",
+      "description": "TrimSwipe est un nettoyeur de photos bien pensé pour trouver l'encombrement, examiner des photos similaires et récupérer du stockage en toute confiance. Gardez ce qui compte et faites de la place pour la suite.",
+      "keywords": "photo, nettoyeur, stockage, glisser, dupliquer, similaire, organiser",
+      "reviewNotes": "Veuillez consulter le flux de nettoyage, les produits d'abonnement, les autorisations de photo et l'inscription aux notifications. Les rappels intelligents sont désactivés jusqu'à ce que l'utilisateur accepte l'invitation dans l'application.",
+      "releaseNotes": "Des rappels plus intelligents, une sélection de langue et une expérience de nettoyage plus calme.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "de",
+      "language": "Deutsch",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Wischen, trimmen und Speicherp",
+      "promotionalText": "Eine ruhigere Kamerafahrt beginnt mit ein paar schnellen Wischbewegungen.",
+      "description": "TrimSwipe ist ein durchdachter Fotoreiniger, mit dem Sie Unordnung finden, ähnliche Fotos überprüfen und sicher Speicherplatz zurückgewinnen können. Behalten Sie das Wesentliche und schaffen Sie Platz für das, was als Nächstes kommt.",
+      "keywords": "Foto, sauberer, speichern, wischen, duplizieren, ähnlich, organisieren",
+      "reviewNotes": "Bitte überprüfen Sie den Bereinigungsablauf, die Abonnementprodukte, die Fotoberechtigungen und das Benachrichtigungs-Opt-in. Intelligente Erinnerungen sind deaktiviert, bis der Benutzer die In-App-Einladung annimmt.",
+      "releaseNotes": "Intelligentere Erinnerungen, Sprachauswahl und ein ruhigeres Aufräumerlebnis.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "ja",
+      "language": "日本語",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "スワイプ、トリミング、スペースの解放",
+      "promotionalText": "穏やかなカメラロールは、数回の素早いスワイプから始まります。",
+      "description": "TrimSwipe は、散らかった写真を見つけ、類似した写真を確認し、自信を持ってストレージを再利用できる、思慮深い写真クリーナーです。重要なものを保持し、次のもののためのスペースを確保します。",
+      "keywords": "写真、クリーナー、ストレージ、スワイプ、複製、類似、整理",
+      "reviewNotes": "クリーンアップ フロー、サブスクリプション製品、写真の許可、通知のオプトインを確認してください。スマート リマインダーは、ユーザーがアプリ内招待を受け入れるまで無効になります。",
+      "releaseNotes": "よりスマートなリマインダー、言語選択、より穏やかなクリーンアップ体験。",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "ko",
+      "language": "한국어",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "스와이프하고 다듬고 여유 공간을 확보하세요",
+      "promotionalText": "몇 번의 빠른 스와이프로 차분한 카메라 롤이 시작됩니다.",
+      "description": "TrimSwipe는 복잡한 사진을 찾고, 유사한 사진을 검토하고, 자신 있게 저장 공간을 확보할 수 있는 사려 깊은 사진 정리 도구입니다. 중요한 것은 유지하고 다음을 위한 공간을 마련하세요.",
+      "keywords": "사진,클리너,저장,스와이프,복제,유사,정리",
+      "reviewNotes": "정리 흐름, 구독 제품, 사진 권한 및 알림 수신 동의 여부를 검토하세요. 사용자가 인앱 초대를 수락할 때까지 스마트 알림은 비활성화됩니다.",
+      "releaseNotes": "더욱 스마트해진 알림, 언어 선택, 더욱 차분한 정리 환경을 경험해 보세요.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "ru",
+      "language": "Русский",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Проведите пальцем по экрану, о",
+      "promotionalText": "Более спокойная смена камеры начинается с нескольких быстрых движений.",
+      "description": "TrimSwipe — это продуманная программа для очистки фотографий, позволяющая находить беспорядок, просматривать похожие фотографии и уверенно освобождать место для хранения. Сохраните то, что важно, и освободите место для того, что будет дальше.",
+      "keywords": "фото, очиститель, хранилище, пролистывание, дублирован",
+      "reviewNotes": "Ознакомьтесь с порядком очистки, продуктами подписки, разрешениями на использование фотографий и согласием на получение уведомлений. Умные напоминания отключены до тех пор, пока пользователь не примет приглашение в приложении.",
+      "releaseNotes": "Умные напоминания, выбор языка и более спокойная уборка.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "id",
+      "language": "Bahasa Indonesia",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Gesek, rapikan, dan kosongkan ",
+      "promotionalText": "Rol kamera yang lebih tenang dimulai dengan beberapa gesekan cepat.",
+      "description": "TrimSwipe adalah pembersih foto yang bijaksana untuk menemukan kekacauan, meninjau foto serupa, dan mendapatkan kembali penyimpanan dengan percaya diri. Pertahankan hal yang penting dan berikan ruang untuk hal selanjutnya.",
+      "keywords": "foto, pembersih, penyimpanan, gesek, duplikat, serupa, atur",
+      "reviewNotes": "Harap tinjau alur pembersihan, produk langganan, izin foto, dan keikutsertaan notifikasi. Pengingat cerdas dinonaktifkan hingga pengguna menerima undangan dalam aplikasi.",
+      "releaseNotes": "Pengingat yang lebih cerdas, pemilihan bahasa, dan pengalaman pembersihan yang lebih tenang.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "tr",
+      "language": "Türkçe",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Kaydırın, kırpın ve boş alan a",
+      "promotionalText": "Birkaç hızlı kaydırmayla daha sakin bir kamera rulosu başlar.",
+      "description": "TrimSwipe dağınıklığı bulmak, benzer fotoğrafları incelemek ve depolama alanını güvenle geri kazanmak için tasarlanmış akıllı bir fotoğraf temizleyicidir. Önemli olanı saklayın ve bir sonraki adıma yer açın.",
+      "keywords": "fotoğraf,temizleyici,depolama,kaydırma,çoğalt,benzer,düzenle",
+      "reviewNotes": "Lütfen temizleme akışını, abonelik ürünlerini, fotoğraf izinlerini ve bildirime kaydolmayı inceleyin. Kullanıcı uygulama içi daveti kabul edene kadar akıllı hatırlatıcılar devre dışı bırakılır.",
+      "releaseNotes": "Daha akıllı hatırlatıcılar, dil seçimi ve daha sakin bir temizleme deneyimi.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "it",
+      "language": "Italiano",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Scorri, ritaglia e libera spaz",
+      "promotionalText": "Un rullino fotografico più tranquillo inizia con pochi rapidi passaggi.",
+      "description": "TrimSwipe è un pulitore di foto accurato per trovare confusione, rivedere foto simili e recuperare spazio di archiviazione in tutta sicurezza. Mantieni ciò che conta e fai spazio a ciò che verrà dopo.",
+      "keywords": "foto, pulizia, archiviazione, scorrimento, duplicazione, simile, organizzazione",
+      "reviewNotes": "Ti invitiamo a rivedere il flusso di pulizia, i prodotti di abbonamento, le autorizzazioni per le foto e l'attivazione delle notifiche. I promemoria intelligenti sono disabilitati finché l'utente non accetta l'invito in-app.",
+      "releaseNotes": "Promemoria più intelligenti, selezione della lingua e un'esperienza di pulizia più tranquilla.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "vi",
+      "language": "Tiếng Việt",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Vuốt, cắt và giải phóng không ",
+      "promotionalText": "Cuộn camera yên tĩnh hơn bắt đầu bằng một vài thao tác vuốt nhanh.",
+      "description": "TrimSwipe là một trình dọn dẹp ảnh chu đáo để tìm kiếm sự lộn xộn, xem lại các bức ảnh tương tự và tự tin lấy lại bộ nhớ. Giữ lại những gì quan trọng và nhường chỗ cho những gì tiếp theo.",
+      "keywords": "ảnh,dọn dẹp,lưu trữ,vuốt,sao chép,tương tự,sắp xếp",
+      "reviewNotes": "Vui lòng xem lại quy trình dọn dẹp, sản phẩm đăng ký, quyền chụp ảnh và chọn tham gia thông báo. Lời nhắc thông minh bị tắt cho đến khi người dùng chấp nhận lời mời trong ứng dụng.",
+      "releaseNotes": "Lời nhắc thông minh hơn, lựa chọn ngôn ngữ và trải nghiệm dọn dẹp nhẹ nhàng hơn.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "zh-Hant",
+      "language": "繁體中文",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "滑動、修剪和釋放空間",
+      "promotionalText": "快速滑動幾下即可開始拍攝更平靜的相機膠卷。",
+      "description": "TrimSwipe 是一款貼心的照片清理器，可自信地尋找雜亂照片、查看相似照片並回收儲存空間。保留重要的事情，為接下來的事情騰出空間。",
+      "keywords": "照片、清潔、收納、滑動、重複、相似、整理",
+      "reviewNotes": "請查看清理流程、訂閱產品、照片權限和通知選擇加入。在使用者接受應用程式內邀請之前，智慧提醒將被停用。",
+      "releaseNotes": "更聰明的提醒、語言選擇和更平靜的清潔體驗。",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "cs",
+      "language": "Čeština",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Přejeďte, ořízněte a uvolněte ",
+      "promotionalText": "Klidnější záběr fotoaparátu začíná několika rychlými tahy.",
+      "description": "TrimSwipe je promyšlený čistič fotografií pro hledání nepořádku, prohlížení podobných fotografií a sebevědomí zpětného získávání úložiště. Nechte si to, na čem záleží, a udělejte prostor tomu, co bude dál.",
+      "keywords": "fotografie,čistič,úložiště,přejetí,duplikovat,podobné,uspořádat",
+      "reviewNotes": "Přečtěte si prosím postup čištění, předplatné produktů, oprávnění k fotografování a přihlášení k oznámení. Chytrá připomenutí jsou deaktivována, dokud uživatel nepřijme pozvánku v aplikaci.",
+      "releaseNotes": "Chytřejší připomenutí, výběr jazyka a klidnější úklid.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "nl",
+      "language": "Nederlands",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Veeg, trim en maak ruimte vrij",
+      "promotionalText": "Een rustiger camerarol begint met een paar snelle swipes.",
+      "description": "TrimSwipe is een doordachte foto-opschoner waarmee u rommel kunt opsporen, vergelijkbare foto's kunt bekijken en met vertrouwen opslagruimte kunt terugwinnen. Behoud wat belangrijk is en maak ruimte voor het volgende.",
+      "keywords": "foto,opschoner,opslag,vegen,dupliceren,vergelijkbaar,organiseren",
+      "reviewNotes": "Bekijk het opschoonproces, de abonnementsproducten, de fotorechten en de aanmelding voor meldingen. Slimme herinneringen zijn uitgeschakeld totdat de gebruiker de in-app-uitnodiging accepteert.",
+      "releaseNotes": "Slimmere herinneringen, taalkeuze en een rustigere opruimervaring.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "fi",
+      "language": "Suomi",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Pyyhkäise, leikkaa ja vapauta ",
+      "promotionalText": "Rauhaisempi kameran rulla alkaa muutamalla nopealla pyyhkäisyllä.",
+      "description": "TrimSwipe on harkittu valokuvien puhdistusaine, jolla voit löytää sotkua, tarkastella samankaltaisia ​​kuvia ja hankkia tallennustilaa luottavaisin mielin. Pidä tärkeät asiat ja tee tilaa seuraavalle.",
+      "keywords": "valokuva,puhdistaja,säilytys,pyyhkäisy,kopioida,samanlainen,järjestää",
+      "reviewNotes": "Tarkista puhdistusprosessi, tilaustuotteet, valokuvausoikeudet ja ilmoitusten valinta. Älykkäät muistutukset ovat poissa käytöstä, kunnes käyttäjä hyväksyy sovelluksen sisäisen kutsun.",
+      "releaseNotes": "Älykkäämpiä muistutuksia, kielen valintaa ja rauhallisempi siivouskokemus.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "ms",
+      "language": "Bahasa Melayu",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Leret, potong dan ruang kosong",
+      "promotionalText": "Gulungan kamera yang lebih tenang bermula dengan beberapa leretan pantas.",
+      "description": "TrimSwipe ialah pembersih foto yang bijak untuk mencari kekacauan, menyemak foto yang serupa dan menuntut semula storan dengan yakin. Simpan apa yang penting dan beri ruang untuk perkara seterusnya.",
+      "keywords": "foto, pembersih, storan, leret, pendua, serupa, susun",
+      "reviewNotes": "Sila semak aliran pembersihan, produk langganan, kebenaran foto dan pemberitahuan ikut serta. Peringatan pintar dilumpuhkan sehingga pengguna menerima jemputan dalam apl.",
+      "releaseNotes": "Peringatan yang lebih pintar, pemilihan bahasa dan pengalaman pembersihan yang lebih tenang.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "no",
+      "language": "Norsk",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Sveip, trim og frigjør plass",
+      "promotionalText": "En roligere kamerarull starter med noen få raske sveip.",
+      "description": "TrimSwipe er en gjennomtenkt fotorenser for å finne rot, gjennomgå lignende bilder og gjenvinne lagring med selvtillit. Behold det som betyr noe og gi plass til det som er neste.",
+      "keywords": "bilde, renere, lagring, sveip, duplisere, lignende, organisere",
+      "reviewNotes": "Se gjennom oppryddingsflyten, abonnementsprodukter, bildetillatelser og varslingsvalg. Smarte påminnelser er deaktivert til brukeren godtar invitasjonen i appen.",
+      "releaseNotes": "Smartere påminnelser, språkvalg og en roligere oppryddingsopplevelse.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "pl",
+      "language": "Polski",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Przesuń, przytnij i zwolnij mi",
+      "promotionalText": "Spokojniejszy obrót aparatu zaczyna się od kilku szybkich przesunięć.",
+      "description": "TrimSwipe to przemyślany program do czyszczenia zdjęć, służący do wyszukiwania bałaganu, przeglądania podobnych zdjęć i bezpiecznego odzyskiwania miejsca na dysku. Zachowaj to, co ważne i zrób miejsce na to, co będzie następne.",
+      "keywords": "zdjęcie, czyszczenie, przechowywanie, przesuwanie, duplikowanie, podobne, organizowanie",
+      "reviewNotes": "Zapoznaj się z procesem czyszczenia, produktami subskrypcyjnymi, uprawnieniami do zdjęć i możliwością otrzymywania powiadomień. Inteligentne przypomnienia są wyłączone, dopóki użytkownik nie zaakceptuje zaproszenia w aplikacji.",
+      "releaseNotes": "Inteligentniejsze przypomnienia, wybór języka i spokojniejsze sprzątanie.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "sv",
+      "language": "Svenska",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Svep, trimma och frigör utrymm",
+      "promotionalText": "En lugnare kamerarulle börjar med några snabba svep.",
+      "description": "TrimSwipe är en genomtänkt fotorengörare för att hitta röran, granska liknande foton och ta tillbaka lagringsutrymmet med tillförsikt. Behåll det som är viktigt och ge plats åt det som kommer härnäst.",
+      "keywords": "foto, renare, lagring, svep, duplicera, liknande, organisera",
+      "reviewNotes": "Vänligen granska rensningsflödet, prenumerationsprodukter, fotobehörigheter och anmälan. Smarta påminnelser inaktiveras tills användaren accepterar inbjudan i appen.",
+      "releaseNotes": "Smartare påminnelser, språkval och en lugnare städupplevelse.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "th",
+      "language": "ไทย",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "ปัด ตัดแต่ง และพื้นที่ว่าง",
+      "promotionalText": "ม้วนฟิล์มที่สงบมากขึ้นเริ่มต้นด้วยการปัดอย่างรวดเร็วเพียงไม่กี่ครั้ง",
+      "description": "TrimSwipe เป็นตัวล้างรูปภาพที่ใส่ใจในการค้นหาสิ่งที่ยุ่งเหยิง ตรวจสอบรูปภาพที่คล้ายกัน และเรียกคืนพื้นที่เก็บข้อมูลด้วยความมั่นใจ เก็บสิ่งสำคัญไว้และเตรียมพื้นที่สำหรับสิ่งต่อไป",
+      "keywords": "รูปภาพ, ทำความสะอาด, จัดเก็บ, ปัด, ทำซ",
+      "reviewNotes": "โปรดตรวจสอบขั้นตอนการล้างข้อมูล ผลิตภัณฑ์ที่ต้องสมัครสมาชิก การอนุญาตเกี่ยวกับรูปภาพ และการเลือกรับการแจ้งเตือน การแจ้งเตือนอัจฉริยะจะถูกปิดใช้งานจนกว่าผู้ใช้จะยอมรับคำเชิญในแอป",
+      "releaseNotes": "การแจ้งเตือนที่ชาญฉลาดยิ่งขึ้น การเลือกภาษา และประสบการณ์การทำความสะอาดที่สงบยิ่งขึ้น",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "uk",
+      "language": "Українська",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Проведіть пальцем, обріжте та ",
+      "promotionalText": "Більш спокійна відеокамера починається з кількох швидких рухів.",
+      "description": "TrimSwipe — це продуманий очищувач фотографій для пошуку безладу, перегляду схожих фотографій і впевненого відновлення пам’яті. Зберігайте те, що має значення, і звільняйте місце для того, що буде далі.",
+      "keywords": "фото, очищувач, зберігання, гортання, дублікат, схоже, у",
+      "reviewNotes": "Будь ласка, перегляньте процес очищення, продукти підписки, дозволи на фотографії та згоду на сповіщення. Розумні нагадування вимкнені, доки користувач не прийме запрошення в додатку.",
+      "releaseNotes": "Розумніші нагадування, вибір мови та більш спокійне очищення.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "da",
+      "language": "Dansk",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "Swipe, trim og frigør plads",
+      "promotionalText": "En mere rolig kamerarulle starter med et par hurtige swipes.",
+      "description": "TrimSwipe er en tankevækkende fotorenser til at finde rod, gennemgå lignende billeder og genvinde opbevaring med tillid. Behold det, der betyder noget, og giv plads til det næste.",
+      "keywords": "foto, renere, opbevaring, swipe, duplikere, lignende, organisere",
+      "reviewNotes": "Gennemgå oprydningsforløbet, abonnementsprodukter, fototilladelser og tilvalg af notifikationer. Smarte påmindelser er deaktiveret, indtil brugeren accepterer invitationen i appen.",
+      "releaseNotes": "Smartere påmindelser, sprogvalg og en roligere oprydningsoplevelse.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    },
+    {
+      "locale": "ta",
+      "language": "தமிழ்",
+      "name": "TrimSwipe: Photo Cleaner",
+      "subtitle": "ஸ்வைப், டிரிம் மற்றும் இலவச இட",
+      "promotionalText": "ஒரு அமைதியான கேமரா ரோல் சில விரைவான ஸ்வைப்களுடன் தொடங்குகிறது.",
+      "description": "TrimSwipe என்பது ஒழுங்கீனத்தைக் கண்டறிவதற்கும், ஒத்த புகைப்படங்களை மதிப்பாய்வு செய்வதற்கும், நம்பிக்கையுடன் சேமிப்பிடத்தை மீட்டெடுப்பதற்கும் ஒரு சிந்தனைமிக்க புகைப்படக் கிளீனராகும். முக்கியமானவற்றை வைத்து, அடுத்ததாக இருக்க இடமளிக்கவும்.",
+      "keywords": "புகைப்படம், கிளீனர், சேமிப்பு, ஸ்வைப்,",
+      "reviewNotes": "தூய்மைப்படுத்துதல் ஓட்டம், சந்தா தயாரிப்புகள், புகைப்பட அனுமதிகள் மற்றும் அறிவிப்பு தேர்வு ஆகியவற்றை மதிப்பாய்வு செய்யவும். பயன்பாட்டில் உள்ள அழைப்பை பயனர் ஏற்கும் வரை ஸ்மார்ட் நினைவூட்டல்கள் முடக்கப்படும்.",
+      "releaseNotes": "சிறந்த நினைவூட்டல்கள், மொழி தேர்வு மற்றும் அமைதியான சுத்தப்படுத்தும் அனுபவம்.",
+      "screenshots": [
+        "./assets/images/store/home.png",
+        "./assets/images/store/games.png",
+        "./assets/images/store/settings.png"
+      ]
+    }
+  ],
+  "productLocalizations": [
+    {
+      "productId": "monthly",
+      "localizations": [
+        {
+          "locale": "en-US",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "en-GB",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "en-AU",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "zh-Hans",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "es",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "hi",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ar",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "pt-BR",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "fr",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "de",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ja",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ko",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ru",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "id",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "tr",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "it",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "vi",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "zh-Hant",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "cs",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "nl",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "fi",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ms",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "no",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "pl",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "sv",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "th",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "uk",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "da",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ta",
+          "displayName": "TrimSwipe Pro Monthly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        }
+      ]
+    },
+    {
+      "productId": "yearly",
+      "localizations": [
+        {
+          "locale": "en-US",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "en-GB",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "en-AU",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "zh-Hans",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "es",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "hi",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ar",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "pt-BR",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "fr",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "de",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ja",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ko",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ru",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "id",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "tr",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "it",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "vi",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "zh-Hant",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "cs",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "nl",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "fi",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ms",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "no",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "pl",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "sv",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "th",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "uk",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "da",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ta",
+          "displayName": "TrimSwipe Pro Yearly",
+          "description": "Unlock a smoother photo cleanup workflow."
+        }
+      ]
+    },
+    {
+      "productId": "lifetime",
+      "localizations": [
+        {
+          "locale": "en-US",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "en-GB",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "en-AU",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "zh-Hans",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "es",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "hi",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ar",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "pt-BR",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "fr",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "de",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ja",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ko",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ru",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "id",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "tr",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "it",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "vi",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "zh-Hant",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "cs",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "nl",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "fi",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ms",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "no",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "pl",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "sv",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "th",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "uk",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "da",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ta",
+          "displayName": "TrimSwipe Pro Lifetime",
+          "description": "Unlock a smoother photo cleanup workflow."
+        }
+      ]
+    },
+    {
+      "productId": "tokens-100",
+      "localizations": [
+        {
+          "locale": "en-US",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "en-GB",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "en-AU",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "zh-Hans",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "es",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "hi",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ar",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "pt-BR",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "fr",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "de",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ja",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ko",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ru",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "id",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "tr",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "it",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "vi",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "zh-Hant",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "cs",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "nl",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "fi",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ms",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "no",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "pl",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "sv",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "th",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "uk",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "da",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ta",
+          "displayName": "Trim Tokens 100",
+          "description": "Unlock a smoother photo cleanup workflow."
+        }
+      ]
+    },
+    {
+      "productId": "tokens-500",
+      "localizations": [
+        {
+          "locale": "en-US",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "en-GB",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "en-AU",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "zh-Hans",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "es",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "hi",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ar",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "pt-BR",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "fr",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "de",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ja",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ko",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ru",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "id",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "tr",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "it",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "vi",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "zh-Hant",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "cs",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "nl",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "fi",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ms",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "no",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "pl",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "sv",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "th",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "uk",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "da",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ta",
+          "displayName": "Trim Tokens 500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        }
+      ]
+    },
+    {
+      "productId": "tokens-1200",
+      "localizations": [
+        {
+          "locale": "en-US",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "en-GB",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "en-AU",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "zh-Hans",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "es",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "hi",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ar",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "pt-BR",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "fr",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "de",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ja",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ko",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ru",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "id",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "tr",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "it",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "vi",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "zh-Hant",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "cs",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "nl",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "fi",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ms",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "no",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "pl",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "sv",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "th",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "uk",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "da",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ta",
+          "displayName": "Trim Tokens 1200",
+          "description": "Unlock a smoother photo cleanup workflow."
+        }
+      ]
+    },
+    {
+      "productId": "tokens-2500",
+      "localizations": [
+        {
+          "locale": "en-US",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "en-GB",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "en-AU",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "zh-Hans",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "es",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "hi",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ar",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "pt-BR",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "fr",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "de",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ja",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ko",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ru",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "id",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "tr",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "it",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "vi",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "zh-Hant",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "cs",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "nl",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "fi",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ms",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "no",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "pl",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "sv",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "th",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "uk",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "da",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        },
+        {
+          "locale": "ta",
+          "displayName": "Trim Tokens 2500",
+          "description": "Unlock a smoother photo cleanup workflow."
+        }
+      ]
+    }
+  ]
 }

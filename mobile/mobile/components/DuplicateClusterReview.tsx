@@ -6,7 +6,7 @@ import { colors, radius, shadow, spacing, type } from "../constants/design";
 import type { NativePhoto } from "../lib/native-photo-source";
 
 export type DuplicateReviewPhoto = NativePhoto & {
-  /** A short, evidence-based explanation such as "Sharper face". */
+  /** A short, evidence-based explanation such as t("ui.sharper-face"). */
   suggestionReasons?: string[];
   /** A calibrated 0-1 signal. It is presented as a confidence band, not a fact. */
   suggestionConfidence?: number;
@@ -39,9 +39,9 @@ function formatMB(value: number): string {
 
 function confidenceLabel(confidence?: number): string | null {
   if (confidence == null) return null;
-  if (confidence >= 0.82) return "Strong suggestion";
-  if (confidence >= 0.62) return "Likely suggestion";
-  return "Possible suggestion";
+  if (confidence >= 0.82) return t("ui.strong-suggestion");
+  if (confidence >= 0.62) return t("ui.likely-suggestion");
+  return t("ui.possible-suggestion");
 }
 
 /**
@@ -53,7 +53,7 @@ export function DuplicateClusterReview({
   onSelectionChange,
   onPreviewPhoto,
   onConfirmRemovals,
-  confirmLabel = "Review selected removals",
+  confirmLabel = t("ui.review-selected-removals"),
 }: DuplicateClusterReviewProps) {
   const [filter, setFilter] = useState<Filter>("all");
   const [keeperId, setKeeperId] = useState(cluster.suggestedKeeperId);
@@ -116,12 +116,12 @@ export function DuplicateClusterReview({
     <View
       style={styles.card}
       accessible
-      accessibilityLabel={`Similar photo group with ${cluster.photos.length} photos`}
+      accessibilityLabel={t("ui.similar-photo-group-with-count", { count: cluster.photos.length })}
     >
       <View style={styles.header}>
         <View style={styles.headerText}>
           <Text style={styles.eyebrow}>{t("ui.similar-photos")}</Text>
-          <Text style={styles.title}>{cluster.photos.length} photos to compare</Text>
+          <Text style={styles.title}>{t("ui.photos-to-compare", { count: cluster.photos.length })}</Text>
           {cluster.similarityLabel ? (
             <Text style={styles.description}>{cluster.similarityLabel}</Text>
           ) : null}
@@ -141,12 +141,12 @@ export function DuplicateClusterReview({
             <Text style={styles.suggestionTitle}>{t("ui.suggested-to-keep")}</Text>
           </View>
           <Text style={styles.photoTitle} numberOfLines={1}>
-            {keeper.title || "Best available copy"}
+            {keeper.title || t("ui.best-available-copy")}
           </Text>
           <Text style={styles.reason} numberOfLines={2}>
             {keeper.suggestionReasons?.length
               ? keeper.suggestionReasons.join(" · ")
-              : "Based on available image-quality signals"}
+              : t("ui.based-on-available-image-quality-signals")}
           </Text>
           {confidenceLabel(keeper.suggestionConfidence) ? (
             <Text style={styles.confidence}>
@@ -158,17 +158,17 @@ export function DuplicateClusterReview({
 
       <View style={styles.filterRow} accessibilityRole="tablist">
         <FilterButton
-          label={`All ${cluster.photos.length}`}
+          label={t("ui.all-count", { count: cluster.photos.length })}
           selected={filter === "all"}
           onPress={() => setFilter("all")}
         />
         <FilterButton
-          label="Suggested keep"
+          label={t("ui.suggested-keep")}
           selected={filter === "keep"}
           onPress={() => setFilter("keep")}
         />
         <FilterButton
-          label={`Suggested remove ${removalIds.length}`}
+          label={t("ui.suggested-remove-count", { count: removalIds.length })}
           selected={filter === "remove"}
           onPress={() => setFilter("remove")}
         />
@@ -210,7 +210,7 @@ export function DuplicateClusterReview({
                 accessibilityRole="button"
                 accessibilityLabel={
                   isKeeper
-                    ? "Choose a different photo to keep"
+                    ? t("ui.choose-a-different-photo-to-keep")
                     : isSelectedForRemoval
                       ? `Keep ${photo.title || "this photo"}`
                       : `Select ${photo.title || "this photo"} for removal`

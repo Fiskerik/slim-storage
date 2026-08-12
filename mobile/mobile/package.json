@@ -11,6 +11,12 @@
     "test:logic": "node --experimental-strip-types --test scripts/photo-similarity.test.mjs scripts/smart-reminder-policy.test.mjs",
     "validate:store": "node scripts/validate-store-metadata.mjs",
     "migrate:strings": "node scripts/migrate-jsx-strings.mjs",
+    "validate:catalogs": "node scripts/validate-catalogs.mjs",
+    "fix:catalog-encoding": "node scripts/fix-catalog-encoding.mjs",
+    "translate:catalogs": "node scripts/translate-catalogs.mjs",
+    "reset:generated-strings": "node scripts/reset-generated-strings.mjs",
+    "generate:store-listings": "node scripts/generate-appstore-listings.mjs",
+    "add:dynamic-keys": "node scripts/add-dynamic-catalog-keys.mjs",
     "lint": "expo lint",
     "prebuild": "expo prebuild",
     "eas-build-post-install": "echo 'Native app build handled by Expo/EAS'"

@@ -136,16 +136,16 @@ export function SwipeMidsetAdCard({
 
       <View
         accessibilityRole="timer"
-        accessibilityLabel={unlocked ? "Ad finished. Swipe to continue." : `Continue in ${secondsRemaining} seconds.`}
+        accessibilityLabel={unlocked ? t("ui.ad-finished-swipe-to-continue") : t("ui.continue-in-seconds", { seconds: secondsRemaining })}
         style={[styles.continuePanel, unlocked && styles.continuePanelUnlocked]}
       >
         <Ionicons name={unlocked ? "swap-horizontal" : "time-outline"} size={22} color="#315f7d" />
         <View>
           <Text style={styles.continueText}>
-            {unlocked ? "Swipe to continue" : `Continue in ${secondsRemaining} seconds`}
+            {unlocked ? t("ui.swipe-to-continue") : t("ui.continue-in-seconds", { seconds: secondsRemaining })}
           </Text>
           <Text style={styles.continueHint}>
-            {unlocked ? "Swipe the card left or right" : "The ad will unlock automatically"}
+            {unlocked ? t("ui.swipe-the-card-left-or-right") : t("ui.the-ad-will-unlock-automatically")}
           </Text>
         </View>
       </View>

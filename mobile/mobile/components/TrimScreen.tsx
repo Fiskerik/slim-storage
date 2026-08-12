@@ -35,10 +35,10 @@ type Preset = {
 };
 
 const PRESETS: Preset[] = [
-  { key: "exif", label: "Remove EXIF", hint: "Camera, lens, software", quality: 0.92, multiplier: 1, icon: "document-text-outline" },
-  { key: "location", label: "Strip Location", hint: "GPS coordinates", quality: 0.95, multiplier: 0.8, icon: "location-outline" },
-  { key: "compress50", label: "Compress 50%", hint: "Strong shrink", quality: 0.5, multiplier: 2.4, icon: "contract-outline" },
-  { key: "compress80", label: "Compress 80%", hint: "Quality first", quality: 0.8, multiplier: 1.5, icon: "scan-outline" },
+  { key: "exif", label: t("ui.remove-exif"), hint: t("ui.camera-lens-software"), quality: 0.92, multiplier: 1, icon: "document-text-outline" },
+  { key: "location", label: t("ui.strip-location"), hint: t("ui.gps-coordinates"), quality: 0.95, multiplier: 0.8, icon: "location-outline" },
+  { key: "compress50", label: t("ui.compress-50"), hint: t("ui.strong-shrink"), quality: 0.5, multiplier: 2.4, icon: "contract-outline" },
+  { key: "compress80", label: t("ui.compress-80"), hint: t("ui.quality-first"), quality: 0.8, multiplier: 1.5, icon: "scan-outline" },
 ];
 
 export type TrimScreenProps = {
@@ -77,7 +77,7 @@ export function TrimScreen({
     try {
       const permission = await requestPhotoPermission();
       if (!permission.granted) {
-        setError("Photo access is needed to trim photos.");
+        setError(t("ui.photo-access-is-needed-to-trim-photos"));
         return;
       }
       const photos = await loadPhotoRound(
@@ -92,9 +92,9 @@ export function TrimScreen({
           }).canTrim,
         ) ?? photos[0] ?? null;
       setPhoto(candidate);
-      if (!candidate) setError("No local photos available to trim right now.");
+      if (!candidate) setError(t("ui.no-local-photos-available-to-trim-right-now"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load a photo to trim.");
+      setError(e instanceof Error ? e.message : t("ui.could-not-load-a-photo-to-trim"));
     } finally {
       setLoading(false);
     }
@@ -132,7 +132,7 @@ export function TrimScreen({
     if (!isPro) {
       // Free users: single-select EXIF only. Show a friendly hint for others.
       if (key !== "exif") {
-        setError("Multi-preset trim is a Lifetime Pro feature. Free trims use Remove EXIF.");
+        setError(t("ui.multi-preset-trim-is-a-lifetime-pro-feature-free"));
         return;
       }
       setSelectedKeys(new Set(["exif"]));
@@ -150,14 +150,14 @@ export function TrimScreen({
   async function applyTrim() {
     if (!photo) return;
     if (trimsRemaining <= 0) {
-      setError("Not enough tokens. Claim daily tokens, watch an ad, or visit the shop.");
+      setError(t("ui.not-enough-tokens-claim-daily-tokens-watch-an-ad"));
       return;
     }
     setBusy(true);
     setError(null);
     try {
       if (!trimStatus?.canTrim) {
-        setError("This photo already has all selected trims. Keep it as-is or delete it from another game.");
+        setError(t("ui.this-photo-already-has-all-selected-trims-keep-i"));
         return;
       }
       const result = await trimPhoto(photo, effectiveQuality, settings.trimOutputMode === "replace", settings.trimKinds, {
@@ -169,10 +169,10 @@ export function TrimScreen({
         onTrimmed(photo, saved);
         setJustTrimmed(true);
       } else {
-        setError(result.error ?? "Could not trim this photo.");
+        setError(result.error ?? t("ui.could-not-trim-this-photo"));
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Trim failed.");
+      setError(e instanceof Error ? e.message : t("ui.trim-failed"));
     } finally {
       setBusy(false);
     }
@@ -203,7 +203,7 @@ export function TrimScreen({
         ) : !photo ? (
           <View style={[styles.center, { width, height }]}>
             <Ionicons name="image-outline" size={32} color={colors.textMuted} />
-            <Text style={styles.muted}>{error ?? "No photo loaded."}</Text>
+            <Text style={styles.muted}>{error ?? t("ui.no-photo-loaded")}</Text>
             <Pressable style={styles.retryBtn} onPress={() => void loadNext()}>
               <Text style={styles.retryText}>{t("ui.try-again")}</Text>
             </Pressable>
@@ -238,19 +238,19 @@ export function TrimScreen({
             <Text style={styles.metaMode}>
               {trimStatus?.canTrim
                 ? `Image size: ${photo.sizeMB.toFixed(1)} MB · Trim: -${estSaved.toFixed(1)} MB`
-                : `Cannot trim: ${blockedReason ?? "No selected trim applies"}`}
+                : `Cannot trim: ${blockedReason ?? t("ui.no-selected-trim-applies")}`}
             </Text>
           </View>
-          <Pill icon="sparkles-outline" value={trimStatus?.canTrim ? `~${estSaved.toFixed(1)} MB` : "Done"} label="save" tone="primary" />
+          <Pill icon="sparkles-outline" value={trimStatus?.canTrim ? `~${estSaved.toFixed(1)} MB` : "Done"} label={t("ui.save")} tone="primary" />
         </View>
       ) : null}
 
       {/* Presets */}
       <SectionHeader
-        title="Presets"
+        title={t("ui.presets")}
         action={
           <Text style={styles.actionLink}>
-            {isPro ? "tap to stack" : "Pro · multi-select"}
+            {isPro ? "tap to stack" : t("ui.pro-multi-select")}
           </Text>
         }
       />
@@ -279,7 +279,7 @@ export function TrimScreen({
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.presetLabel, active && { color: colors.primary }]}>{p.label}</Text>
-                <Text style={styles.presetHint}>{locked ? "Lifetime Pro" : p.hint}</Text>
+                <Text style={styles.presetHint}>{locked ? t("ui.lifetime-pro") : p.hint}</Text>
               </View>
               <Text style={styles.presetSave}>~{saveMB.toFixed(1)} MB</Text>
             </Pressable>
@@ -310,7 +310,7 @@ export function TrimScreen({
             <>
               <Ionicons name="cut-outline" size={18} color={colors.white} />
               <Text style={styles.primaryText}>
-                {trimStatus?.canTrim ? `Trim - save ~${estSaved.toFixed(1)} MB` : (blockedReason ?? "Cannot trim")}
+                {trimStatus?.canTrim ? `Trim - save ~${estSaved.toFixed(1)} MB` : (blockedReason ?? t("ui.cannot-trim"))}
               </Text>
             </>
           )}
@@ -327,11 +327,11 @@ function trimBlockedReason(
   status: ReturnType<typeof getTrimStatus>,
 ): string {
   const source = photo.localUri || photo.uri;
-  if (photo.isCloudAsset || !source || source.startsWith("ph://")) return "iCloud only";
-  if (photo.sizeMB <= 1) return "Too small";
-  if (photo.trimState?.blockedReason === "already-optimized") return "Already optimized";
-  if (status.statusLabel === "Already trimmed" || status.nextLabel === "Already trimmed") return "Already trimmed";
-  if (status.nextKinds.length === 0) return "No trim left";
+  if (photo.isCloudAsset || !source || source.startsWith("ph://")) return t("ui.icloud-only");
+  if (photo.sizeMB <= 1) return t("ui.too-small");
+  if (photo.trimState?.blockedReason === "already-optimized") return t("ui.already-optimized");
+  if (status.statusLabel === t("ui.already-trimmed") || status.nextLabel === t("ui.already-trimmed")) return t("ui.already-trimmed");
+  if (status.nextKinds.length === 0) return t("ui.no-trim-left");
   return status.statusLabel;
 }
 

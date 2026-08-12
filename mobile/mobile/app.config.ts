@@ -76,6 +76,7 @@ const config: ExpoConfig = {
     buildNumber: "70",
     supportsTablet: true,
     infoPlist: {
+      CFBundleLocalizations: ["en", "zh-Hans", "zh-Hant", "es", "hi", "ar", "pt-BR", "fr", "de", "ja", "ko", "ru", "id", "tr", "it", "vi", "cs", "nl", "fi", "ms", "no", "pl", "sv", "th", "uk", "da", "ta"],
       NSCameraUsageDescription: "Needed to find your pictures.",
       NSPhotoLibraryUsageDescription:
         "Trimswipe needs access to your photo library so you can swipe through your photos and free up storage.",
@@ -112,6 +113,7 @@ const config: ExpoConfig = {
     ],
     "expo-web-browser",
     "expo-localization",
+    "./plugins/withLocalizedPermissions",
     "expo-notifications",
     "expo-background-task",
     [
