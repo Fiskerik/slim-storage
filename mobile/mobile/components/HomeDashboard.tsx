@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
@@ -191,7 +192,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
         <View style={styles.headerRow}>
           <View>
             <Text style={styles.eyebrow}>Trimswipe</Text>
-            <Text style={styles.headerTitle}>Hey 👋</Text>
+            <Text style={styles.headerTitle}>{t("ui.hey")}</Text>
           </View>
           <View style={styles.headerActions}>
             <Pressable onPress={onOpenShop} hitSlop={10} style={styles.tokenChip}>
@@ -224,7 +225,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
           </View>
           <View style={styles.embeddedGoal}>
             <View style={styles.embeddedGoalTop}>
-              <Text style={styles.embeddedGoalTitle}>Daily goal</Text>
+              <Text style={styles.embeddedGoalTitle}>{t("ui.daily-goal")}</Text>
               <Text style={styles.embeddedGoalValue}>{formatMB(today.mbFreed)} / {dailyGoalMB} MB</Text>
             </View>
             <View style={styles.goalTrack}>
@@ -250,8 +251,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
               <Ionicons name="play-circle" size={22} color={colors.sage} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.adBannerTitle}>Watch a short ad</Text>
-              <Text style={styles.adBannerSub}>Earn +5 tokens</Text>
+              <Text style={styles.adBannerTitle}>{t("ui.watch-a-short-ad")}</Text>
+              <Text style={styles.adBannerSub}>{t("ui.earn-5-tokens")}</Text>
             </View>
             <Ionicons
               name={adBusy ? "hourglass-outline" : "add-circle"}
@@ -276,7 +277,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
             </Text>
           </View>
           <View style={styles.reviewButton}>
-            <Text style={styles.reviewButtonText}>Review now</Text>
+            <Text style={styles.reviewButtonText}>{t("ui.review-now")}</Text>
           </View>
         </Pressable>
 
@@ -339,7 +340,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
             <View style={[styles.storageActionIcon, { backgroundColor: colors.danger }]}>
               <Ionicons name="trash-outline" size={21} color={colors.white} />
             </View>
-            <Text style={styles.storageActionTitle}>Nuke</Text>
+            <Text style={styles.storageActionTitle}>{t("ui.nuke")}</Text>
             <Text style={styles.storageActionHint}>{oneTapCount} items - ~{formatMB(oneTapSavings)}</Text>
           </Pressable>
 
@@ -347,8 +348,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
             <View style={[styles.storageActionIcon, { backgroundColor: colors.info }]}>
               <Ionicons name="cloud-outline" size={21} color={colors.white} />
             </View>
-            <Text style={styles.storageActionTitle}>Cloud</Text>
-            <Text style={styles.storageActionHint}>Optimize storage</Text>
+            <Text style={styles.storageActionTitle}>{t("ui.cloud")}</Text>
+            <Text style={styles.storageActionHint}>{t("ui.optimize-storage")}</Text>
           </Pressable>
         </View>
 
@@ -362,7 +363,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
         <View style={styles.modalBackdrop}>
           <View style={styles.detailModal}>
             <View style={styles.detailModalHeader}>
-              <Text style={styles.detailModalTitle}>Library snapshot</Text>
+              <Text style={styles.detailModalTitle}>{t("ui.library-snapshot")}</Text>
               <Pressable onPress={() => setDetailsOpen(false)} hitSlop={10} style={styles.modalClose}>
                 <Ionicons name="close" size={18} color={colors.primary} />
               </Pressable>
@@ -370,7 +371,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailModalContent}>
               <Card style={[styles.hero, styles.modalHero]} tone="warm">
                 <View style={styles.heroLeft}>
-                  <Text style={styles.heroEyebrow}>Reclaimed</Text>
+                  <Text style={styles.heroEyebrow}>{t("ui.reclaimed")}</Text>
                   <Text style={styles.heroFreed}>{freedDisplay}</Text>
                   <Text style={styles.heroSub}>of ~{potentialDisplay} possible</Text>
                   <View style={styles.pillRow}>
@@ -417,7 +418,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
               <Card style={styles.healthCard}>
                 <ProgressRing progress={healthScore / 100} size={82} thickness={8}>
                   <Text style={styles.healthValue}>{healthScore}</Text>
-                  <Text style={styles.healthLabel}>score</Text>
+                  <Text style={styles.healthLabel}>{t("ui.score")}</Text>
                 </ProgressRing>
                 <View style={styles.healthCopy}>
                   <Text style={styles.goalTitle}>
@@ -473,8 +474,8 @@ function RecentList({ entries, onOpenRecentlyDeleted }: { entries: NativeActionL
     return (
       <Card style={styles.emptyCard}>
         <Ionicons name="sparkles-outline" size={20} color={colors.primaryBright} />
-        <Text style={styles.emptyTitle}>No activity yet</Text>
-        <Text style={styles.emptyHint}>Tap Swipe to start your first round.</Text>
+        <Text style={styles.emptyTitle}>{t("ui.no-activity-yet")}</Text>
+        <Text style={styles.emptyHint}>{t("ui.tap-swipe-to-start-your-first-round")}</Text>
       </Card>
     );
   }
@@ -512,7 +513,7 @@ function RecentList({ entries, onOpenRecentlyDeleted }: { entries: NativeActionL
           {e.action === "delete" ? (
             <View style={styles.restorePill}>
               <Ionicons name="refresh-outline" size={13} color={colors.danger} />
-              <Text style={styles.restorePillText}>Restore</Text>
+              <Text style={styles.restorePillText}>{t("ui.restore")}</Text>
             </View>
           ) : (
             <Ionicons

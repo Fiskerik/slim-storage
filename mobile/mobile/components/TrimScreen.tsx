@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -184,8 +185,8 @@ export function TrimScreen({
           <Ionicons name="chevron-back" size={20} color={colors.text} />
         </Pressable>
         <View style={{ flex: 1, alignItems: "center" }}>
-          <Text style={type.eyebrow}>Visual trim</Text>
-          <Text style={styles.title}>Strip the heavy bits</Text>
+          <Text style={type.eyebrow}>{t("ui.visual-trim")}</Text>
+          <Text style={styles.title}>{t("ui.strip-the-heavy-bits")}</Text>
         </View>
         <Pressable onPress={() => void loadNext()} hitSlop={10} style={styles.backBtn}>
           <Ionicons name="shuffle-outline" size={18} color={colors.text} />
@@ -197,14 +198,14 @@ export function TrimScreen({
         {loading ? (
           <View style={[styles.center, { width, height }]}>
             <ActivityIndicator color={colors.primary} size="large" />
-            <Text style={styles.muted}>Loading photo…</Text>
+            <Text style={styles.muted}>{t("ui.loading-photo")}</Text>
           </View>
         ) : !photo ? (
           <View style={[styles.center, { width, height }]}>
             <Ionicons name="image-outline" size={32} color={colors.textMuted} />
             <Text style={styles.muted}>{error ?? "No photo loaded."}</Text>
             <Pressable style={styles.retryBtn} onPress={() => void loadNext()}>
-              <Text style={styles.retryText}>Try again</Text>
+              <Text style={styles.retryText}>{t("ui.try-again")}</Text>
             </Pressable>
           </View>
         ) : (
@@ -213,7 +214,7 @@ export function TrimScreen({
             {justTrimmed ? (
               <View style={styles.trimmedBadge}>
                 <Ionicons name="checkmark-circle" size={14} color={colors.white} />
-                <Text style={styles.trimmedBadgeText}>Trimmed</Text>
+                <Text style={styles.trimmedBadgeText}>{t("ui.trimmed")}</Text>
               </View>
             ) : null}
             {trimStatus && trimStatus.strippedLabels.length > 0 ? (
@@ -293,7 +294,7 @@ export function TrimScreen({
           onPress={onBack}
           style={styles.ghostBtn}
         >
-          <Text style={styles.ghostText}>Cancel</Text>
+          <Text style={styles.ghostText}>{t("ui.cancel")}</Text>
         </Pressable>
         <Pressable
           disabled={busy || !photo || trimsRemaining <= 0 || !trimStatus?.canTrim}

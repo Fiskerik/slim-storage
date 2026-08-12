@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { useEffect, useRef, useState } from "react";
 import {
   Animated,
@@ -45,11 +46,11 @@ export function OnboardingCarousel({ appVersion, onDone }: OnboardingCarouselPro
     <View style={styles.flex}>
       <View style={styles.topBar}>
         <View>
-          <Text style={type.eyebrow}>Welcome</Text>
+          <Text style={type.eyebrow}>{t("ui.welcome")}</Text>
           <Text style={styles.version}>TrimSwipe v{appVersion}</Text>
         </View>
         <Pressable onPress={finish} hitSlop={10}>
-          <Text style={styles.skip}>Skip</Text>
+          <Text style={styles.skip}>{t("ui.skip")}</Text>
         </Pressable>
       </View>
 
@@ -86,12 +87,12 @@ export function OnboardingCarousel({ appVersion, onDone }: OnboardingCarouselPro
           </Pressable>
           {!last ? (
             <Pressable onPress={() => goTo(index + 1)} style={styles.nextBtn}>
-              <Text style={styles.nextText}>Next</Text>
+              <Text style={styles.nextText}>{t("ui.next")}</Text>
               <Ionicons name="chevron-forward" size={18} color={colors.white} />
             </Pressable>
           ) : (
             <Pressable onPress={finish} style={styles.nextBtn}>
-              <Text style={styles.nextText}>Start Trimming!</Text>
+              <Text style={styles.nextText}>{t("ui.start-trimming")}</Text>
               <Ionicons name="arrow-forward" size={18} color={colors.white} />
             </Pressable>
           )}
@@ -108,13 +109,13 @@ function SlideLoad({ width }: { width: number }) {
       <Animated.View style={[styles.heroIcon, { transform: [{ translateY: float }] }]}>
         <Ionicons name="images-outline" size={70} color={colors.primary} />
       </Animated.View>
-      <Text style={styles.slideTitle}>Clean by swiping</Text>
+      <Text style={styles.slideTitle}>{t("ui.clean-by-swiping")}</Text>
       <Text style={styles.slideBody}>
         TrimSwipe finds photos worth reviewing, then lets you keep, trim, delete, or skip them before anything changes.
       </Text>
       <View style={styles.previewCard}>
         <Ionicons name="checkmark-circle-outline" size={16} color={colors.sageDeep} />
-        <Text style={styles.previewText}>Every batch is previewed first</Text>
+        <Text style={styles.previewText}>{t("ui.every-batch-is-previewed-first")}</Text>
       </View>
     </View>
   );
@@ -129,7 +130,7 @@ function SlidePick({ width }: { width: number }) {
         <MiniGame icon="contract-outline" label="Compression" tint={colors.sageDeep} />
         <MiniGame icon="resize-outline" label="Resize" tint={colors.honey} />
       </View>
-      <Text style={styles.slideTitle}>What trim can change</Text>
+      <Text style={styles.slideTitle}>{t("ui.what-trim-can-change")}</Text>
       <Text style={styles.slideBody}>
         Trim can strip metadata, location, and extra weight. In replace mode, the original is deleted after a smaller copy is saved.
       </Text>
@@ -155,15 +156,15 @@ function SlideProfit({ width }: { width: number }) {
     <View style={[styles.slide, { width }]}>
       <ProgressRing progress={0.76} size={180} thickness={14}>
         <Text style={styles.bigGB}>{(1.8 + saved * 4.2).toFixed(1)}</Text>
-        <Text style={styles.bigGBLabel}>GB saved</Text>
+        <Text style={styles.bigGBLabel}>{t("ui.gb-saved")}</Text>
       </ProgressRing>
-      <Text style={[styles.slideTitle, { marginTop: spacing.xxl }]}>Cloud backup window</Text>
+      <Text style={[styles.slideTitle, { marginTop: spacing.xxl }]}>{t("ui.cloud-backup-window")}</Text>
       <Text style={styles.slideBody}>
         Deleted originals and replaced photos can usually be recovered from Recently Deleted or cloud backup for up to 39 days.
       </Text>
       <View style={styles.previewCard}>
         <Ionicons name="cloud-done-outline" size={16} color={colors.sageDeep} />
-        <Text style={styles.previewText}>Let cloud backup finish before clearing Recently Deleted</Text>
+        <Text style={styles.previewText}>{t("ui.let-cloud-backup-finish-before-clearing-recently")}</Text>
       </View>
     </View>
   );

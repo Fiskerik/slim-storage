@@ -66,7 +66,7 @@ function adMobAppId(value: string | undefined, fallback: string, name: string): 
 const config: ExpoConfig = {
   name: "Trimswipe",
   slug: "slim-storage",
-  version: "1.1.2",
+  version: "1.1.3",
   icon: "./assets/images/icon.png",
   orientation: "portrait",
   scheme: "trimswipe",
@@ -111,6 +111,7 @@ const config: ExpoConfig = {
       },
     ],
     "expo-web-browser",
+    "expo-localization",
     "expo-notifications",
     "expo-background-task",
     [

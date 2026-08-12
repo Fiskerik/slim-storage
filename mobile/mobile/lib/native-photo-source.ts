@@ -1835,12 +1835,31 @@ type CreatedTrim =
   | { success: true; originalId: string; newAssetId: string; savedMB: number; appliedTrimKinds: NativeTrimKind[] }
   | { success: false; originalId: string; error: string };
 
-async function createTrimmedAsset(
+export type PreparedTrim =
+  | {
+      success: true;
+      originalId: string;
+      tempUri: string;
+      creationTime: number;
+      savedMB: number;
+      appliedTrimKinds: NativeTrimKind[];
+    }
+  | { success: false; originalId: string; error: string };
+
+export async function cleanupPreparedTrims(prepared: PreparedTrim[]): Promise<void> {
+  await Promise.all(
+    prepared
+      .filter((item): item is Extract<PreparedTrim, { success: true }> => item.success)
+      .map((item) => FileSystem.deleteAsync(item.tempUri, { idempotent: true }).catch(() => undefined)),
+  );
+}
+
+export async function prepareTrimPhoto(
   photo: NativePhoto,
   quality: number,
   trimKinds: NativeTrimKind[] = DEFAULT_TRIM_KINDS,
   options: { allowSecondPass?: boolean } = {},
-): Promise<CreatedTrim> {
+): Promise<PreparedTrim> {
   const sourceUri = photo.localUri || photo.uri;
   if (!sourceUri || sourceUri.startsWith("ph://")) {
     return { success: false, originalId: photo.id, error: "Photo is not downloaded locally" };
@@ -1911,12 +1930,6 @@ async function createTrimmedAsset(
         error: "Already optimized: this photo would not get smaller with the current Trim settings",
       };
     }
-    const result = { uri: finalUri };
-    const datedAssetId = await createDatedPhotoAsset(result.uri, photo.creationTime);
-    const created = datedAssetId
-      ? { id: datedAssetId }
-      : await MediaLibrary.createAssetAsync(result.uri);
-    await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
     const appliedTrimKinds = [
       ...new Set([
         ...status.applied,
@@ -1924,14 +1937,11 @@ async function createTrimmedAsset(
         ...(isHeicPhotoName(photo.title) ? (["format"] as NativeTrimKind[]) : []),
       ]),
     ];
-    await setTrimTag(created.id, {
-      applied: appliedTrimKinds,
-      updatedAt: new Date().toISOString(),
-    });
     return {
       success: true,
       originalId: photo.id,
-      newAssetId: created.id,
+      tempUri: finalUri,
+      creationTime: photo.creationTime,
       savedMB: +((originalBytes - trimmedBytes) / (1024 * 1024)).toFixed(2),
       appliedTrimKinds,
     };
@@ -1939,6 +1949,44 @@ async function createTrimmedAsset(
     const message = error instanceof Error ? error.message : String(error);
     return { success: false, originalId: photo.id, error: message };
   }
+}
+
+async function createTrimmedAssetFromPrepared(prepared: PreparedTrim): Promise<CreatedTrim> {
+  if (!prepared.success) return prepared;
+  try {
+    const datedAssetId = await createDatedPhotoAsset(prepared.tempUri, prepared.creationTime);
+    const created = datedAssetId
+      ? { id: datedAssetId }
+      : await MediaLibrary.createAssetAsync(prepared.tempUri);
+    await FileSystem.deleteAsync(prepared.tempUri, { idempotent: true }).catch(() => undefined);
+    await setTrimTag(created.id, {
+      applied: prepared.appliedTrimKinds,
+      updatedAt: new Date().toISOString(),
+    });
+    return {
+      success: true,
+      originalId: prepared.originalId,
+      newAssetId: created.id,
+      savedMB: prepared.savedMB,
+      appliedTrimKinds: prepared.appliedTrimKinds,
+    };
+  } catch (error) {
+    await FileSystem.deleteAsync(prepared.tempUri, { idempotent: true }).catch(() => undefined);
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, originalId: prepared.originalId, error: message };
+  }
+}
+
+async function createTrimmedAsset(
+  photo: NativePhoto,
+  quality: number,
+  trimKinds: NativeTrimKind[] = DEFAULT_TRIM_KINDS,
+  options: { allowSecondPass?: boolean } = {},
+  prepared?: PreparedTrim,
+): Promise<CreatedTrim> {
+  return createTrimmedAssetFromPrepared(
+    prepared ?? (await prepareTrimPhoto(photo, quality, trimKinds, options)),
+  );
 }
 
 /**
@@ -1951,13 +1999,14 @@ export async function commitTrims(
   quality: number,
   replaceOriginal = true,
   trimKinds: NativeTrimKind[] = DEFAULT_TRIM_KINDS,
-  options: { allowSecondPass?: boolean } = {},
+  options: { allowSecondPass?: boolean; prepared?: PreparedTrim[] } = {},
 ): Promise<Array<{ id: string; trimmed: boolean; newAssetId?: string; savedMB?: number; error?: string }>> {
   if (photos.length === 0) return [];
   const results: CreatedTrim[] = [];
+  const preparedById = new Map((options.prepared ?? []).map((item) => [item.originalId, item]));
   for (const p of photos) {
     // Sequential to avoid hitting expo-image-manipulator concurrency limits.
-    results.push(await createTrimmedAsset(p, quality, trimKinds, options));
+    results.push(await createTrimmedAsset(p, quality, trimKinds, options, preparedById.get(p.id)));
   }
   const created = results.filter((r): r is Extract<CreatedTrim, { success: true }> => r.success);
   if (replaceOriginal && created.length > 0) {
@@ -1988,7 +2037,7 @@ export async function commitTrimsAndDeletes(
   quality: number,
   replaceTrimOriginals = true,
   trimKinds: NativeTrimKind[] = DEFAULT_TRIM_KINDS,
-  options: { allowSecondPass?: boolean } = {},
+  options: { allowSecondPass?: boolean; prepared?: PreparedTrim[] } = {},
 ): Promise<{
   deletedCount: number;
   deletedPhotos: NativePhoto[];
@@ -1997,10 +2046,11 @@ export async function commitTrimsAndDeletes(
   const deleteIds = new Set(deletes.map((photo) => photo.id));
   const trimCandidates = trims.filter((photo) => !deleteIds.has(photo.id));
   const trimCreates: CreatedTrim[] = [];
+  const preparedById = new Map((options.prepared ?? []).map((item) => [item.originalId, item]));
 
   for (const photo of trimCandidates) {
     // Sequential to avoid hitting expo-image-manipulator concurrency limits.
-    trimCreates.push(await createTrimmedAsset(photo, quality, trimKinds, options));
+    trimCreates.push(await createTrimmedAsset(photo, quality, trimKinds, options, preparedById.get(photo.id)));
   }
 
   const createdTrims = trimCreates.filter(

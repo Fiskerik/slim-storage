@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -104,7 +105,7 @@ export function SwipeMidsetAdCard({
       <NativeAdView nativeAd={ad} style={styles.adView}>
         <NativeMediaView resizeMode="cover" style={styles.media} />
         <View pointerEvents="none" style={styles.sponsoredBadge}>
-          <Text style={styles.sponsoredText}>Sponsored</Text>
+          <Text style={styles.sponsoredText}>{t("ui.sponsored")}</Text>
         </View>
 
         {ad.icon ? (

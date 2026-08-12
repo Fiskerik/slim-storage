@@ -1,0 +1,21 @@
+{
+  "dryRun": true,
+  "brand": "TrimSwipe",
+  "sharedScreenshotPaths": ["./assets/images/store/home.png", "./assets/images/store/games.png", "./assets/images/store/settings.png"],
+  "urls": {"support": "https://trimswipe.app/support", "marketing": "https://trimswipe.app", "privacy": "https://trimswipe.app/privacy"},
+  "privacyDataChecklist": ["anonymous Expo push token", "locale and timezone", "aggregate photo counts and sizes", "free-space ratio", "cleanup opportunity totals"],
+  "products": ["monthly", "yearly", "lifetime", "tokens-100", "tokens-500", "tokens-1200", "tokens-2500"],
+  "locales": [
+    {"id":"en-US","language":"English (US)"},{"id":"en-GB","language":"English (UK)"},{"id":"en-AU","language":"English (Australia)"},{"id":"zh-Hans","language":"简体中文"},{"id":"es","language":"Español"},{"id":"hi","language":"हिन्दी"},{"id":"ar","language":"العربية"},{"id":"pt-BR","language":"Português (Brasil)"},{"id":"fr","language":"Français"},{"id":"de","language":"Deutsch"},{"id":"ja","language":"日本語"},{"id":"ko","language":"한국어"},{"id":"ru","language":"Русский"},{"id":"id","language":"Bahasa Indonesia"},{"id":"tr","language":"Türkçe"},{"id":"it","language":"Italiano"},{"id":"vi","language":"Tiếng Việt"},{"id":"zh-Hant","language":"繁體中文"},{"id":"cs","language":"Čeština"},{"id":"nl","language":"Nederlands"},{"id":"fi","language":"Suomi"},{"id":"ms","language":"Bahasa Melayu"},{"id":"no","language":"Norsk"},{"id":"pl","language":"Polski"},{"id":"sv","language":"Svenska"},{"id":"th","language":"ไทย"},{"id":"uk","language":"Українська"},{"id":"da","language":"Dansk"},{"id":"ta","language":"தமிழ்"}
+  ],
+  "template": {
+    "name": "TrimSwipe: Photo Cleaner",
+    "subtitle": "Swipe, trim and free space",
+    "promotionalText": "A calmer camera roll starts with a few quick swipes.",
+    "description": "TrimSwipe is a thoughtful photo cleaner for finding clutter, reviewing similar photos and reclaiming storage with confidence. Keep what matters and make room for what is next.",
+    "keywords": "photo,cleaner,storage,swipe,duplicate,similar,organize",
+    "reviewNotes": "Please review the cleanup flow, subscription products, photo permissions, and notification opt-in. Smart reminders are disabled until the user accepts the in-app invitation.",
+    "releaseNotes": "Smarter reminders, language selection, and a calmer cleanup experience."
+  },
+  "validation": {"nameMaxChars":30,"subtitleMaxChars":30,"promotionalTextMaxChars":170,"descriptionMaxChars":4000,"keywordsMaxBytes":100}
+}

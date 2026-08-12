@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -95,8 +96,8 @@ export function StatsDashboard({
     <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
       <View style={styles.headerRow}>
         <View>
-          <Text style={type.eyebrow}>Your impact</Text>
-          <Text style={styles.title}>Stats</Text>
+          <Text style={type.eyebrow}>{t("ui.your-impact")}</Text>
+          <Text style={styles.title}>{t("ui.stats")}</Text>
         </View>
         <Pressable onPress={onShare} hitSlop={10} style={styles.iconBtn}>
           <Ionicons name="share-outline" size={18} color={colors.primary} />
@@ -116,13 +117,13 @@ export function StatsDashboard({
         </View>
         <ProgressRing progress={weekRing} size={130} thickness={12}>
           <Text style={styles.ringNum}>{Math.round(weekRing * 100)}%</Text>
-          <Text style={styles.ringHint}>WEEKLY</Text>
+          <Text style={styles.ringHint}>{t("ui.weekly")}</Text>
         </ProgressRing>
       </Card>
 
       <SectionHeader
         title="Quick scan"
-        action={scanComplete ? <Text style={styles.action}>Latest hunch</Text> : undefined}
+        action={scanComplete ? <Text style={styles.action}>{t("ui.latest-hunch")}</Text> : undefined}
       />
       <Card style={styles.scanCard}>
         <View style={styles.scanHeader}>
@@ -219,7 +220,7 @@ export function StatsDashboard({
       </Card>
 
       {/* Savings chart */}
-      <SectionHeader title={chartTitle} action={<Text style={styles.action}>Trim + Delete</Text>} />
+      <SectionHeader title={chartTitle} action={<Text style={styles.action}>{t("ui.trim-delete")}</Text>} />
       <Card>
         <View style={styles.chartTabs}>
           {([
@@ -289,8 +290,8 @@ export function StatsDashboard({
       {topHogs.length === 0 ? (
         <Card style={styles.empty}>
           <Ionicons name="leaf-outline" size={22} color={colors.sage} />
-          <Text style={styles.emptyTitle}>Nothing reclaimed yet</Text>
-          <Text style={styles.emptyHint}>Start a round to see your biggest wins here.</Text>
+          <Text style={styles.emptyTitle}>{t("ui.nothing-reclaimed-yet")}</Text>
+          <Text style={styles.emptyHint}>{t("ui.start-a-round-to-see-your-biggest-wins-here")}</Text>
         </Card>
       ) : (
         <Card padded={false} style={{ overflow: "hidden" }}>
@@ -359,7 +360,7 @@ function ScanMetric({ label, value, accent = colors.text, onPress }: { label: st
     <>
       <Text style={styles.scanMetricLabel}>{label}</Text>
       <Text style={[styles.scanMetricValue, { color: accent }]} numberOfLines={1}>{value}</Text>
-      {onPress ? <Text style={styles.scanMetricAction}>Review photos</Text> : null}
+      {onPress ? <Text style={styles.scanMetricAction}>{t("ui.review-photos")}</Text> : null}
     </>
   );
   return onPress ? (

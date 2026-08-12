@@ -1,0 +1,521 @@
+[
+  {
+    "insertId": "-d9e37ee12ih2",
+    "logName": "projects/trimswipe/logs/cloudaudit.googleapis.com%2Fsystem_event",
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "methodName": "/InternalServices.CreateInternalService",
+      "resourceName": "namespaces/trimswipe/revisions/sendduecleanupreminders-00001-viw",
+      "response": {
+        "@type": "type.googleapis.com/google.cloud.run.v1.Revision",
+        "apiVersion": "serving.knative.dev/v1",
+        "kind": "Revision",
+        "metadata": {
+          "annotations": {
+            "autoscaling.knative.dev/maxScale": "1",
+            "cloudfunctions.googleapis.com/trigger-type": "HTTP_TRIGGER",
+            "run.googleapis.com/base-images": "{\"worker\":\"europe-west1-docker.pkg.dev/serverless-runtimes/google-22-full/runtimes/nodejs22\"}",
+            "run.googleapis.com/build-function-target": "{\"worker\":\"syncReminderInstallation\"}",
+            "run.googleapis.com/build-id": "{\"worker\":\"3c8fa008-801a-4924-be5e-073b5b4cfcee\"}",
+            "run.googleapis.com/build-source-location": "{\"worker\":\"gs://gcf-v2-sources-1085451915256-europe-west1/syncReminderInstallation/function-source.zip#1786455230116755\"}",
+            "run.googleapis.com/client-name": "cloudfunctions",
+            "run.googleapis.com/operation-id": "72b4ef3a-ccc1-4ed1-a4dd-bfea478d7725",
+            "run.googleapis.com/secrets": "secret-4561ab48-3254-3cd8-84b6-16fb914612ec:projects/trimswipe/secrets/EXPO_ACCESS_TOKEN",
+            "run.googleapis.com/startup-cpu-boost": "true",
+            "serving.knative.dev/creator": "service-1085451915256@gcf-admin-robot.iam.gserviceaccount.com"
+          },
+          "creationTimestamp": "2026-08-11T13:34:50.144436Z",
+          "generation": 1,
+          "labels": {
+            "cloud.googleapis.com/location": "europe-west1",
+            "deployment-scheduled": "true",
+            "firebase-functions-hash": "25827bece96d290f9e6e75a02a0ddb556ebf6938",
+            "goog-cloudfunctions-runtime": "nodejs22",
+            "goog-managed-by": "cloudfunctions",
+            "run.googleapis.com/startupProbeType": "Default",
+            "serving.knative.dev/configuration": "sendduecleanupreminders",
+            "serving.knative.dev/configurationGeneration": "1",
+            "serving.knative.dev/service": "sendduecleanupreminders",
+            "serving.knative.dev/serviceUid": "292518e4-e64b-47f9-abab-5d12e95caf2c"
+          },
+          "name": "sendduecleanupreminders-00001-viw",
+          "namespace": "1085451915256",
+          "ownerReferences": [
+            {
+              "apiVersion": "serving.knative.dev/v1",
+              "blockOwnerDeletion": true,
+              "controller": true,
+              "kind": "Configuration",
+              "name": "sendduecleanupreminders",
+              "uid": "a213f5de-86d4-435b-97d3-dce8d8eead0e"
+            }
+          ],
+          "resourceVersion": "AAZYxYkHXqA",
+          "selfLink": "/apis/serving.knative.dev/v1/namespaces/1085451915256/revisions/sendduecleanupreminders-00001-viw",
+          "uid": "942a279f-4c66-4b9e-aca8-ee5b698ec314"
+        },
+        "spec": {
+          "containerConcurrency": 80,
+          "containers": [
+            {
+              "env": [
+                {
+                  "name": "FIREBASE_CONFIG",
+                  "value": "{\"projectId\":\"trimswipe\",\"storageBucket\":\"trimswipe.firebasestorage.app\"}"
+                },
+                {
+                  "name": "GCLOUD_PROJECT",
+                  "value": "trimswipe"
+                },
+                {
+                  "name": "EVENTARC_CLOUD_EVENT_SOURCE",
+                  "value": "projects/trimswipe/locations/europe-west1/services/sendDueCleanupReminders"
+                },
+                {
+                  "name": "FUNCTION_REGION",
+                  "value": "europe-west1"
+                },
+                {
+                  "name": "FUNCTION_TARGET",
+                  "value": "sendDueCleanupReminders"
+                },
+                {
+                  "name": "LOG_EXECUTION_ID",
+                  "value": "true"
+                },
+                {
+                  "name": "FUNCTION_SIGNATURE_TYPE",
+                  "value": "http"
+                },
+                {
+                  "name": "EXPO_ACCESS_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "1",
+                      "name": "secret-4561ab48-3254-3cd8-84b6-16fb914612ec"
+                    }
+                  }
+                }
+              ],
+              "image": "europe-west1-docker.pkg.dev/trimswipe/gcf-artifacts/trimswipe__europe--west1__sync_reminder_installation@sha256:bc24a10872417a231c048fccc52ae09207066bef732992d84024e05686f92437",
+              "name": "worker",
+              "ports": [
+                {
+                  "containerPort": 8080,
+                  "name": "http1"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "1",
+                  "memory": "256Mi"
+                }
+              },
+              "startupProbe": {
+                "failureThreshold": 1,
+                "periodSeconds": 240,
+                "tcpSocket": {
+                  "port": 8080
+                },
+                "timeoutSeconds": 240
+              }
+            }
+          ],
+          "runtimeClassName": "run.googleapis.com/linux-base-image-update",
+          "serviceAccountName": "1085451915256-compute@developer.gserviceaccount.com",
+          "timeoutSeconds": 60
+        },
+        "status": {
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-08-11T13:34:51.027104Z",
+              "status": "True",
+              "type": "Ready"
+            },
+            {
+              "lastTransitionTime": "2026-08-11T13:34:50.965402Z",
+              "message": "Container image import completed.",
+              "status": "True",
+              "type": "ContainerReady"
+            },
+            {
+              "lastTransitionTime": "2026-08-11T13:34:51.027104Z",
+              "message": "System will retry after 00:05 from lastTransitionTime for attempt 0.",
+              "reason": "WatchWaiting",
+              "severity": "Info",
+              "status": "True",
+              "type": "Retry"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "imageDigest": "europe-west1-docker.pkg.dev/trimswipe/gcf-artifacts/trimswipe__europe--west1__sync_reminder_installation@sha256:bc24a10872417a231c048fccc52ae09207066bef732992d84024e05686f92437",
+              "name": "worker"
+            }
+          ],
+          "imageDigest": "europe-west1-docker.pkg.dev/trimswipe/gcf-artifacts/trimswipe__europe--west1__sync_reminder_installation@sha256:bc24a10872417a231c048fccc52ae09207066bef732992d84024e05686f92437",
+          "logUrl": "https://console.cloud.google.com/logs/viewer?project=trimswipe&resource=cloud_run_revision/service_name/sendduecleanupreminders/revision_name/sendduecleanupreminders-00001-viw&advancedFilter=resource.type%3D%22cloud_run_revision%22%0Aresource.labels.service_name%3D%22sendduecleanupreminders%22%0Aresource.labels.revision_name%3D%22sendduecleanupreminders-00001-viw%22",
+          "observedGeneration": 1
+        }
+      },
+      "serviceName": "run.googleapis.com",
+      "status": {
+        "message": "Ready condition status changed to True for Revision sendduecleanupreminders-00001-viw."
+      }
+    },
+    "receiveTimestamp": "2026-08-11T13:34:51.301992173Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "sendduecleanupreminders",
+        "location": "europe-west1",
+        "project_id": "trimswipe",
+        "revision_name": "sendduecleanupreminders-00001-viw",
+        "service_name": ""
+      },
+      "type": "cloud_run_revision"
+    },
+    "severity": "INFO",
+    "timestamp": "2026-08-11T13:34:51.043930Z"
+  },
+  {
+    "insertId": "-djuy7udo9t4",
+    "logName": "projects/trimswipe/logs/cloudaudit.googleapis.com%2Fsystem_event",
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "methodName": "/InternalServices.CreateInternalService",
+      "resourceName": "namespaces/trimswipe/revisions/checkcleanupreminderreceipts-00001-sul",
+      "response": {
+        "@type": "type.googleapis.com/google.cloud.run.v1.Revision",
+        "apiVersion": "serving.knative.dev/v1",
+        "kind": "Revision",
+        "metadata": {
+          "annotations": {
+            "autoscaling.knative.dev/maxScale": "1",
+            "cloudfunctions.googleapis.com/trigger-type": "HTTP_TRIGGER",
+            "run.googleapis.com/base-images": "{\"worker\":\"europe-west1-docker.pkg.dev/serverless-runtimes/google-22-full/runtimes/nodejs22\"}",
+            "run.googleapis.com/build-function-target": "{\"worker\":\"syncReminderInstallation\"}",
+            "run.googleapis.com/build-id": "{\"worker\":\"3c8fa008-801a-4924-be5e-073b5b4cfcee\"}",
+            "run.googleapis.com/build-source-location": "{\"worker\":\"gs://gcf-v2-sources-1085451915256-europe-west1/syncReminderInstallation/function-source.zip#1786455230116755\"}",
+            "run.googleapis.com/client-name": "cloudfunctions",
+            "run.googleapis.com/operation-id": "69280d5c-b79c-42b6-9911-3d2b6327fbc1",
+            "run.googleapis.com/secrets": "secret-4561ab48-3254-3cd8-84b6-16fb914612ec:projects/trimswipe/secrets/EXPO_ACCESS_TOKEN",
+            "run.googleapis.com/startup-cpu-boost": "true",
+            "serving.knative.dev/creator": "service-1085451915256@gcf-admin-robot.iam.gserviceaccount.com"
+          },
+          "creationTimestamp": "2026-08-11T13:34:49.937181Z",
+          "generation": 1,
+          "labels": {
+            "cloud.googleapis.com/location": "europe-west1",
+            "deployment-scheduled": "true",
+            "firebase-functions-hash": "25827bece96d290f9e6e75a02a0ddb556ebf6938",
+            "goog-cloudfunctions-runtime": "nodejs22",
+            "goog-managed-by": "cloudfunctions",
+            "run.googleapis.com/startupProbeType": "Default",
+            "serving.knative.dev/configuration": "checkcleanupreminderreceipts",
+            "serving.knative.dev/configurationGeneration": "1",
+            "serving.knative.dev/service": "checkcleanupreminderreceipts",
+            "serving.knative.dev/serviceUid": "cefcb5e4-34fb-48d4-a013-c3868da5cc95"
+          },
+          "name": "checkcleanupreminderreceipts-00001-sul",
+          "namespace": "1085451915256",
+          "ownerReferences": [
+            {
+              "apiVersion": "serving.knative.dev/v1",
+              "blockOwnerDeletion": true,
+              "controller": true,
+              "kind": "Configuration",
+              "name": "checkcleanupreminderreceipts",
+              "uid": "810e8150-1ee8-47a3-9a09-66dfafbf52f1"
+            }
+          ],
+          "resourceVersion": "AAZYxYkDfEw",
+          "selfLink": "/apis/serving.knative.dev/v1/namespaces/1085451915256/revisions/checkcleanupreminderreceipts-00001-sul",
+          "uid": "aa6bbb43-b0be-44a6-bfac-b05ed7ab5139"
+        },
+        "spec": {
+          "containerConcurrency": 80,
+          "containers": [
+            {
+              "env": [
+                {
+                  "name": "FIREBASE_CONFIG",
+                  "value": "{\"projectId\":\"trimswipe\",\"storageBucket\":\"trimswipe.firebasestorage.app\"}"
+                },
+                {
+                  "name": "GCLOUD_PROJECT",
+                  "value": "trimswipe"
+                },
+                {
+                  "name": "EVENTARC_CLOUD_EVENT_SOURCE",
+                  "value": "projects/trimswipe/locations/europe-west1/services/checkCleanupReminderReceipts"
+                },
+                {
+                  "name": "FUNCTION_REGION",
+                  "value": "europe-west1"
+                },
+                {
+                  "name": "FUNCTION_TARGET",
+                  "value": "checkCleanupReminderReceipts"
+                },
+                {
+                  "name": "LOG_EXECUTION_ID",
+                  "value": "true"
+                },
+                {
+                  "name": "FUNCTION_SIGNATURE_TYPE",
+                  "value": "http"
+                },
+                {
+                  "name": "EXPO_ACCESS_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "1",
+                      "name": "secret-4561ab48-3254-3cd8-84b6-16fb914612ec"
+                    }
+                  }
+                }
+              ],
+              "image": "europe-west1-docker.pkg.dev/trimswipe/gcf-artifacts/trimswipe__europe--west1__sync_reminder_installation@sha256:bc24a10872417a231c048fccc52ae09207066bef732992d84024e05686f92437",
+              "name": "worker",
+              "ports": [
+                {
+                  "containerPort": 8080,
+                  "name": "http1"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "1",
+                  "memory": "256Mi"
+                }
+              },
+              "startupProbe": {
+                "failureThreshold": 1,
+                "periodSeconds": 240,
+                "tcpSocket": {
+                  "port": 8080
+                },
+                "timeoutSeconds": 240
+              }
+            }
+          ],
+          "runtimeClassName": "run.googleapis.com/linux-base-image-update",
+          "serviceAccountName": "1085451915256-compute@developer.gserviceaccount.com",
+          "timeoutSeconds": 60
+        },
+        "status": {
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-08-11T13:34:50.772556Z",
+              "status": "True",
+              "type": "Ready"
+            },
+            {
+              "lastTransitionTime": "2026-08-11T13:34:50.720477Z",
+              "message": "Container image import completed.",
+              "status": "True",
+              "type": "ContainerReady"
+            },
+            {
+              "lastTransitionTime": "2026-08-11T13:34:50.772556Z",
+              "message": "System will retry after 00:05 from lastTransitionTime for attempt 0.",
+              "reason": "WatchWaiting",
+              "severity": "Info",
+              "status": "True",
+              "type": "Retry"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "imageDigest": "europe-west1-docker.pkg.dev/trimswipe/gcf-artifacts/trimswipe__europe--west1__sync_reminder_installation@sha256:bc24a10872417a231c048fccc52ae09207066bef732992d84024e05686f92437",
+              "name": "worker"
+            }
+          ],
+          "imageDigest": "europe-west1-docker.pkg.dev/trimswipe/gcf-artifacts/trimswipe__europe--west1__sync_reminder_installation@sha256:bc24a10872417a231c048fccc52ae09207066bef732992d84024e05686f92437",
+          "logUrl": "https://console.cloud.google.com/logs/viewer?project=trimswipe&resource=cloud_run_revision/service_name/checkcleanupreminderreceipts/revision_name/checkcleanupreminderreceipts-00001-sul&advancedFilter=resource.type%3D%22cloud_run_revision%22%0Aresource.labels.service_name%3D%22checkcleanupreminderreceipts%22%0Aresource.labels.revision_name%3D%22checkcleanupreminderreceipts-00001-sul%22",
+          "observedGeneration": 1
+        }
+      },
+      "serviceName": "run.googleapis.com",
+      "status": {
+        "message": "Ready condition status changed to True for Revision checkcleanupreminderreceipts-00001-sul."
+      }
+    },
+    "receiveTimestamp": "2026-08-11T13:34:51.127557326Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "checkcleanupreminderreceipts",
+        "location": "europe-west1",
+        "project_id": "trimswipe",
+        "revision_name": "checkcleanupreminderreceipts-00001-sul",
+        "service_name": ""
+      },
+      "type": "cloud_run_revision"
+    },
+    "severity": "INFO",
+    "timestamp": "2026-08-11T13:34:50.783754Z"
+  },
+  {
+    "insertId": "i203d1e1i55q",
+    "logName": "projects/trimswipe/logs/cloudaudit.googleapis.com%2Fsystem_event",
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "methodName": "/InternalServices.CreateInternalService",
+      "resourceName": "namespaces/trimswipe/revisions/syncreminderinstallation-00001-quc",
+      "response": {
+        "@type": "type.googleapis.com/google.cloud.run.v1.Revision",
+        "apiVersion": "serving.knative.dev/v1",
+        "kind": "Revision",
+        "metadata": {
+          "annotations": {
+            "cloudfunctions.googleapis.com/trigger-type": "HTTP_TRIGGER",
+            "run.googleapis.com/base-images": "{\"worker\":\"europe-west1-docker.pkg.dev/serverless-runtimes/google-22-full/runtimes/nodejs22\"}",
+            "run.googleapis.com/build-function-target": "{\"worker\":\"syncReminderInstallation\"}",
+            "run.googleapis.com/build-id": "{\"worker\":\"3c8fa008-801a-4924-be5e-073b5b4cfcee\"}",
+            "run.googleapis.com/build-source-location": "{\"worker\":\"gs://gcf-v2-sources-1085451915256-europe-west1/syncReminderInstallation/function-source.zip#1786455230116755\"}",
+            "run.googleapis.com/client-name": "cloudfunctions",
+            "run.googleapis.com/operation-id": "dfaa267c-1ede-4690-bf4b-d06bbfd60734",
+            "run.googleapis.com/startup-cpu-boost": "true",
+            "serving.knative.dev/creator": "service-1085451915256@gcf-admin-robot.iam.gserviceaccount.com"
+          },
+          "creationTimestamp": "2026-08-11T13:34:39.618812Z",
+          "generation": 1,
+          "labels": {
+            "cloud.googleapis.com/location": "europe-west1",
+            "deployment-callable": "true",
+            "firebase-functions-hash": "4c1cd7544e33575bbb44269c6fdbf320bc7da439",
+            "goog-cloudfunctions-runtime": "nodejs22",
+            "goog-managed-by": "cloudfunctions",
+            "run.googleapis.com/startupProbeType": "Default",
+            "serving.knative.dev/configuration": "syncreminderinstallation",
+            "serving.knative.dev/configurationGeneration": "1",
+            "serving.knative.dev/service": "syncreminderinstallation",
+            "serving.knative.dev/serviceUid": "b204be17-9ddf-4578-8b97-21d51751f90f"
+          },
+          "name": "syncreminderinstallation-00001-quc",
+          "namespace": "1085451915256",
+          "ownerReferences": [
+            {
+              "apiVersion": "serving.knative.dev/v1",
+              "blockOwnerDeletion": true,
+              "controller": true,
+              "kind": "Configuration",
+              "name": "syncreminderinstallation",
+              "uid": "f36aae56-ccc9-4c2f-b16c-415f8efd5c88"
+            }
+          ],
+          "resourceVersion": "AAZYxYh38y8",
+          "selfLink": "/apis/serving.knative.dev/v1/namespaces/1085451915256/revisions/syncreminderinstallation-00001-quc",
+          "uid": "0ecda66c-eab3-495b-9efd-febd38beda7b"
+        },
+        "spec": {
+          "containerConcurrency": 80,
+          "containers": [
+            {
+              "env": [
+                {
+                  "name": "FIREBASE_CONFIG",
+                  "value": "{\"projectId\":\"trimswipe\",\"storageBucket\":\"trimswipe.firebasestorage.app\"}"
+                },
+                {
+                  "name": "GCLOUD_PROJECT",
+                  "value": "trimswipe"
+                },
+                {
+                  "name": "EVENTARC_CLOUD_EVENT_SOURCE",
+                  "value": "projects/trimswipe/locations/europe-west1/services/syncReminderInstallation"
+                },
+                {
+                  "name": "FUNCTION_REGION",
+                  "value": "europe-west1"
+                },
+                {
+                  "name": "FUNCTION_TARGET",
+                  "value": "syncReminderInstallation"
+                },
+                {
+                  "name": "LOG_EXECUTION_ID",
+                  "value": "true"
+                }
+              ],
+              "image": "europe-west1-docker.pkg.dev/trimswipe/gcf-artifacts/trimswipe__europe--west1__sync_reminder_installation@sha256:bc24a10872417a231c048fccc52ae09207066bef732992d84024e05686f92437",
+              "name": "worker",
+              "ports": [
+                {
+                  "containerPort": 8080,
+                  "name": "http1"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "1",
+                  "memory": "256Mi"
+                }
+              },
+              "startupProbe": {
+                "failureThreshold": 1,
+                "periodSeconds": 240,
+                "tcpSocket": {
+                  "port": 8080
+                },
+                "timeoutSeconds": 240
+              }
+            }
+          ],
+          "runtimeClassName": "run.googleapis.com/linux-base-image-update",
+          "serviceAccountName": "1085451915256-compute@developer.gserviceaccount.com",
+          "timeoutSeconds": 60
+        },
+        "status": {
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-08-11T13:34:41.627951Z",
+              "status": "True",
+              "type": "Ready"
+            },
+            {
+              "lastTransitionTime": "2026-08-11T13:34:41.576638Z",
+              "message": "Container image import completed in 1.24s.",
+              "status": "True",
+              "type": "ContainerReady"
+            },
+            {
+              "lastTransitionTime": "2026-08-11T13:34:41.627951Z",
+              "message": "System will retry after 00:05 from lastTransitionTime for attempt 0.",
+              "reason": "WatchWaiting",
+              "severity": "Info",
+              "status": "True",
+              "type": "Retry"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "imageDigest": "europe-west1-docker.pkg.dev/trimswipe/gcf-artifacts/trimswipe__europe--west1__sync_reminder_installation@sha256:bc24a10872417a231c048fccc52ae09207066bef732992d84024e05686f92437",
+              "name": "worker"
+            }
+          ],
+          "imageDigest": "europe-west1-docker.pkg.dev/trimswipe/gcf-artifacts/trimswipe__europe--west1__sync_reminder_installation@sha256:bc24a10872417a231c048fccc52ae09207066bef732992d84024e05686f92437",
+          "logUrl": "https://console.cloud.google.com/logs/viewer?project=trimswipe&resource=cloud_run_revision/service_name/syncreminderinstallation/revision_name/syncreminderinstallation-00001-quc&advancedFilter=resource.type%3D%22cloud_run_revision%22%0Aresource.labels.service_name%3D%22syncreminderinstallation%22%0Aresource.labels.revision_name%3D%22syncreminderinstallation-00001-quc%22",
+          "observedGeneration": 1
+        }
+      },
+      "serviceName": "run.googleapis.com",
+      "status": {
+        "message": "Ready condition status changed to True for Revision syncreminderinstallation-00001-quc."
+      }
+    },
+    "receiveTimestamp": "2026-08-11T13:34:42.398247877Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "syncreminderinstallation",
+        "location": "europe-west1",
+        "project_id": "trimswipe",
+        "revision_name": "syncreminderinstallation-00001-quc",
+        "service_name": ""
+      },
+      "type": "cloud_run_revision"
+    },
+    "severity": "INFO",
+    "timestamp": "2026-08-11T13:34:41.642213Z"
+  }
+]

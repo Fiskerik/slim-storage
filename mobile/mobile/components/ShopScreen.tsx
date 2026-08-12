@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -321,8 +322,8 @@ export function ShopScreen({
             <Ionicons name="chevron-back" size={22} color={colors.primary} />
           </Pressable>
           <View style={{ flex: 1 }}>
-            <Text style={type.eyebrow}>Shop</Text>
-            <Text style={styles.title}>Trim Tokens</Text>
+            <Text style={type.eyebrow}>{t("ui.shop")}</Text>
+            <Text style={styles.title}>{t("ui.trim-tokens")}</Text>
           </View>
           <View style={styles.balance}>
             <Ionicons name="flash" size={16} color={colors.honey} />
@@ -333,7 +334,7 @@ export function ShopScreen({
         {isPro ? (
           <Card style={[styles.proCard]} tone="warm">
             <View style={{ flex: 1 }}>
-              <Text style={type.eyebrow}>TrimSwipe Pro</Text>
+              <Text style={type.eyebrow}>{t("ui.trimswipe-pro")}</Text>
               <Text style={styles.proTitle}>{"You're all set"}</Text>
               <Text style={styles.proSub}>
                 {hasUnlimitedTrims
@@ -349,7 +350,7 @@ export function ShopScreen({
           <View style={styles.lifetimeModal}>
             <View style={styles.lifetimeRibbon}>
               <Ionicons name="diamond" size={14} color={colors.white} />
-              <Text style={styles.lifetimeRibbonText}>UNLOCK PRO</Text>
+              <Text style={styles.lifetimeRibbonText}>{t("ui.unlock-pro")}</Text>
             </View>
             <View style={styles.planTabs}>
               {premiumProducts.map((plan) => {
@@ -375,7 +376,7 @@ export function ShopScreen({
                     </Text>
                     {hasTrial || offerBadge ? (
                       <View style={styles.planTabMetaRow}>
-                        {hasTrial ? <Text style={styles.planTabTrial}>FREE TRIAL</Text> : null}
+                        {hasTrial ? <Text style={styles.planTabTrial}>{t("ui.free-trial")}</Text> : null}
                         {offerBadge ? (
                           <View
                             style={[
@@ -434,7 +435,7 @@ export function ShopScreen({
               {busy === selectedProduct.id ? (
                 <ActivityIndicator color={colors.white} />
               ) : selectedProduct.id === activeProductId ? (
-                <Text style={styles.ctaText}>Current plan</Text>
+                <Text style={styles.ctaText}>{t("ui.current-plan")}</Text>
               ) : (
                 <Text style={styles.ctaText}>
                   {selectedPlanAction} · {selectedProduct.price}
@@ -469,13 +470,13 @@ export function ShopScreen({
               <Ionicons name="pricetag-outline" size={22} color={colors.primary} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.redeemTitle}>Have an offer code?</Text>
-              <Text style={styles.redeemSub}>Redeem a free or discounted Apple purchase.</Text>
+              <Text style={styles.redeemTitle}>{t("ui.have-an-offer-code")}</Text>
+              <Text style={styles.redeemSub}>{t("ui.redeem-a-free-or-discounted-apple-purchase")}</Text>
             </View>
             {busy === "redeem" ? (
               <ActivityIndicator color={colors.primary} />
             ) : (
-              <Text style={styles.redeemAction}>Redeem</Text>
+              <Text style={styles.redeemAction}>{t("ui.redeem")}</Text>
             )}
           </Pressable>
         ) : null}
@@ -534,7 +535,7 @@ export function ShopScreen({
                 <Ionicons name="play-circle" size={28} color={colors.sage} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.adTitle}>Watch a short ad</Text>
+                <Text style={styles.adTitle}>{t("ui.watch-a-short-ad")}</Text>
                 <Text style={styles.adSub}>Get +{REWARDED_AD_TOKENS} tokens</Text>
               </View>
               {adBusy ? (
@@ -550,7 +551,7 @@ export function ShopScreen({
         {loading ? (
           <Card style={styles.loading}>
             <ActivityIndicator color={colors.primary} />
-            <Text style={styles.loadingText}>Loading offers…</Text>
+            <Text style={styles.loadingText}>{t("ui.loading-offers")}</Text>
           </Card>
         ) : (
           <View style={{ gap: spacing.md }}>
@@ -571,11 +572,11 @@ export function ShopScreen({
                       <Text style={styles.packTokens}>{pack.tokens} tokens</Text>
                       {isBest ? (
                         <View style={styles.badge}>
-                          <Text style={styles.badgeText}>BEST</Text>
+                          <Text style={styles.badgeText}>{t("ui.best")}</Text>
                         </View>
                       ) : null}
                     </View>
-                    <Text style={styles.packHint}>Consumable token pack</Text>
+                    <Text style={styles.packHint}>{t("ui.consumable-token-pack")}</Text>
                   </View>
                   <View style={styles.priceWrap}>
                     {busy === pack.id ? (
@@ -594,7 +595,7 @@ export function ShopScreen({
           {busy === "restore" ? (
             <ActivityIndicator color={colors.primary} />
           ) : (
-            <Text style={styles.restoreText}>Restore purchases</Text>
+            <Text style={styles.restoreText}>{t("ui.restore-purchases")}</Text>
           )}
         </Pressable>
 
@@ -609,11 +610,11 @@ export function ShopScreen({
 
         <View style={styles.legalLinks}>
           <Pressable onPress={() => Linking.openURL("https://trimswipe.lovable.app/terms")}>
-            <Text style={styles.legalLink}>Terms of Use (EULA)</Text>
+            <Text style={styles.legalLink}>{t("ui.terms-of-use-eula")}</Text>
           </Pressable>
           <Text style={styles.legalDot}>·</Text>
           <Pressable onPress={() => Linking.openURL("https://trimswipe.lovable.app/privacy")}>
-            <Text style={styles.legalLink}>Privacy Policy</Text>
+            <Text style={styles.legalLink}>{t("ui.privacy-policy")}</Text>
           </Pressable>
         </View>
 

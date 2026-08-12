@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View, type AccessibilityRole } from "react-native";
@@ -119,7 +120,7 @@ export function DuplicateClusterReview({
     >
       <View style={styles.header}>
         <View style={styles.headerText}>
-          <Text style={styles.eyebrow}>Similar photos</Text>
+          <Text style={styles.eyebrow}>{t("ui.similar-photos")}</Text>
           <Text style={styles.title}>{cluster.photos.length} photos to compare</Text>
           {cluster.similarityLabel ? (
             <Text style={styles.description}>{cluster.similarityLabel}</Text>
@@ -128,7 +129,7 @@ export function DuplicateClusterReview({
         <View style={styles.savings}>
           <Ionicons name="archive-outline" size={15} color={colors.sageDeep} />
           <Text style={styles.savingsValue}>{formatMB(selectedSavings)}</Text>
-          <Text style={styles.savingsLabel}>selected</Text>
+          <Text style={styles.savingsLabel}>{t("ui.selected")}</Text>
         </View>
       </View>
 
@@ -137,7 +138,7 @@ export function DuplicateClusterReview({
         <View style={styles.suggestionText}>
           <View style={styles.suggestionTitleRow}>
             <Ionicons name="sparkles-outline" size={16} color={colors.sageDeep} />
-            <Text style={styles.suggestionTitle}>Suggested to keep</Text>
+            <Text style={styles.suggestionTitle}>{t("ui.suggested-to-keep")}</Text>
           </View>
           <Text style={styles.photoTitle} numberOfLines={1}>
             {keeper.title || "Best available copy"}
@@ -196,7 +197,7 @@ export function DuplicateClusterReview({
                 <Text style={styles.sizeLabel}>{formatMB(photo.sizeMB)}</Text>
                 {isKeeper ? (
                   <View style={styles.keepBadge}>
-                    <Text style={styles.keepBadgeText}>KEEP</Text>
+                    <Text style={styles.keepBadgeText}>{t("ui.keep")}</Text>
                   </View>
                 ) : null}
                 {isSelectedForRemoval ? (
@@ -238,7 +239,7 @@ export function DuplicateClusterReview({
                   onPress={() => chooseKeeper(photo)}
                   hitSlop={8}
                 >
-                  <Text style={styles.makeKeeper}>Make keeper</Text>
+                  <Text style={styles.makeKeeper}>{t("ui.make-keeper")}</Text>
                 </Pressable>
               ) : null}
             </View>
