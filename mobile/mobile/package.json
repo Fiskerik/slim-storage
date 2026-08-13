@@ -16,6 +16,8 @@
     "translate:catalogs": "node scripts/translate-catalogs.mjs",
     "reset:generated-strings": "node scripts/reset-generated-strings.mjs",
     "generate:store-listings": "node scripts/generate-appstore-listings.mjs",
+    "appstore:preview": "node scripts/app-store/app-store-connect.mjs preview",
+    "appstore:upload": "node scripts/app-store/app-store-connect.mjs upload",
     "add:dynamic-keys": "node scripts/add-dynamic-catalog-keys.mjs",
     "lint": "expo lint",
     "prebuild": "expo prebuild",
