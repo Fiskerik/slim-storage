@@ -157,8 +157,6 @@ const config: ExpoConfig = {
           "EXPO_PUBLIC_ADMOB_ANDROID_APP_ID",
         ),
         skAdNetworkItems: IOS_SK_AD_NETWORK_ITEMS,
-        userTrackingUsageDescription:
-          "Your device identifier may be used to measure ad performance and help prevent advertising fraud.",
       },
     ],
   ],

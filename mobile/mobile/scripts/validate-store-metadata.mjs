@@ -2,6 +2,8 @@ import fs from "node:fs";
 import assert from "node:assert/strict";
 
 const metadata = JSON.parse(fs.readFileSync(new URL("../app-store-metadata.json", import.meta.url), "utf8"));
+assert.equal(metadata.urls.privacy, "https://trimswipe.lovable.app/privacy");
+assert.equal(metadata.urls.terms, "https://trimswipe.lovable.app/terms");
 assert.equal(metadata.locales.length, 30);
 const validateListing = ({ locale, name, subtitle, promotionalText, description, keywords, releaseNotes }) => {
   assert.ok([...name].length <= 30, `${name} exceeds name limit`);

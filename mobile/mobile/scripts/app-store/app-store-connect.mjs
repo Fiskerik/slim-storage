@@ -21,16 +21,26 @@ const metadataPath = path.resolve(
 );
 
 if (!version) fail("Pass the App Store version with --version, for example --version 1.1.3.");
-if (!new Set(["preview", "upload"]).has(command)) fail(`Unknown command: ${command}`);
+if (!new Set(["preview", "upload", "privacy-preview", "privacy-audit", "privacy-upload"]).has(command)) {
+  fail(`Unknown command: ${command}`);
+}
 
 const metadata = JSON.parse(readFileSync(metadataPath, "utf8"));
 const listings = normalizeAndValidate(metadata);
-printPreview(listings, metadata);
-
-if (command === "preview") {
-  console.log("\nPreview only. No App Store Connect requests were made.");
+if (command.startsWith("privacy-")) {
+  printPrivacyPreview(listings, metadata);
+  if (command === "privacy-preview") {
+    console.log("\nPreview only. No App Store Connect requests were made.");
+  } else {
+    await auditOrUploadPrivacyUrl(listings, metadata, command === "privacy-upload");
+  }
 } else {
-  await uploadListings(listings, metadata);
+  printPreview(listings, metadata);
+  if (command === "preview") {
+    console.log("\nPreview only. No App Store Connect requests were made.");
+  } else {
+    await uploadListings(listings, metadata);
+  }
 }
 
 function normalizeAndValidate(source) {
@@ -98,6 +108,64 @@ function printPreview(rows, source) {
   if (unresolvedProducts.length) {
     console.warn(`Unmapped product aliases in metadata: ${unresolvedProducts.join(", ")}`);
   }
+}
+
+function printPrivacyPreview(rows, source) {
+  const privacyUrl = requiredPrivacyUrl(source);
+  console.log(`TrimSwipe privacy URL preview for iOS ${version}`);
+  console.log(`Apple app ID: ${config.appId}`);
+  console.log(`Bundle ID: ${config.bundleId}`);
+  console.log(`Locales: ${rows.length}`);
+  console.log(`Privacy URL: ${privacyUrl}`);
+  console.log("Scope: privacyPolicyUrl on existing App Info localizations only.");
+  console.log("Names, subtitles, version metadata, screenshots, products, and other apps are not modified.");
+}
+
+async function auditOrUploadPrivacyUrl(rows, source, apply) {
+  const privacyUrl = requiredPrivacyUrl(source);
+  const token = createToken();
+  const appId = await resolveAppId(token);
+  const appVersion = await resolveVersion(token, appId);
+  const appInfo = await resolveAppInfo(token, appId, appVersion);
+  const infoResponse = await api(token, `/appInfos/${appInfo.id}/appInfoLocalizations?limit=200`);
+  const infoLocales = new Map(infoResponse.data.map((item) => [item.attributes.locale, item]));
+  const missing = rows.map((row) => row.locale).filter((locale) => !infoLocales.has(locale));
+  if (missing.length) {
+    fail(`Privacy-only update refuses to create missing localizations: ${missing.join(", ")}.`);
+  }
+
+  const changes = rows
+    .map((row) => infoLocales.get(row.locale))
+    .filter((item) => clean(item.attributes.privacyPolicyUrl) !== privacyUrl);
+  console.log(`\nRemote audit for Apple app ID ${appId}, App Info ${appInfo.id}:`);
+  console.log(`  ${rows.length - changes.length} matching, ${changes.length} needing update.`);
+  if (changes.length) console.log(`  Locales: ${changes.map((item) => item.attributes.locale).join(", ")}`);
+
+  if (!apply) {
+    console.log("Audit only. No App Store Connect changes were made.");
+    return;
+  }
+
+  for (const existing of changes) {
+    await api(token, `/appInfoLocalizations/${existing.id}`, {
+      method: "PATCH",
+      body: {
+        data: {
+          type: "appInfoLocalizations",
+          id: existing.id,
+          attributes: { privacyPolicyUrl: privacyUrl },
+        },
+      },
+    });
+  }
+
+  const verification = await api(token, `/appInfos/${appInfo.id}/appInfoLocalizations?limit=200`);
+  const failed = verification.data
+    .filter((item) => rows.some((row) => row.locale === item.attributes.locale))
+    .filter((item) => clean(item.attributes.privacyPolicyUrl) !== privacyUrl)
+    .map((item) => item.attributes.locale);
+  if (failed.length) fail(`Privacy URL verification failed for: ${failed.join(", ")}.`);
+  console.log(`Updated ${changes.length} TrimSwipe locales; verified ${rows.length}/${rows.length}.`);
 }
 
 async function uploadListings(rows, source) {
@@ -231,8 +299,18 @@ function createToken() {
 }
 
 async function resolveAppId(token) {
-  if (process.env.ASC_APP_ID) return process.env.ASC_APP_ID;
   const bundleId = process.env.ASC_BUNDLE_ID ?? config.bundleId;
+  const explicitAppId = process.env.ASC_APP_ID ?? config.appId;
+  if (config.appId && explicitAppId && String(explicitAppId) !== String(config.appId)) {
+    fail(`Refusing Apple app ID ${explicitAppId}; this uploader is pinned to TrimSwipe ${config.appId}.`);
+  }
+  if (explicitAppId) {
+    const response = await api(token, `/apps/${encodeURIComponent(explicitAppId)}`);
+    if (response.data.attributes.bundleId !== bundleId) {
+      fail(`Apple app ID ${explicitAppId} belongs to ${response.data.attributes.bundleId}, not ${bundleId}.`);
+    }
+    return String(explicitAppId);
+  }
   const response = await api(token, `/apps?filter[bundleId]=${encodeURIComponent(bundleId)}&limit=10`);
   if (response.data.length !== 1) fail(`Expected one app for bundle ID ${bundleId}; found ${response.data.length}.`);
   return response.data[0].id;
@@ -282,6 +360,13 @@ async function api(token, endpoint, { method = "GET", body, allowConflict = fals
 
 function changedAttributes(existing, desired) {
   return Object.fromEntries(Object.entries(desired).filter(([key, value]) => clean(existing[key]) !== clean(value)));
+}
+function requiredPrivacyUrl(source) {
+  const value = clean(source.urls?.privacy);
+  let parsed;
+  try { parsed = new URL(value); } catch { fail(`Invalid privacy URL: ${value || "(empty)"}.`); }
+  if (parsed.protocol !== "https:") fail(`Privacy URL must use HTTPS: ${value}.`);
+  return value;
 }
 function clean(value) { return String(value ?? "").replace(/\\n/g, "\n").replace(/\r\n?/g, "\n").trim(); }
 function chars(value) { return Array.from(value).length; }

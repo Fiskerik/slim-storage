@@ -12,6 +12,14 @@ This workflow mirrors the Atomic Fusion Rush metadata uploader. It updates the 3
 
 It does not currently change screenshots, App Review notes, subscriptions, or in-app purchase localizations. Those resources have separate App Store Connect workflows. The preview reports product aliases that are not safely mapped.
 
+For a legal-link correction, use the privacy-only commands. They are pinned to TrimSwipe's Apple app ID and bundle ID, require all 30 App Info localizations to already exist, and only patch `privacyPolicyUrl`:
+
+```powershell
+npm.cmd run appstore:privacy-preview -- --version 1.1.3
+npm.cmd run appstore:privacy-audit -- --version 1.1.3
+npm.cmd run appstore:privacy-upload -- --version 1.1.3
+```
+
 ## 1. Generate and validate
 
 From `mobile/mobile`:
