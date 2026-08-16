@@ -39,6 +39,10 @@ export type SmartReminderPreferences = {
   weekly: boolean;
 };
 
+export type DailyTrimReminderPreferences = {
+  enabled: boolean;
+};
+
 export type NativeEngagementSnapshot = {
   capturedAt: string;
   photoCount: number;
@@ -82,6 +86,7 @@ export type NativeSettings = {
   highContrast: boolean;
   backgroundScanSchedules: NativeBackgroundScanSchedule[];
   smartReminders: SmartReminderPreferences;
+  dailyTrimReminder: DailyTrimReminderPreferences;
 };
 
 export type NativeDailyStats = {
@@ -122,6 +127,7 @@ export type NativeStats = {
   recentSeenPhotos: NativeSeenPhoto[];
   settings: NativeSettings;
   engagementSnapshot: NativeEngagementSnapshot | null;
+  dailyTrimReminderPromptVersion: number;
 };
 
 export type NativeActionLogEntry = {
@@ -169,6 +175,7 @@ export const DEFAULT_NATIVE_SETTINGS: NativeSettings = {
   highContrast: false,
   backgroundScanSchedules: DEFAULT_BACKGROUND_SCAN_SCHEDULES,
   smartReminders: { enabled: false, streak: true, storage: true, newPhotos: true, cleanup: true, weekly: true },
+  dailyTrimReminder: { enabled: true },
 };
 
 export const EMPTY_DAILY_STATS: NativeDailyStats = {
@@ -202,6 +209,7 @@ export const DEFAULT_NATIVE_STATS: NativeStats = {
   recentSeenPhotos: [],
   settings: DEFAULT_NATIVE_SETTINGS,
   engagementSnapshot: null,
+  dailyTrimReminderPromptVersion: 0,
 };
 
 function statsUri(): string | null {
@@ -435,6 +443,11 @@ function normalizeStats(value: unknown): NativeStats {
         cleanup: (rawSettings.smartReminders as Partial<SmartReminderPreferences> | undefined)?.cleanup !== false,
         weekly: (rawSettings.smartReminders as Partial<SmartReminderPreferences> | undefined)?.weekly !== false,
       },
+      dailyTrimReminder: {
+        ...DEFAULT_NATIVE_SETTINGS.dailyTrimReminder,
+        ...(rawSettings.dailyTrimReminder && typeof rawSettings.dailyTrimReminder === "object" ? rawSettings.dailyTrimReminder : {}),
+        enabled: (rawSettings.dailyTrimReminder as Partial<DailyTrimReminderPreferences> | undefined)?.enabled !== false,
+      },
     },
     engagementSnapshot: rawSnapshot && typeof rawSnapshot.capturedAt === "string" ? {
       capturedAt: rawSnapshot.capturedAt,
@@ -449,6 +462,7 @@ function normalizeStats(value: unknown): NativeStats {
       trimSavingsMB: Math.max(0, safeNumber(rawSnapshot.trimSavingsMB)),
       deleteSavingsMB: Math.max(0, safeNumber(rawSnapshot.deleteSavingsMB)),
     } : null,
+    dailyTrimReminderPromptVersion: Math.max(0, Math.floor(safeNumber(raw.dailyTrimReminderPromptVersion))),
   };
 }
 

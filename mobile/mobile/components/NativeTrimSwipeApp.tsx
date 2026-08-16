@@ -57,6 +57,10 @@ import {
   type NativePhotoPermission,
   type PreparedTrim,
 } from "../lib/native-photo-source";
+import { loadDailyCleanupPlan, type DailyCleanupPlan } from "../lib/daily-photo-cleanup";
+import { loadQuickCleanupLibrary, type QuickCleanupLibrary } from "../lib/quick-cleanup-service";
+import { loadPhotoProtectionStore, savePhotoProtectionStore, setPhotoProtection as updatePhotoProtection, type PhotoProtectionStore } from "../lib/photo-protection";
+import type { CleanupTimeBudget, QuickCleanupItem } from "../lib/quick-cleanup-plan";
 import {
   loadNativePhotoReviewLedger,
   recordNativePhotoReview,
@@ -86,6 +90,8 @@ import {
 } from "../lib/native-store";
 import { APP_LANGUAGES, t } from "../lib/i18n";
 import { HomeDashboard } from "./HomeDashboard";
+import { DailyCleanupReview } from "./DailyCleanupReview";
+import { QuickCleanupReview } from "./QuickCleanupReview";
 import type { DailyRewardState } from "./HomeDashboard";
 import { StatsDashboard } from "./StatsDashboard";
 import { OnboardingCarousel } from "./OnboardingCarousel";
@@ -112,7 +118,7 @@ import {
   showRewardedAd,
   type LoadedSwipeMidsetNativeAd,
 } from "../lib/ads";
-import { colors } from "../constants/design";
+import { colors, radius, spacing, type } from "../constants/design";
 import { getNativeTheme, NATIVE_THEME_OPTIONS, type NativeThemePalette } from "../constants/themes";
 import {
   notifyCleanupProgress,
@@ -122,6 +128,14 @@ import {
   subscribeToReminderResponses,
   syncRemoteCleanupReminders,
 } from "../lib/remote-reminders";
+import {
+  DAILY_TRIM_REMINDER_PROMPT_VERSION,
+  getDailyTrimReminderPermission,
+  reconcileDailyTrimReminder,
+  requestDailyTrimReminderPermission,
+  scheduleDailyTrimReminder,
+  cancelDailyTrimReminder,
+} from "../lib/daily-trim-reminder";
 import { hasReachedMidset, shouldPresentMidsetAd } from "../lib/swipe-midset";
 
 type Screen =
@@ -136,6 +150,8 @@ type Screen =
   | "shop"
   | "automation"
   | "cleanup-plan"
+  | "quick-cleanup"
+  | "daily-cleanup"
   | "settings";
 
 type Action = "keep" | "trim" | "delete";
@@ -831,6 +847,15 @@ export function NativeTrimSwipeApp() {
   const [scanError, setScanError] = useState<string | null>(null);
   const [cleanupPlan, setCleanupPlan] = useState<NativeCleanupPlan | null>(null);
   const [cleanupPlanBusy, setCleanupPlanBusy] = useState(false);
+  const [quickCleanupLibrary, setQuickCleanupLibrary] = useState<QuickCleanupLibrary | null>(null);
+  const [quickCleanupBusy, setQuickCleanupBusy] = useState(false);
+  const [quickCleanupError, setQuickCleanupError] = useState<"permission" | "error" | null>(null);
+  const [photoProtection, setPhotoProtection] = useState<PhotoProtectionStore | null>(null);
+  const [dailyCleanupPlan, setDailyCleanupPlan] = useState<DailyCleanupPlan | null>(null);
+  const [dailyCleanupBusy, setDailyCleanupBusy] = useState(false);
+  const [dailyCleanupError, setDailyCleanupError] = useState<"permission" | "error" | null>(null);
+  const [dailyReminderPromptVisible, setDailyReminderPromptVisible] = useState(false);
+  const [dailyReminderPermission, setDailyReminderPermission] = useState<{ granted: boolean; blocked: boolean }>({ granted: false, blocked: false });
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
   const pendingDeletesRef = useRef<NativePhoto[]>([]);
   const pendingTrimsRef = useRef<NativePhoto[]>([]);
@@ -871,7 +896,7 @@ export function NativeTrimSwipeApp() {
   const top = queue[0];
   const next = queue[1];
   const trimCurrencyAvailable = hasUnlimitedTrims ? Number.MAX_SAFE_INTEGER : Math.max(0, tokenBalance);
-  const onboardingDue = statsLoaded && (!stats.onboardingComplete || stats.onboardingVersion !== APP_VERSION);
+  const onboardingDue = statsLoaded && !stats.onboardingComplete;
   const backgroundScheduleSignature = settings.backgroundScanSchedules
     .map((schedule) => `${schedule.id}:${schedule.active}:${schedule.days.join(",")}:${schedule.times.join(",")}:${schedule.targetMB}:${schedule.lastRunAt ?? ""}`)
     .join("|");
@@ -950,12 +975,13 @@ export function NativeTrimSwipeApp() {
     let cancelled = false;
     loadNativeStats().then(async (loaded) => {
       if (cancelled) return;
-      const ledger = await loadNativePhotoReviewLedger(loaded);
+      const [ledger, protection] = await Promise.all([loadNativePhotoReviewLedger(loaded), loadPhotoProtectionStore()]);
       if (cancelled) return;
       const activeStats = { ...loaded, lastActiveAt: new Date().toISOString() };
       void saveNativeStats(activeStats);
       setStats(activeStats);
       setReviewLedger(ledger);
+      setPhotoProtection(protection);
       setStatsLoaded(true);
     });
     return () => { cancelled = true; };
@@ -982,10 +1008,39 @@ export function NativeTrimSwipeApp() {
     return () => unsub();
   }, []);
 
+  // The listener is intentionally installed once; it reads current entitlement via refs.
   useEffect(
-    () => subscribeToReminderResponses(() => setScreen(isProRef.current ? "automation" : "games")),
+    () => subscribeToReminderResponses((destination) => {
+      if (destination === "daily-cleanup") void openDailyCleanupReview();
+      else setScreen(isProRef.current ? "automation" : "games");
+    }),
+    // The listener is intentionally installed once; the callback reads current entitlement via refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
+
+  useEffect(() => {
+    if (!statsLoaded) return;
+    let active = true;
+    void (async () => {
+      await translationI18n.changeLanguage(settings.appLanguage);
+      if (!active) return;
+      const permission = await reconcileDailyTrimReminder({
+        enabled: settings.dailyTrimReminder.enabled,
+        promptAcknowledged: stats.dailyTrimReminderPromptVersion >= DAILY_TRIM_REMINDER_PROMPT_VERSION,
+      });
+      if (active) setDailyReminderPermission({ granted: permission.granted, blocked: permission.blocked });
+    })();
+    return () => {
+      active = false;
+    };
+  }, [settings.appLanguage, settings.dailyTrimReminder.enabled, stats.dailyTrimReminderPromptVersion, statsLoaded, translationI18n]);
+
+  useEffect(() => {
+    if (!statsLoaded || onboardingDue || stats.dailyTrimReminderPromptVersion >= DAILY_TRIM_REMINDER_PROMPT_VERSION) return;
+    const timer = setTimeout(() => setDailyReminderPromptVisible(true), 350);
+    return () => clearTimeout(timer);
+  }, [onboardingDue, stats.dailyTrimReminderPromptVersion, statsLoaded]);
 
   useEffect(() => {
     if (!statsLoaded || !purchaseAccessReady) return;
@@ -1052,6 +1107,123 @@ export function NativeTrimSwipeApp() {
 
   function completeOnboarding() {
     commitStats((current) => ({ ...current, onboardingComplete: true, onboardingVersion: APP_VERSION }));
+  }
+
+  async function setDailyReminderEnabled(enabled: boolean): Promise<void> {
+    updateSettings({
+      dailyTrimReminder: { ...(pendingSettingsRef.current ?? settings).dailyTrimReminder, enabled },
+    });
+    commitStats((current) => ({
+      ...current,
+      dailyTrimReminderPromptVersion: Math.max(current.dailyTrimReminderPromptVersion, DAILY_TRIM_REMINDER_PROMPT_VERSION),
+    }));
+    setDailyReminderPromptVisible(false);
+    if (!enabled) {
+      await cancelDailyTrimReminder();
+      return;
+    }
+
+    let permission = await getDailyTrimReminderPermission();
+    if (!permission.granted && permission.canAskAgain) {
+      permission = await requestDailyTrimReminderPermission();
+    }
+    setDailyReminderPermission({ granted: permission.granted, blocked: permission.blocked });
+    if (permission.granted) {
+      await scheduleDailyTrimReminder();
+    } else {
+      showToast(t("ui.notifications-are-off"), t("ui.daily-trim-reminder-system-blocked"), "warning");
+    }
+  }
+
+  function declineDailyReminderPrompt() {
+    void setDailyReminderEnabled(false);
+  }
+
+  async function acceptDailyReminderPrompt() {
+    await setDailyReminderEnabled(true);
+  }
+
+  async function openDailyCleanupReview() {
+    setDailyCleanupPlan(null);
+    setDailyCleanupError(null);
+    setDailyCleanupBusy(true);
+    setScreen("daily-cleanup");
+    try {
+      const permission = await requestPhotoPermission();
+      if (!permission.granted) {
+        setPermissionDenied(true);
+        showToast(t("ui.photo-access-needed"), t("ui.open-ios-settings-to-preview-cleanup-folders"), "warning");
+        setDailyCleanupError("permission");
+        return;
+      }
+      setPermissionDenied(false);
+      setDailyCleanupPlan(await loadDailyCleanupPlan(settings));
+    } catch (error) {
+      showToast(t("ui.preview-failed"), error instanceof Error ? error.message : t("ui.could-not-build-this-cleanup-folder"), "error");
+      setDailyCleanupError("error");
+    } finally {
+      setDailyCleanupBusy(false);
+    }
+  }
+
+  async function openQuickCleanup(budgetSeconds: CleanupTimeBudget = 120, targetMB: number | null = null) {
+    setQuickCleanupLibrary(null);
+    setQuickCleanupError(null);
+    setQuickCleanupBusy(true);
+    setScreen("quick-cleanup");
+    try {
+      const permission = await requestPhotoPermission();
+      if (!permission.granted) {
+        setPermissionDenied(true);
+        setQuickCleanupError("permission");
+        return;
+      }
+      setPermissionDenied(false);
+      const library = await loadQuickCleanupLibrary(settings, {
+        budgetSeconds,
+        targetMB,
+        trimBalance: tokenBalance,
+        unlimitedTrims: hasUnlimitedTrims,
+        protection: photoProtection ?? undefined,
+        reviewLedger,
+      });
+      setQuickCleanupLibrary(library);
+    } catch (error) {
+      console.log("[TrimSwipe] Quick cleanup failed", { error });
+      setQuickCleanupError("error");
+      showToast(t("ui.preview-failed"), error instanceof Error ? error.message : t("ui.could-not-build-this-cleanup-folder"), "error");
+    } finally {
+      setQuickCleanupBusy(false);
+    }
+  }
+
+  function toggleQuickProtection(item: QuickCleanupItem, protectedState: boolean) {
+    setPhotoProtection((current) => {
+      if (!current) return current;
+      const next = updatePhotoProtection(current, item.photo.id, protectedState);
+      void savePhotoProtectionStore(next);
+      return next;
+    });
+    setQuickCleanupLibrary((current) => {
+      if (!current) return current;
+      const protectedIds = new Set(current.plan.protectedIds);
+      if (protectedState) protectedIds.add(item.photo.id);
+      else protectedIds.delete(item.photo.id);
+      const items = current.plan.items.map((candidate) => candidate.photo.id === item.photo.id
+        ? { ...candidate, selected: false }
+        : candidate);
+      return {
+        ...current,
+        plan: { ...current.plan, items, selectedItems: items.filter((candidate) => candidate.selected), protectedIds: [...protectedIds] },
+      };
+    });
+  }
+
+  function decideQuickLater(item: QuickCleanupItem) {
+    commitReviewLedger((current) => recordNativePhotoReview(current, item.photo.id, "skipped"));
+    setQuickCleanupLibrary((current) => current
+      ? { ...current, plan: { ...current.plan, items: current.plan.items.filter((candidate) => candidate.photo.id !== item.photo.id), selectedItems: current.plan.selectedItems.filter((candidate) => candidate.photo.id !== item.photo.id) } }
+      : current);
   }
 
   async function shareProgress() {
@@ -2122,11 +2294,17 @@ export function NativeTrimSwipeApp() {
       if ((previousState === "background" || previousState === "inactive") && nextState === "active") {
         commitStats((current) => ({ ...current, lastActiveAt: new Date().toISOString() }));
         if (isPro) void runDueBackgroundScans();
+        if (statsLoaded) {
+          void reconcileDailyTrimReminder({
+            enabled: settings.dailyTrimReminder.enabled,
+            promptAcknowledged: stats.dailyTrimReminderPromptVersion >= DAILY_TRIM_REMINDER_PROMPT_VERSION,
+          }).then((permission) => setDailyReminderPermission({ granted: permission.granted, blocked: permission.blocked }));
+        }
       }
     });
     return () => sub.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPro, backgroundScheduleSignature]);
+  }, [backgroundScheduleSignature, isPro, settings.appLanguage, settings.dailyTrimReminder.enabled, stats.dailyTrimReminderPromptVersion, statsLoaded]);
 
   useEffect(() => {
     if (!isPro && screen === "automation") setScreen("home");
@@ -2629,6 +2807,54 @@ export function NativeTrimSwipeApp() {
             onBack={() => setScreen("games")}
             onTrimmed={handleSingleTrimComplete}
           />
+        ) : screen === "quick-cleanup" ? (
+          <QuickCleanupReview
+            plan={quickCleanupLibrary?.plan ?? null}
+            months={quickCleanupLibrary?.months ?? []}
+            loading={quickCleanupBusy}
+            error={quickCleanupError}
+            trimsRemaining={trimCurrencyAvailable}
+            onBack={() => setScreen("home")}
+            onChangeBudget={(budget) => void openQuickCleanup(budget, quickCleanupLibrary?.plan.targetMB ?? null)}
+            onChangeTarget={(targetMB) => void openQuickCleanup(quickCleanupLibrary?.plan.budgetSeconds ?? 120, targetMB)}
+            onOpenSettings={() => void Linking.openSettings()}
+            onProtect={toggleQuickProtection}
+            onDecideLater={decideQuickLater}
+            onConfirm={(deletes, trims) => {
+              const deletePhotosForPlan = deletes.map((item) => item.photo);
+              const trimPhotosForPlan = trims.map((item) => item.photo);
+              void requestConfirmation({
+                title: t("ui.apply-suggested-removals"),
+                detail: t("ui.delete-trim-savings", { deleted: deletePhotosForPlan.length, trimmed: trimPhotosForPlan.length, total: trimPhotosForPlan.length, value: formatMB(deletePhotosForPlan.reduce((sum, photo) => sum + photo.sizeMB, 0) + trimPhotosForPlan.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0)) }),
+                danger: deletePhotosForPlan.length > 0,
+                runInBackground: trimPhotosForPlan.length > 0,
+                onConfirm: async () => {
+                  setQuickCleanupLibrary(null);
+                  setScreen("swipe");
+                  showToast(t("ui.cleanup-started"), t("ui.you-can-keep-using-trimswipe-while-the-batch-run"), "info");
+                  await confirmActions(deletePhotosForPlan, trimPhotosForPlan);
+                  return deletePhotosForPlan.length + trimPhotosForPlan.length;
+                },
+              }).catch((err) => showToast(t("ui.cleanup-failed"), err instanceof Error ? err.message : t("ui.please-try-again"), "error"));
+            }}
+          />
+        ) : screen === "daily-cleanup" ? (
+          <DailyCleanupReview
+            plan={dailyCleanupPlan}
+            loading={dailyCleanupBusy}
+            error={dailyCleanupError}
+            trimsRemaining={trimCurrencyAvailable}
+            onBack={() => setScreen("home")}
+            onOpenSettings={() => void Linking.openSettings()}
+            onConfirm={(deletes, trims) => {
+              setDailyCleanupPlan(null);
+              setScreen("swipe");
+              showToast(t("ui.cleanup-started"), t("ui.you-can-keep-using-trimswipe-while-the-batch-run"), "info");
+              void confirmActions(deletes.map((item) => item.photo), trims.map((item) => item.photo)).catch((err) => {
+                showToast(t("ui.cleanup-failed"), err instanceof Error ? err.message : t("ui.please-try-again"), "error");
+              });
+            }}
+          />
         ) : screen === "cleanup-plan" ? (
           <CleanupPlanScreen
             plan={cleanupPlan}
@@ -2708,6 +2934,7 @@ export function NativeTrimSwipeApp() {
             hasUnlimitedTrims={hasUnlimitedTrims}
             adBusy={adBusy}
             onStartSwipe={() => { setScreen("swipe"); void loadRound(settings, { showFallbackToast: true }); }}
+            onOpenQuickCleanup={() => void openQuickCleanup(120)}
             onOpenTrim={() => setScreen("trim")}
             onOpenGames={() => setScreen("games")}
             onOpenShop={() => setScreen("shop")}
@@ -2730,6 +2957,8 @@ export function NativeTrimSwipeApp() {
             activeProductId={activeProductId}
             samplePhoto={top ?? queue[0]}
             onChange={updateSettings}
+            onDailyReminderChange={setDailyReminderEnabled}
+            dailyReminderPermission={dailyReminderPermission}
             onChangeLanguage={async (appLanguage) => {
               const rightToLeft = appLanguage === "ar";
               const directionChanged = rightToLeft !== I18nManager.isRTL;
@@ -2799,7 +3028,7 @@ export function NativeTrimSwipeApp() {
           />
         )}
 
-        {statsLoaded && !onboardingDue ? <BottomNav screen={screen} isPro={isPro} theme={activeTheme} onChange={changeScreen} /> : null}
+        {statsLoaded && !onboardingDue && screen !== "daily-cleanup" ? <BottomNav screen={screen} isPro={isPro} theme={activeTheme} onChange={changeScreen} /> : null}
         {statsLoaded && (trimmingCount > 0 || backgroundTrimResult) ? (
           <BackgroundTrimStatus
             count={trimmingCount}
@@ -2835,6 +3064,11 @@ export function NativeTrimSwipeApp() {
         />
         <ConfirmSheet request={confirmRequest} busy={confirmBusy} />
         <Toast toast={toast} />
+        <DailyReminderPrompt
+          visible={dailyReminderPromptVisible}
+          onEnable={() => void acceptDailyReminderPrompt()}
+          onDismiss={declineDailyReminderPrompt}
+        />
       </View>
     </SafeAreaView>
   );
@@ -5070,6 +5304,48 @@ function ReportDashboardModal({
   );
 }
 
+function DailyReminderPrompt({
+  visible,
+  onEnable,
+  onDismiss,
+}: {
+  visible: boolean;
+  onEnable: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss}>
+      <View style={dailyReminderPromptStyles.backdrop}>
+        <View style={dailyReminderPromptStyles.card}>
+          <View style={dailyReminderPromptStyles.icon}>
+            <Ionicons name="moon-outline" size={24} color={colors.primary} />
+          </View>
+          <Text style={dailyReminderPromptStyles.title}>{t("ui.daily-trim-reminder-prompt-title")}</Text>
+          <Text style={dailyReminderPromptStyles.body}>{t("ui.daily-trim-reminder-prompt-body")}</Text>
+          <Pressable style={dailyReminderPromptStyles.primaryButton} onPress={onEnable}>
+            <Text style={dailyReminderPromptStyles.primaryText}>{t("ui.enable-daily-trim-reminder")}</Text>
+          </Pressable>
+          <Pressable style={dailyReminderPromptStyles.secondaryButton} onPress={onDismiss}>
+            <Text style={dailyReminderPromptStyles.secondaryText}>{t("ui.not-now")}</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const dailyReminderPromptStyles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: "rgba(15,23,42,0.52)", alignItems: "center", justifyContent: "center", padding: spacing.lg },
+  card: { width: "100%", maxWidth: 420, borderRadius: radius.lg, padding: spacing.xl, backgroundColor: colors.card, gap: spacing.md },
+  icon: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: colors.primarySoft },
+  title: { ...type.title, color: colors.text },
+  body: { ...type.body, color: colors.textMuted, lineHeight: 22 },
+  primaryButton: { minHeight: 50, borderRadius: radius.md, alignItems: "center", justifyContent: "center", backgroundColor: colors.primary, marginTop: spacing.sm },
+  primaryText: { color: colors.white, fontSize: 14, fontWeight: "900" },
+  secondaryButton: { minHeight: 40, alignItems: "center", justifyContent: "center" },
+  secondaryText: { color: colors.textMuted, fontSize: 13, fontWeight: "800" },
+});
+
 function Toast({ toast }: { toast: ToastMessage | null }) {
   if (!toast) return null;
   const icon =
@@ -5766,6 +6042,8 @@ function SettingsScreen({
   activeProductId,
   samplePhoto,
   onChange,
+  onDailyReminderChange,
+  dailyReminderPermission,
   onChangeLanguage,
   onReload,
   onCreateReport,
@@ -5779,6 +6057,8 @@ function SettingsScreen({
   activeProductId: string | null;
   samplePhoto?: NativePhoto;
   onChange: (patch: Partial<NativeSettings>) => void;
+  onDailyReminderChange: (enabled: boolean) => Promise<void> | void;
+  dailyReminderPermission: { granted: boolean; blocked: boolean };
   onChangeLanguage: (appLanguage: AppLanguage) => Promise<void>;
   onReload: () => Promise<void> | void;
   onCreateReport: (period: (typeof REPORT_PERIODS)[number]) => void;
@@ -5930,6 +6210,24 @@ function SettingsScreen({
             );
           })}
         </View>
+      </View>
+      <View style={[styles.settingCardVertical, themed.card]}>
+        <Text style={[styles.settingLabel, themed.label]}>{t("ui.daily-trim-reminder-setting")}</Text>
+        <Text style={[styles.mutedSmall, themed.muted]}>{t("ui.daily-trim-reminder-at")}</Text>
+        <ReminderToggle
+          label={t("ui.enable-daily-trim-reminder")}
+          value={settings.dailyTrimReminder.enabled}
+          theme={theme}
+          onChange={(enabled) => void onDailyReminderChange(enabled)}
+        />
+        {settings.dailyTrimReminder.enabled && dailyReminderPermission.blocked ? (
+          <>
+            <Text style={[styles.mutedSmall, { color: theme.danger }]}>{t("ui.daily-trim-reminder-system-blocked")}</Text>
+            <Pressable accessibilityRole="button" onPress={() => void Linking.openSettings()} style={styles.settingsLinkButton}>
+              <Text style={[styles.settingsLinkText, { color: theme.primary }]}>{t("ui.open-settings")}</Text>
+            </Pressable>
+          </>
+        ) : null}
       </View>
       <View style={[styles.settingCardVertical, themed.card]}>
         <Text style={[styles.settingLabel, themed.label]}>{t("ui.smart-reminders")}</Text>
@@ -6301,6 +6599,8 @@ const styles = StyleSheet.create({
   heroTitle: { color: colors.text, fontSize: 28, fontWeight: "800", letterSpacing: -0.45 },
   muted: { color: colors.textMuted, fontSize: 14 },
   mutedSmall: { color: colors.textMuted, fontSize: 12, lineHeight: 17 },
+  settingsLinkButton: { alignSelf: "flex-start", paddingVertical: 2 },
+  settingsLinkText: { fontSize: 12, fontWeight: "800" },
   centerText: { color: colors.textMuted, fontSize: 15, lineHeight: 22, textAlign: "center" },
   insightText: { color: colors.primary, fontSize: 14, fontWeight: "800", lineHeight: 20, textAlign: "center" },
   eyebrow: { color: colors.primaryBright, fontSize: 11, fontWeight: "700", letterSpacing: 1.6, textTransform: "uppercase" },

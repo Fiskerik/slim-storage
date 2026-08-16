@@ -68,6 +68,7 @@ export type HomeDashboardProps = {
   adBusy?: boolean;
   onStartSwipe: () => void;
   onOpenTrim: () => void;
+  onOpenQuickCleanup: () => void;
   onOpenGames: () => void;
   onOpenShop: () => void;
   onWatchAd: () => void;
@@ -112,6 +113,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
     adBusy,
     onStartSwipe,
     onOpenTrim,
+    onOpenQuickCleanup,
     onOpenGames,
     onOpenShop,
     onWatchAd,
@@ -259,6 +261,15 @@ export function HomeDashboard(props: HomeDashboardProps) {
             />
           </Pressable>
         ) : null}
+
+        <Pressable onPress={onOpenQuickCleanup} style={styles.quickSpaceCard}>
+          <View style={styles.quickSpaceIcon}><Ionicons name="speedometer-outline" size={22} color={colors.white} /></View>
+          <View style={styles.recommendedCopy}>
+            <Text style={styles.recommendedTitle}>{t("ui.free-space-plan")}</Text>
+            <Text style={styles.recommendedHint}>{t("ui.finding-the-photos-that-will-make-the-biggest-de")}</Text>
+          </View>
+          <View style={styles.reviewButton}><Text style={styles.reviewButtonText}>{t("ui.review-now")}</Text></View>
+        </Pressable>
 
         <SectionHeader title={t("ui.recommended-cleanup")} />
         <Pressable
@@ -840,6 +851,25 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: spacing.md,
     ...shadow.soft,
+  },
+  quickSpaceCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.primarySoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.primary,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  quickSpaceIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primary,
   },
   recommendedIcon: {
     width: 44,

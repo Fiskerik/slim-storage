@@ -1,5 +1,6 @@
 import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library";
+import { localDayBounds } from "./daily-cleanup-calendar";
 import type { NativeSettings, NativeTrimKind } from "./native-store";
 import {
   createDatedPhotoAsset,
@@ -38,6 +39,7 @@ export type NativePhoto = {
   width: number;
   height: number;
   hasGPS: boolean;
+  isFavorite?: boolean;
   isCloudAsset: boolean;
   creationTime: number;
   cleanupReasons: string[];
@@ -139,6 +141,22 @@ export type NativeDuplicateGroup = {
   photos: NativeDuplicatePhoto[];
   suggestedKeeperId: string;
   similarityLabel?: string;
+};
+
+export type NativeExactDuplicateGroup = {
+  id: string;
+  photos: NativePhoto[];
+  suggestedKeeperId: string;
+  hash: string;
+  estimatedSavingsMB: number;
+  /** Album membership is not exposed consistently by Expo MediaLibrary. */
+  requiresReview: true;
+};
+
+export type NativeTodayPhotoSet = {
+  photos: NativePhoto[];
+  duplicateGroups: NativeDuplicateGroup[];
+  similarityAnalysis: "vision" | "unavailable";
 };
 
 type PhotoMetadataCache = {
@@ -508,10 +526,10 @@ function similarityItem(asset: MediaLibrary.Asset): SimilarityItem {
   };
 }
 
-function assetCanBeSimilar(asset: MediaLibrary.Asset): boolean {
+function assetCanBeSimilar(asset: MediaLibrary.Asset, includeScreenshots = false): boolean {
   return (
     !assetHasGeneratedTrimFilename(asset) &&
-    !assetLooksLikeScreenshot(asset) &&
+    (includeScreenshots || !assetLooksLikeScreenshot(asset)) &&
     !assetLooksLikeLivePhoto(asset) &&
     !assetLooksLikeBurst(asset)
   );
@@ -527,13 +545,13 @@ function mapItemGroupsToAssets(
     .filter((group) => group.length >= 2);
 }
 
-function buildSimilarityCandidateAssetGroups(assets: MediaLibrary.Asset[]): MediaLibrary.Asset[][] {
-  const eligible = assets.filter(assetCanBeSimilar);
+function buildSimilarityCandidateAssetGroups(assets: MediaLibrary.Asset[], includeScreenshots = false): MediaLibrary.Asset[][] {
+  const eligible = assets.filter((asset) => assetCanBeSimilar(asset, includeScreenshots));
   return mapItemGroupsToAssets(buildSimilarityCandidateGroups(eligible.map(similarityItem)), eligible);
 }
 
 function buildConservativeSimilarGroups(assets: MediaLibrary.Asset[]): MediaLibrary.Asset[][] {
-  const eligible = assets.filter(assetCanBeSimilar);
+  const eligible = assets.filter((asset) => assetCanBeSimilar(asset));
   return mapItemGroupsToAssets(buildConservativeCaptureGroups(eligible.map(similarityItem)), eligible);
 }
 
@@ -984,6 +1002,7 @@ async function assetToPhoto(
     width: asset.width || 0,
     height: asset.height || 0,
     hasGPS: Boolean(info.location?.latitude && info.location?.longitude),
+    isFavorite: Boolean(info.isFavorite),
     isCloudAsset: !localUri || localUri.startsWith("ph://"),
     creationTime: asset.creationTime,
     cleanupReasons: classifyAsset(asset, info, sizeMB, duplicateLookup, trimState),
@@ -1131,8 +1150,9 @@ function packSimilarityGroups(
 async function findVerifiedSimilarAssetGroups(
   assets: MediaLibrary.Asset[],
   onProgress?: (progress: NativeLibraryScanProgress) => void,
+  options: { includeScreenshots?: boolean } = {},
 ): Promise<VerifiedSimilarityResult> {
-  const broadGroups = buildSimilarityCandidateAssetGroups(assets);
+  const broadGroups = buildSimilarityCandidateAssetGroups(assets, options.includeScreenshots === true);
   const candidateCount = broadGroups.reduce((sum, group) => sum + group.length, 0);
   const analysisById = new Map<string, PhotoIntelligenceAsset>();
   if (!isPhotoIntelligenceAvailable()) {
@@ -1226,6 +1246,159 @@ async function fetchAllPhotoAssets(
   } while (after);
 
   return assets;
+}
+
+/** Loads the complete photo index without running visual similarity analysis. */
+export async function loadPhotoLibrarySnapshot(
+  onProgress?: (progress: NativeLibraryScanProgress) => void,
+): Promise<NativePhoto[]> {
+  const assets = await fetchAllPhotoAssets(onProgress);
+  const photos = await mapWithConcurrency(assets, 3, (asset) => assetToPhoto(asset, new Set<string>()));
+  await upsertCache(photos);
+  return photos.sort((a, b) => b.creationTime - a.creationTime);
+}
+
+/**
+ * Finds byte-identical local files. Hashing is deliberately staged: only files
+ * with the same measured size and dimensions are opened, and cloud-only assets
+ * are ignored. The result remains review-only because album membership cannot be
+ * determined reliably on every supported platform.
+ */
+export async function findExactDuplicatePhotoGroups(
+  photos: NativePhoto[],
+): Promise<NativeExactDuplicateGroup[]> {
+  const plausible = new Map<string, NativePhoto[]>();
+  photos.forEach((photo) => {
+    if (photo.isCloudAsset || !photo.localUri || photo.sizeMB <= 0) return;
+    const key = `${photo.sizeMB.toFixed(2)}:${photo.width}:${photo.height}`;
+    plausible.set(key, [...(plausible.get(key) ?? []), photo]);
+  });
+  const groups = [...plausible.values()].filter((group) => group.length > 1);
+  if (groups.length === 0) return [];
+
+  const hashed = await mapWithConcurrency(groups.flat(), 3, async (photo) => {
+    try {
+      const info = await FileSystem.getInfoAsync(photo.localUri!, { md5: true });
+      const md5 = (info as FileSystem.FileInfo & { md5?: string }).md5;
+      const bytes = (info as FileSystem.FileInfo & { size?: number }).size;
+      if (!info.exists || typeof md5 !== "string" || md5.length === 0 || typeof bytes !== "number" || bytes <= 0) return null;
+      return { photo, md5, bytes };
+    } catch {
+      return null;
+    }
+  });
+  const byHash = new Map<string, Array<{ photo: NativePhoto; md5: string; bytes: number }>>();
+  hashed.forEach((item) => {
+    if (!item) return;
+    const key = `${item.bytes}:${item.md5}`;
+    byHash.set(key, [...(byHash.get(key) ?? []), item]);
+  });
+  return [...byHash.entries()]
+    .filter(([, group]) => group.length > 1)
+    .map(([key, group]) => {
+      const ordered = [...group].sort((a, b) => {
+        if (Boolean(a.photo.isFavorite) !== Boolean(b.photo.isFavorite)) return a.photo.isFavorite ? -1 : 1;
+        return a.photo.creationTime - b.photo.creationTime;
+      });
+      const keeper = ordered[0].photo;
+      return {
+        id: `exact:${key}`,
+        photos: ordered.map((item) => item.photo),
+        suggestedKeeperId: keeper.id,
+        hash: ordered[0].md5,
+        estimatedSavingsMB: +ordered.slice(1).reduce((sum, item) => sum + item.photo.sizeMB, 0).toFixed(2),
+        requiresReview: true as const,
+      };
+    });
+}
+
+async function fetchPhotoAssetsInRange(start: Date, end: Date): Promise<MediaLibrary.Asset[]> {
+  const assets: MediaLibrary.Asset[] = [];
+  let after: string | undefined;
+  const seen = new Set<string>();
+
+  do {
+    const page = await MediaLibrary.getAssetsAsync({
+      after,
+      first: 500,
+      mediaType: "photo",
+      createdAfter: start,
+      createdBefore: end,
+      sortBy: [[MediaLibrary.SortBy.creationTime, true]],
+    });
+    page.assets.forEach((asset) => {
+      if (seen.has(asset.id)) return;
+      seen.add(asset.id);
+      assets.push(asset);
+    });
+    after = page.hasNextPage ? page.endCursor : undefined;
+  } while (after);
+
+  return assets;
+}
+
+function dailyDuplicateGroups(
+  groups: MediaLibrary.Asset[][],
+  analysisById: Map<string, PhotoIntelligenceAsset>,
+  photos: NativePhoto[],
+): NativeDuplicateGroup[] {
+  const photoById = new Map(photos.map((photo) => [photo.id, photo]));
+  return groups.flatMap((assetGroup) => {
+    const groupPhotos = assetGroup
+      .map((asset) => photoById.get(asset.id))
+      .filter((photo): photo is NativePhoto => Boolean(photo));
+    if (groupPhotos.length < 2) return [];
+
+    const maxPixels = Math.max(...groupPhotos.map((photo) => photo.width * photo.height), 1);
+    const scored = groupPhotos
+      .map((photo) => {
+        const analysis = analysisById.get(photo.id);
+        const aesthetic = analysis?.aestheticScore == null ? 0.5 : (analysis.aestheticScore + 1) / 2;
+        const face = analysis?.bestFaceCaptureQuality ?? 0.5;
+        const resolution = (photo.width * photo.height) / maxPixels;
+        const utilityPenalty = analysis?.isUtility ? 0.12 : 0;
+        return { photo, analysis, score: aesthetic * 0.55 + face * 0.3 + resolution * 0.15 - utilityPenalty };
+      })
+      .sort((a, b) => b.score - a.score);
+    // Keep a local copy whenever one exists so a cloud-only asset is never
+    // the reason the local original disappears from the suggested cleanup.
+    const keeper = scored.find((item) => !item.photo.isCloudAsset) ?? scored[0];
+    const runnerUp = scored.find((item) => item.photo.id !== keeper.photo.id);
+    const reasons: string[] = [];
+    const highestAesthetic = Math.max(...scored.map((item) => item.analysis?.aestheticScore ?? -2));
+    const highestFace = Math.max(...scored.map((item) => item.analysis?.bestFaceCaptureQuality ?? -1));
+    if (keeper.analysis?.aestheticScore != null && keeper.analysis.aestheticScore >= highestAesthetic) reasons.push("Best overall image quality");
+    if (keeper.analysis?.bestFaceCaptureQuality != null && keeper.analysis.bestFaceCaptureQuality >= highestFace) reasons.push("Best face quality");
+    if (keeper.photo.width * keeper.photo.height >= maxPixels) reasons.push("Highest available resolution");
+    const confidence = Math.max(0.58, Math.min(0.94, 0.68 + (keeper.score - (runnerUp?.score ?? 0)) * 0.75));
+    const decorated = scored.map(({ photo }) =>
+      photo.id === keeper.photo.id
+        ? { ...photo, suggestionReasons: reasons.slice(0, 2), suggestionConfidence: confidence }
+        : photo,
+    );
+    return [{
+      id: assetGroup.map((asset) => asset.id).sort().join(":"),
+      photos: decorated,
+      suggestedKeeperId: keeper.photo.id,
+      similarityLabel: "Compared privately with Apple Vision on this iPhone",
+    }];
+  });
+}
+
+export async function loadTodayPhotoSet(now = new Date()): Promise<NativeTodayPhotoSet> {
+  const { start, end } = localDayBounds(now);
+  const assets = await fetchPhotoAssetsInRange(start, end);
+  if (assets.length === 0) return { photos: [], duplicateGroups: [], similarityAnalysis: "vision" };
+
+  const similarity = await findVerifiedSimilarAssetGroups(assets, undefined, { includeScreenshots: true });
+  const duplicateIds = new Set(similarity.groups.flatMap((group) => group.map((asset) => asset.id)));
+  const photos = await mapWithConcurrency(assets, 3, (asset) => assetToPhoto(asset, duplicateIds));
+  await upsertCache(photos);
+  return {
+    photos: photos.sort((a, b) => b.creationTime - a.creationTime),
+    duplicateGroups: similarity.method === "vision" ? dailyDuplicateGroups(similarity.groups, similarity.analysisById, photos) : [],
+    similarityAnalysis: similarity.method,
+  };
 }
 
 export async function scanPhotoLibrary(

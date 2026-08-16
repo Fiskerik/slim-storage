@@ -70,14 +70,14 @@ function adMobAppId(value: string | undefined, fallback: string, name: string): 
 const config: ExpoConfig = {
   name: "TrimSwipe",
   slug: "slim-storage",
-  version: "1.1.3",
+  version: "1.1.4",
   icon: "./assets/images/icon.png",
   orientation: "portrait",
   scheme: "trimswipe",
   userInterfaceStyle: "automatic",
   ios: {
     bundleIdentifier: "com.fiskerik.trimswipe",
-    buildNumber: "70",
+    buildNumber: "71",
     supportsTablet: true,
     infoPlist: {
       CFBundleAllowMixedLocalizations: true,
@@ -93,7 +93,7 @@ const config: ExpoConfig = {
   },
   android: {
     package: "com.fiskerik.trimswipe",
-    versionCode: 4,
+    versionCode: 5,
     permissions: [
       "android.permission.READ_EXTERNAL_STORAGE",
       "android.permission.WRITE_EXTERNAL_STORAGE",
