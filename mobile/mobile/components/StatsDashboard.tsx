@@ -1,4 +1,6 @@
+import i18n, { t } from "../lib/i18n";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Pressable,
@@ -62,6 +64,7 @@ export function StatsDashboard({
   onOpenTrimmable,
   onShare,
 }: StatsDashboardProps) {
+  useTranslation();
   const today = dailyFor(stats, dateKey());
   const week = sumDays(stats, 7);
   const weekRing = Math.min(1, week.mbFreed / WEEKLY_TARGET_MB);
@@ -70,12 +73,9 @@ export function StatsDashboard({
   const [chartPeriod, setChartPeriod] = useState<ChartPeriod>("week");
   const [selectedBucketKey, setSelectedBucketKey] = useState<string | undefined>(() => dateKey());
 
-  const chartData = useMemo(
-    () => buildSavingsBuckets(stats, chartPeriod),
-    [chartPeriod, stats],
-  );
+  const chartData = buildSavingsBuckets(stats, chartPeriod);
   const selectedBucket = chartData.find((item) => item.key === selectedBucketKey) ?? chartData[chartData.length - 1];
-  const chartTitle = chartPeriod === "week" ? "7-day savings" : chartPeriod === "month" ? "Monthly savings" : "Yearly savings";
+  const chartTitle = chartPeriod === "week" ? t("ui.stats-seven-day-savings") : chartPeriod === "month" ? t("ui.monthly-savings") : t("ui.yearly-savings");
   const removableMB = scan?.deleteSavingsMB ?? 0;
   const deviceStorage = scan ? buildDeviceStorageSegments(scan) : null;
   const photoStorage = scan ? buildPhotoStorageSegments(scan) : [];
@@ -89,14 +89,14 @@ export function StatsDashboard({
     [stats.actionLog],
   );
 
-  const badges = useMemo(() => buildBadges(stats), [stats]);
+  const badges = buildBadges(stats);
 
   return (
     <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
       <View style={styles.headerRow}>
         <View>
-          <Text style={type.eyebrow}>Your impact</Text>
-          <Text style={styles.title}>Stats</Text>
+          <Text style={type.eyebrow}>{t("ui.your-impact")}</Text>
+          <Text style={styles.title}>{t("ui.stats")}</Text>
         </View>
         <Pressable onPress={onShare} hitSlop={10} style={styles.iconBtn}>
           <Ionicons name="share-outline" size={18} color={colors.primary} />
@@ -106,23 +106,23 @@ export function StatsDashboard({
       {/* Weekly goal ring */}
       <Card style={styles.heroCard} tone="warm">
         <View style={styles.heroLeft}>
-          <Pill icon="trophy-outline" value={`Lv ${level.level}`} label={level.title} tone="primary" />
+          <Pill icon="trophy-outline" value={t("ui.level-short", { level: level.level })} label={level.title} tone="primary" />
           <Text style={styles.heroFreed}>{formatMB(week.mbFreed)}</Text>
-          <Text style={styles.heroSub}>this week · goal {formatMB(WEEKLY_TARGET_MB)}</Text>
+          <Text style={styles.heroSub}>{t("ui.stats-this-week-goal", { value: formatMB(WEEKLY_TARGET_MB) })}</Text>
           <View style={styles.pillRow}>
-            <Pill icon="flame" value={String(streak)} label="streak" tone="honey" />
-            <Pill icon="aperture-outline" value={String(stats.reviewed)} label="reviewed" tone="sage" />
+            <Pill icon="flame" value={String(streak)} label={t("ui.streak")} tone="honey" />
+            <Pill icon="aperture-outline" value={String(stats.reviewed)} label={t("ui.reviewed")} tone="sage" />
           </View>
         </View>
         <ProgressRing progress={weekRing} size={130} thickness={12}>
           <Text style={styles.ringNum}>{Math.round(weekRing * 100)}%</Text>
-          <Text style={styles.ringHint}>WEEKLY</Text>
+          <Text style={styles.ringHint}>{t("ui.weekly")}</Text>
         </ProgressRing>
       </Card>
 
       <SectionHeader
-        title="Quick scan"
-        action={scanComplete ? <Text style={styles.action}>Latest hunch</Text> : undefined}
+        title={t("ui.quick-scan")}
+        action={scanComplete ? <Text style={styles.action}>{t("ui.latest-hunch")}</Text> : undefined}
       />
       <Card style={styles.scanCard}>
         <View style={styles.scanHeader}>
@@ -135,14 +135,14 @@ export function StatsDashboard({
           </View>
           <View style={styles.scanCopy}>
             <Text style={styles.scanTitle}>
-              {scanBusy ? "Scanning library" : scan ? "Storage hunch" : "Run a quick scan"}
+              {scanBusy ? t("ui.scanning-library") : scan ? t("ui.storage-hunch") : t("ui.run-a-quick-scan")}
             </Text>
             <Text style={styles.scanHint}>
               {scanBusy
-                ? scanInProgressText ?? "Checking photos..."
+                ? scanInProgressText ?? t("ui.checking-photos")
                 : scan
-                  ? `Last checked ${new Date(scan.scannedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
-                  : "Estimate library size, trim potential, screenshots, blurs, and verified similar groups."}
+                  ? t("ui.stats-last-checked", { date: new Date(scan.scannedAt).toLocaleDateString(i18n.language, { month: "short", day: "numeric" }) })
+                  : t("ui.estimate-library-size-trim-potential-screenshots")}
             </Text>
           </View>
           <Pressable
@@ -150,65 +150,64 @@ export function StatsDashboard({
             disabled={scanBusy}
             style={[styles.scanButton, scanBusy && styles.scanButtonDisabled]}
           >
-            <Text style={styles.scanButtonText}>{scanBusy ? "Scanning" : "Quick scan"}</Text>
+            <Text style={styles.scanButtonText}>{scanBusy ? t("ui.stats-scanning") : t("ui.quick-scan")}</Text>
           </Pressable>
         </View>
         {scan ? (
           <>
             <View style={styles.scanMetricGrid}>
-              <ScanMetric label="Photos" value={formatCount(scan.assetCount)} />
-              <ScanMetric label="Photo size" value={formatMB(scan.totalSizeMB)} />
-              <ScanMetric label="Trimmable" value={formatMB(scan.trimSavingsMB)} accent={colors.sage} onPress={onOpenTrimmable} />
-              <ScanMetric label="Removable" value={formatMB(removableMB)} accent={colors.danger} />
+              <ScanMetric label={t("ui.photos")} value={formatCount(scan.assetCount)} />
+              <ScanMetric label={t("ui.photo-size")} value={formatMB(scan.totalSizeMB)} />
+              <ScanMetric label={t("ui.trimmable")} value={formatMB(scan.trimSavingsMB)} accent={colors.sage} onPress={onOpenTrimmable} />
+              <ScanMetric label={t("ui.removable")} value={formatMB(removableMB)} accent={colors.danger} />
             </View>
             <View style={styles.storageOverview}>
               {deviceStorage ? (
                 <StorageBreakdownBar
-                  title="Device storage"
-                  totalLabel={`${formatMB(deviceStorage.capacityMB)} total`}
+                  title={t("ui.device-storage")}
+                  totalLabel={t("ui.stats-total-value", { value: formatMB(deviceStorage.capacityMB) })}
                   segments={deviceStorage.segments}
                   formatValue={formatMB}
                 />
               ) : null}
               <StorageBreakdownBar
-                title="Photo library by type"
-                totalLabel={`${formatMB(scan.totalSizeMB)} total`}
+                title={t("ui.photo-library-by-type")}
+                totalLabel={t("ui.stats-total-value", { value: formatMB(scan.totalSizeMB) })}
                 segments={photoStorage}
                 formatValue={formatMB}
               />
               <Text style={styles.storageNote}>
-                Photo storage is estimated from the scanned library because iOS exposes device
-                capacity and free space, not an exact Photos category.{"\n"}
+                {t("ui.stats-storage-note")}{"\n"}
                 {scan.similarityAnalysis === "vision"
-                  ? "Similar includes only on-device Vision matches after keeping one photo per group."
-                  : "Similar-photo savings are omitted because on-device visual verification was unavailable."}
+                  ? t("ui.similar-includes-only-on-device-vision-matches-a")
+                  : t("ui.similar-photo-savings-are-omitted-because-on-dev")}
               </Text>
             </View>
             <View style={styles.scanBreakdown}>
               <ScanBreakdownRow
                 icon="phone-portrait-outline"
-                label="Screenshots"
+                label={t("ui.screenshots")}
                 count={scan.screenshotCount}
                 value={scan.screenshotSavingsMB}
                 color={colors.primary}
               />
               <ScanBreakdownRow
                 icon="warning-outline"
-                label="Possible mistakes"
+                label={t("ui.possible-mistakes")}
                 count={scan.mistakeCount}
                 value={scan.mistakeDeleteSavingsMB}
                 color={colors.honey}
               />
               <ScanBreakdownRow
                 icon="copy-outline"
-                label={scan.similarityAnalysis === "vision" ? "Similar (verified)" : "Similar (not analyzed)"}
+                label={scan.similarityAnalysis === "vision" ? t("ui.similar-verified") : t("ui.similar-not-analyzed")}
                 count={scan.duplicateRemovalCount}
                 value={scan.duplicateDeleteSavingsMB}
                 color={colors.info}
               />
               <ScanBreakdownRow
                 icon="sparkles-outline"
-                label="Burst extras"
+                label={t("ui.burst-extras")}
                 count={scan.burstCount}
                 value={scan.burstDeleteSavingsMB}
                 color={colors.sage}
@@ -219,13 +218,13 @@ export function StatsDashboard({
       </Card>
 
       {/* Savings chart */}
-      <SectionHeader title={chartTitle} action={<Text style={styles.action}>Trim + Delete</Text>} />
+      <SectionHeader title={chartTitle} action={<Text style={styles.action}>{t("ui.trim-delete")}</Text>} />
       <Card>
         <View style={styles.chartTabs}>
           {([
-            ["week", "Week"],
-            ["month", "Month"],
-            ["year", "Year"],
+            ["week", t("ui.stats-week")],
+            ["month", t("ui.stats-month")],
+            ["year", t("ui.stats-year")],
           ] as const).map(([period, label]) => {
             const active = chartPeriod === period;
             return (
@@ -249,48 +248,48 @@ export function StatsDashboard({
           onSelect={(bucket) => setSelectedBucketKey(bucket.key)}
         />
         <View style={styles.legend}>
-          <LegendDot color={colors.sage} label="Trim" />
-          <LegendDot color={colors.danger} label="Delete" />
+          <LegendDot color={colors.sage} label={t("ui.trim")} />
+          <LegendDot color={colors.danger} label={t("ui.delete")} />
         </View>
         {selectedBucket ? (
           <View style={styles.dayBreakdown}>
             <Text style={styles.dayBreakdownTitle}>{selectedBucket.dayLabel}</Text>
-            <BreakdownPill color={colors.sage} label="Trim" value={formatMB(selectedBucket.sub ?? 0)} />
-            <BreakdownPill color={colors.danger} label="Delete" value={formatMB(selectedBucket.deleteMbFreed)} />
-            <BreakdownPill color={colors.textSubtle} label="Total" value={formatMB(selectedBucket.value)} />
+            <BreakdownPill color={colors.sage} label={t("ui.trim")} value={formatMB(selectedBucket.sub ?? 0)} />
+            <BreakdownPill color={colors.danger} label={t("ui.delete")} value={formatMB(selectedBucket.deleteMbFreed)} />
+            <BreakdownPill color={colors.textSubtle} label={t("ui.total")} value={formatMB(selectedBucket.value)} />
           </View>
         ) : null}
       </Card>
 
       {/* Trim vs Delete donut */}
-      <SectionHeader title="Trim vs Delete" />
+      <SectionHeader title={t("ui.trim-vs-delete")} />
       <Card style={styles.donutRow}>
         <DonutSplit trim={stats.trimMbFreed} del={stats.deleteMbFreed} size={120} thickness={14} />
         <View style={{ flex: 1, gap: spacing.sm }}>
-          <SplitRow color={colors.sage} label="Trim" value={formatMB(stats.trimMbFreed)} count={stats.trimmed} total={stats.trimMbFreed + stats.deleteMbFreed} rawValue={stats.trimMbFreed} />
-          <SplitRow color={colors.danger} label="Delete" value={formatMB(stats.deleteMbFreed)} count={stats.deleted} total={stats.trimMbFreed + stats.deleteMbFreed} rawValue={stats.deleteMbFreed} />
-          <SplitRow color={colors.textSubtle} label="Total" value={formatMB(stats.trimMbFreed + stats.deleteMbFreed)} count={stats.trimmed + stats.deleted} />
+          <SplitRow color={colors.sage} label={t("ui.trim")} value={formatMB(stats.trimMbFreed)} count={stats.trimmed} total={stats.trimMbFreed + stats.deleteMbFreed} rawValue={stats.trimMbFreed} />
+          <SplitRow color={colors.danger} label={t("ui.delete")} value={formatMB(stats.deleteMbFreed)} count={stats.deleted} total={stats.trimMbFreed + stats.deleteMbFreed} rawValue={stats.deleteMbFreed} />
+          <SplitRow color={colors.textSubtle} label={t("ui.total")} value={formatMB(stats.trimMbFreed + stats.deleteMbFreed)} count={stats.trimmed + stats.deleted} />
         </View>
       </Card>
 
       {/* Today snapshot row */}
-      <SectionHeader title="Today" />
+      <SectionHeader title={t("ui.today")} />
       <View style={styles.smallGrid}>
-        <SmallStat icon="checkmark-circle-outline" tint={colors.sage} value={today.kept} label="Kept" />
-        <SmallStat icon="cut-outline" tint={colors.honey} value={today.trimmed} label="Trimmed" />
-        <SmallStat icon="trash-outline" tint={colors.danger} value={today.deleted} label="Deleted" />
+        <SmallStat icon="checkmark-circle-outline" tint={colors.sage} value={today.kept} label={t("ui.kept")} />
+        <SmallStat icon="cut-outline" tint={colors.honey} value={today.trimmed} label={t("ui.trimmed")} />
+        <SmallStat icon="trash-outline" tint={colors.danger} value={today.deleted} label={t("ui.deleted")} />
       </View>
 
       {/* Top space hogs */}
       <SectionHeader
-        title="Top space hogs"
-        action={topHogs.length > 0 ? <Text style={styles.action}>{topHogs.length} of last 60</Text> : undefined}
+        title={t("ui.top-space-hogs")}
+        action={topHogs.length > 0 ? <Text style={styles.action}>{t("ui.stats-last-count", { count: topHogs.length })}</Text> : undefined}
       />
       {topHogs.length === 0 ? (
         <Card style={styles.empty}>
           <Ionicons name="leaf-outline" size={22} color={colors.sage} />
-          <Text style={styles.emptyTitle}>Nothing reclaimed yet</Text>
-          <Text style={styles.emptyHint}>Start a round to see your biggest wins here.</Text>
+          <Text style={styles.emptyTitle}>{t("ui.nothing-reclaimed-yet")}</Text>
+          <Text style={styles.emptyHint}>{t("ui.start-a-round-to-see-your-biggest-wins-here")}</Text>
         </Card>
       ) : (
         <Card padded={false} style={{ overflow: "hidden" }}>
@@ -301,7 +300,7 @@ export function StatsDashboard({
       )}
 
       {/* Badges */}
-      <SectionHeader title="Badges" action={<Text style={styles.action}>{badges.filter((b) => b.unlocked).length}/{badges.length}</Text>} />
+      <SectionHeader title={t("ui.badges")} action={<Text style={styles.action}>{badges.filter((b) => b.unlocked).length}/{badges.length}</Text>} />
       <View style={styles.badgeGrid}>
         {badges.map((b) => (
           <BadgeCard key={b.title} {...b} />
@@ -359,7 +358,7 @@ function ScanMetric({ label, value, accent = colors.text, onPress }: { label: st
     <>
       <Text style={styles.scanMetricLabel}>{label}</Text>
       <Text style={[styles.scanMetricValue, { color: accent }]} numberOfLines={1}>{value}</Text>
-      {onPress ? <Text style={styles.scanMetricAction}>Review photos</Text> : null}
+      {onPress ? <Text style={styles.scanMetricAction}>{t("ui.review-photos")}</Text> : null}
     </>
   );
   return onPress ? (
@@ -409,9 +408,9 @@ function buildDeviceStorageSegments(scan: NativeLibraryScan): {
   return {
     capacityMB,
     segments: [
-      { key: "photos", label: "Photos est.", valueMB: photosMB, color: colors.honey },
-      { key: "other-used", label: "Other used", valueMB: otherUsedMB, color: colors.primaryBright },
-      { key: "available", label: "Available", valueMB: availableMB, color: colors.cardSoft },
+      { key: "photos", label: t("ui.photos-est"), valueMB: photosMB, color: colors.honey },
+      { key: "other-used", label: t("ui.other-used"), valueMB: otherUsedMB, color: colors.primaryBright },
+      { key: "available", label: t("ui.stats-available"), valueMB: availableMB, color: colors.cardSoft },
     ],
   };
 }
@@ -420,20 +419,20 @@ function buildPhotoStorageSegments(scan: NativeLibraryScan): StorageBreakdownSeg
   return [
     {
       key: "screenshots",
-      label: "Screenshots",
+      label: t("ui.stats-screenshots"),
       valueMB: scan.storageByType.screenshotsMB,
       color: colors.primaryBright,
     },
-    { key: "live", label: "Live Photos", valueMB: scan.storageByType.livePhotosMB, color: colors.sage },
+    { key: "live", label: t("ui.live-photos"), valueMB: scan.storageByType.livePhotosMB, color: colors.sage },
     {
       key: "similar",
-      label: scan.similarityAnalysis === "vision" ? "Similar verified" : "Similar unavailable",
+      label: scan.similarityAnalysis === "vision" ? t("ui.similar-verified") : t("ui.similar-unavailable"),
       valueMB: scan.storageByType.similarPhotosMB,
       color: colors.honey,
     },
     {
       key: "other",
-      label: "Other photos",
+      label: t("ui.other-photos"),
       valueMB: scan.storageByType.otherPhotosMB,
       color: colors.textSubtle,
     },
@@ -461,7 +460,7 @@ function SplitRow({
       <View style={[styles.dotBlock, { backgroundColor: color }]} />
       <Text style={styles.splitLabel} numberOfLines={1}>{label}</Text>
       <Text style={styles.splitValue}>{value}{pct}</Text>
-      <Text style={styles.splitCount}>· {count}</Text>
+      <Text style={styles.splitCount}>{t("ui.split-count", { count })}</Text>
     </View>
   );
 }
@@ -613,8 +612,8 @@ function buildSavingsBuckets(stats: NativeStats, period: ChartPeriod): SavingsBu
       const day = dailyFor(stats, key);
       return bucketFromStats(
         key,
-        d.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 1),
-        d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }),
+        d.toLocaleDateString(i18n.language, { weekday: "short" }).slice(0, 1),
+        d.toLocaleDateString(i18n.language, { weekday: "short", month: "short", day: "numeric" }),
         day,
       );
     });
@@ -633,10 +632,10 @@ function buildSavingsBuckets(stats: NativeStats, period: ChartPeriod): SavingsBu
       for (let day = startDay; day <= endDay; day += 1) {
         sum = addDailyStats(sum, dailyFor(stats, dateKey(new Date(year, month, day))));
       }
-      const monthLabel = new Date(year, month, startDay).toLocaleDateString(undefined, { month: "short" });
+      const monthLabel = new Date(year, month, startDay).toLocaleDateString(i18n.language, { month: "short" });
       return bucketFromStats(
         `${year}-${String(month + 1).padStart(2, "0")}-w${index + 1}`,
-        `W${index + 1}`,
+        t("ui.week-number", { count: index + 1 }),
         `${monthLabel} ${startDay}-${endDay}`,
         sum,
       );
@@ -653,8 +652,8 @@ function buildSavingsBuckets(stats: NativeStats, period: ChartPeriod): SavingsBu
     const date = new Date(year, month, 1);
     return bucketFromStats(
       `${year}-${String(month + 1).padStart(2, "0")}`,
-      date.toLocaleDateString(undefined, { month: "short" }).slice(0, 1),
-      date.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
+      date.toLocaleDateString(i18n.language, { month: "short" }).slice(0, 1),
+      date.toLocaleDateString(i18n.language, { month: "long", year: "numeric" }),
       sum,
     );
   });
@@ -671,13 +670,15 @@ function currentStreak(stats: NativeStats): number {
 function levelInfo(stats: NativeStats) {
   const points = stats.reviewed + stats.mbFreed / 25 + stats.trimmed * 0.6 + stats.deleted * 0.8;
   const level = Math.max(1, Math.floor(points / 25) + 1);
-  const titles = ["Fresh Start", "Space Saver", "Camera Roll Pro", "Storage Guardian"];
+  const titles = [t("ui.fresh-start"), t("ui.space-saver"), t("ui.camera-roll-pro"), t("ui.storage-guardian")];
   const title = titles[Math.min(titles.length - 1, Math.floor((level - 1) / 3))];
   return { level, title };
 }
 function formatMB(v: number) {
-  if (!Number.isFinite(v) || v <= 0) return "0 MB";
-  return v >= 1024 ? `${(v / 1024).toFixed(2)} GB` : `${v.toFixed(1)} MB`;
+  if (!Number.isFinite(v) || v <= 0) return t("ui.0-mb");
+  return v >= 1024
+    ? t("ui.storage-gb", { value: (v / 1024).toFixed(2) })
+    : t("ui.storage-mb", { value: v.toFixed(1) });
 }
 function formatCount(value: number) {
   if (!Number.isFinite(value)) return "0";
@@ -691,92 +692,92 @@ function buildBadges(stats: NativeStats) {
   const cleanups = stats.trimmed + stats.deleted;
   return [
     {
-      title: "First trim",
-      hint: "Trim your very first photo",
+      title: t("ui.first-trim"),
+      hint: t("ui.trim-your-very-first-photo"),
       icon: "cut-outline" as const,
       progress: stats.trimmed >= 1 ? 1 : 0,
       unlocked: stats.trimmed >= 1,
     },
     {
-      title: "100 trimmed",
-      hint: `${Math.min(stats.trimmed, 100)}/100 trims`,
+      title: t("ui.stats-badge-trimmed"),
+      hint: t("ui.stats-badge-trimmed-hint", { count: Math.min(stats.trimmed, 100) }),
       icon: "albums-outline" as const,
       progress: Math.min(1, stats.trimmed / 100),
       unlocked: stats.trimmed >= 100,
     },
     {
-      title: "30 reviewed",
-      hint: `${Math.min(stats.reviewed, 30)}/30 photos`,
+      title: t("ui.stats-badge-reviewed-30"),
+      hint: t("ui.stats-badge-reviewed-hint", { count: Math.min(stats.reviewed, 30), target: 30 }),
       icon: "images-outline" as const,
       progress: Math.min(1, stats.reviewed / 30),
       unlocked: stats.reviewed >= 30,
     },
     {
-      title: "100 reviewed",
-      hint: `${Math.min(stats.reviewed, 100)}/100 photos`,
+      title: t("ui.stats-badge-reviewed-100"),
+      hint: t("ui.stats-badge-reviewed-hint", { count: Math.min(stats.reviewed, 100), target: 100 }),
       icon: "albums-outline" as const,
       progress: Math.min(1, stats.reviewed / 100),
       unlocked: stats.reviewed >= 100,
     },
     {
-      title: "Consistency 3",
-      hint: `${Math.min(streak, 3)}/3 active days`,
+      title: t("ui.consistency-3"),
+      hint: t("ui.badge-active-days", { count: Math.min(streak, 3), target: 3 }),
       icon: "calendar-outline" as const,
       progress: Math.min(1, streak / 3),
       unlocked: streak >= 3,
     },
     {
-      title: "1 GB freed",
-      hint: `${formatMB(stats.mbFreed)} of 1 GB`,
+      title: t("ui.1-gb-freed"),
+      hint: t("ui.badge-freed-of", { value: formatMB(stats.mbFreed), target: t("ui.storage-gb", { value: "1" }) }),
       icon: "rocket-outline" as const,
       progress: Math.min(1, stats.mbFreed / 1024),
       unlocked: stats.mbFreed >= 1024,
     },
     {
-      title: "250 MB freed",
-      hint: `${formatMB(stats.mbFreed)} of 250 MB`,
+      title: t("ui.250-mb-freed"),
+      hint: t("ui.badge-freed-of", { value: formatMB(stats.mbFreed), target: t("ui.storage-mb", { value: "250" }) }),
       icon: "sparkles-outline" as const,
       progress: Math.min(1, stats.mbFreed / 250),
       unlocked: stats.mbFreed >= 250,
     },
     {
-      title: "7-day streak",
-      hint: `${streak}/7 days`,
+      title: t("ui.stats-badge-streak"),
+      hint: t("ui.stats-badge-days", { count: streak }),
       icon: "flame-outline" as const,
       progress: Math.min(1, streak / 7),
       unlocked: streak >= 7,
     },
     {
-      title: "Daily 10",
-      hint: `${Math.min(today.reviewed, 10)}/10 today`,
+      title: t("ui.daily-10"),
+      hint: t("ui.stats-badge-today", { count: Math.min(today.reviewed, 10), target: 10 }),
       icon: "sunny-outline" as const,
       progress: Math.min(1, today.reviewed / 10),
       unlocked: today.reviewed >= 10,
     },
     {
-      title: "Daily 25",
-      hint: `${Math.min(today.reviewed, 25)}/25 today`,
+      title: t("ui.daily-25"),
+      hint: t("ui.stats-badge-today", { count: Math.min(today.reviewed, 25), target: 25 }),
       icon: "sunny" as const,
       progress: Math.min(1, today.reviewed / 25),
       unlocked: today.reviewed >= 25,
     },
     {
-      title: "Cleanup 50",
-      hint: `${Math.min(cleanups, 50)}/50 trims or deletes`,
+      title: t("ui.cleanup-50"),
+      hint: t("ui.stats-badge-cleanup", { count: Math.min(cleanups, 50) }),
       icon: "checkmark-done-outline" as const,
       progress: Math.min(1, cleanups / 50),
       unlocked: cleanups >= 50,
     },
     {
-      title: "Weekly saver",
-      hint: `${formatMB(week.mbFreed)} of ${formatMB(WEEKLY_TARGET_MB)}`,
+      title: t("ui.weekly-saver"),
+      hint: t("ui.badge-freed-of", { value: formatMB(week.mbFreed), target: formatMB(WEEKLY_TARGET_MB) }),
       icon: "trophy-outline" as const,
       progress: Math.min(1, week.mbFreed / WEEKLY_TARGET_MB),
       unlocked: week.mbFreed >= WEEKLY_TARGET_MB,
     },
     {
-      title: "Weekly rhythm",
-      hint: `${Math.min(week.reviewed, 50)}/50 this week`,
+      title: t("ui.weekly-rhythm"),
+      hint: t("ui.stats-badge-week", { count: Math.min(week.reviewed, 50), target: 50 }),
       icon: "pulse-outline" as const,
       progress: Math.min(1, week.reviewed / 50),
       unlocked: week.reviewed >= 50,

@@ -1,12 +1,13 @@
+import { t } from "../lib/i18n";
 import { useEffect, useRef, useState } from "react";
 import {
   Animated,
-  Dimensions,
   Easing,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -25,7 +26,9 @@ const SLIDES = 3;
 export function OnboardingCarousel({ appVersion, onDone }: OnboardingCarouselProps) {
   const [index, setIndex] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
-  const width = Dimensions.get("window").width;
+  const { width, height } = useWindowDimensions();
+  const [pagerHeight, setPagerHeight] = useState(0);
+  const compact = width <= 390 || height <= 844;
 
   const goTo = (next: number) => {
     const clamped = Math.max(0, Math.min(SLIDES - 1, next));
@@ -45,11 +48,11 @@ export function OnboardingCarousel({ appVersion, onDone }: OnboardingCarouselPro
     <View style={styles.flex}>
       <View style={styles.topBar}>
         <View>
-          <Text style={type.eyebrow}>Welcome</Text>
+          <Text style={type.eyebrow}>{t("ui.welcome")}</Text>
           <Text style={styles.version}>TrimSwipe v{appVersion}</Text>
         </View>
         <Pressable onPress={finish} hitSlop={10}>
-          <Text style={styles.skip}>Skip</Text>
+          <Text style={styles.skip}>{t("ui.skip")}</Text>
         </Pressable>
       </View>
 
@@ -59,6 +62,8 @@ export function OnboardingCarousel({ appVersion, onDone }: OnboardingCarouselPro
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         scrollEventThrottle={16}
+        contentContainerStyle={styles.pagerContent}
+        onLayout={(event) => setPagerHeight(event.nativeEvent.layout.height)}
         onMomentumScrollEnd={(e) => {
           const i = Math.round(e.nativeEvent.contentOffset.x / width);
           if (i !== index) {
@@ -68,9 +73,9 @@ export function OnboardingCarousel({ appVersion, onDone }: OnboardingCarouselPro
         }}
         style={styles.flex}
       >
-        <SlideLoad width={width} />
-        <SlidePick width={width} />
-        <SlideProfit width={width} />
+        <SlideLoad width={width} height={pagerHeight} compact={compact} />
+        <SlidePick width={width} height={pagerHeight} compact={compact} />
+        <SlideProfit width={width} height={pagerHeight} compact={compact} />
       </ScrollView>
 
       <View style={styles.bottomBar}>
@@ -86,12 +91,12 @@ export function OnboardingCarousel({ appVersion, onDone }: OnboardingCarouselPro
           </Pressable>
           {!last ? (
             <Pressable onPress={() => goTo(index + 1)} style={styles.nextBtn}>
-              <Text style={styles.nextText}>Next</Text>
+              <Text style={styles.nextText}>{t("ui.next")}</Text>
               <Ionicons name="chevron-forward" size={18} color={colors.white} />
             </Pressable>
           ) : (
             <Pressable onPress={finish} style={styles.nextBtn}>
-              <Text style={styles.nextText}>Start Trimming!</Text>
+              <Text style={styles.nextText}>{t("ui.start-trimming")}</Text>
               <Ionicons name="arrow-forward" size={18} color={colors.white} />
             </Pressable>
           )}
@@ -101,43 +106,45 @@ export function OnboardingCarousel({ appVersion, onDone }: OnboardingCarouselPro
   );
 }
 
-function SlideLoad({ width }: { width: number }) {
+function SlideLoad({ width, height, compact }: { width: number; height: number; compact: boolean }) {
   const float = useFloat();
   return (
-    <View style={[styles.slide, { width }]}>
-      <Animated.View style={[styles.heroIcon, { transform: [{ translateY: float }] }]}>
-        <Ionicons name="images-outline" size={70} color={colors.primary} />
+    <View style={[styles.slide, { width, minHeight: height }, compact && styles.slideCompact]}>
+      <Animated.View
+        style={[styles.heroIcon, compact && styles.heroIconCompact, { transform: [{ translateY: float }] }]}
+      >
+        <Ionicons name="images-outline" size={compact ? 58 : 70} color={colors.primary} />
       </Animated.View>
-      <Text style={styles.slideTitle}>Clean by swiping</Text>
-      <Text style={styles.slideBody}>
-        TrimSwipe finds photos worth reviewing, then lets you keep, trim, delete, or skip them before anything changes.
+      <Text style={[styles.slideTitle, compact && styles.slideTitleCompact]}>{t("ui.clean-by-swiping")}</Text>
+      <Text style={styles.slideBody} adjustsFontSizeToFit minimumFontScale={0.86}>
+        {t("ui.onboarding-load-body")}
       </Text>
       <View style={styles.previewCard}>
         <Ionicons name="checkmark-circle-outline" size={16} color={colors.sageDeep} />
-        <Text style={styles.previewText}>Every batch is previewed first</Text>
+        <Text style={styles.previewText}>{t("ui.every-batch-is-previewed-first")}</Text>
       </View>
     </View>
   );
 }
 
-function SlidePick({ width }: { width: number }) {
+function SlidePick({ width, height, compact }: { width: number; height: number; compact: boolean }) {
   return (
-    <View style={[styles.slide, { width }]}>
+    <View style={[styles.slide, { width, minHeight: height }, compact && styles.slideCompact]}>
       <View style={styles.gameGrid}>
-        <MiniGame icon="finger-print-outline" label="Metadata" tint={colors.primary} />
-        <MiniGame icon="location-outline" label="Location" tint={colors.info} />
-        <MiniGame icon="contract-outline" label="Compression" tint={colors.sageDeep} />
-        <MiniGame icon="resize-outline" label="Resize" tint={colors.honey} />
+        <MiniGame icon="finger-print-outline" label={t("ui.metadata")} tint={colors.primary} />
+        <MiniGame icon="location-outline" label={t("ui.location")} tint={colors.info} />
+        <MiniGame icon="contract-outline" label={t("ui.compression")} tint={colors.sageDeep} />
+        <MiniGame icon="resize-outline" label={t("ui.resize")} tint={colors.honey} />
       </View>
-      <Text style={styles.slideTitle}>What trim can change</Text>
-      <Text style={styles.slideBody}>
-        Trim can strip metadata, location, and extra weight. In replace mode, the original is deleted after a smaller copy is saved.
+      <Text style={[styles.slideTitle, compact && styles.slideTitleCompact]}>{t("ui.what-trim-can-change")}</Text>
+      <Text style={styles.slideBody} adjustsFontSizeToFit minimumFontScale={0.86}>
+        {t("ui.onboarding-pick-body")}
       </Text>
     </View>
   );
 }
 
-function SlideProfit({ width }: { width: number }) {
+function SlideProfit({ width, height, compact }: { width: number; height: number; compact: boolean }) {
   const [saved, setSaved] = useState(0);
   useEffect(() => {
     const anim = new Animated.Value(0);
@@ -152,18 +159,18 @@ function SlideProfit({ width }: { width: number }) {
   }, []);
 
   return (
-    <View style={[styles.slide, { width }]}>
-      <ProgressRing progress={0.76} size={180} thickness={14}>
+    <View style={[styles.slide, { width, minHeight: height }, compact && styles.slideCompact]}>
+      <ProgressRing progress={0.76} size={compact ? 148 : 180} thickness={compact ? 12 : 14}>
         <Text style={styles.bigGB}>{(1.8 + saved * 4.2).toFixed(1)}</Text>
-        <Text style={styles.bigGBLabel}>GB saved</Text>
+        <Text style={styles.bigGBLabel}>{t("ui.gb-saved")}</Text>
       </ProgressRing>
-      <Text style={[styles.slideTitle, { marginTop: spacing.xxl }]}>Cloud backup window</Text>
-      <Text style={styles.slideBody}>
-        Deleted originals and replaced photos can usually be recovered from Recently Deleted or cloud backup for up to 39 days.
+      <Text style={[styles.slideTitle, compact && styles.slideTitleCompact, { marginTop: compact ? spacing.lg : spacing.xxl }]}>{t("ui.cloud-backup-window")}</Text>
+      <Text style={styles.slideBody} adjustsFontSizeToFit minimumFontScale={0.86}>
+        {t("ui.onboarding-profit-body")}
       </Text>
       <View style={styles.previewCard}>
         <Ionicons name="cloud-done-outline" size={16} color={colors.sageDeep} />
-        <Text style={styles.previewText}>Let cloud backup finish before clearing Recently Deleted</Text>
+        <Text style={styles.previewText}>{t("ui.let-cloud-backup-finish-before-clearing-recently")}</Text>
       </View>
     </View>
   );
@@ -195,6 +202,7 @@ function useFloat() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  pagerContent: { alignItems: "stretch" },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -212,6 +220,11 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xxxl,
     gap: spacing.md,
   },
+  slideCompact: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    gap: spacing.sm,
+  },
   heroIcon: {
     width: 140,
     height: 140,
@@ -221,7 +234,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     ...shadow.card,
   },
+  heroIconCompact: {
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+  },
   slideTitle: { ...type.display, color: colors.text, textAlign: "center", marginTop: spacing.lg },
+  slideTitleCompact: { fontSize: 26, lineHeight: 32, marginTop: spacing.md },
   slideBody: { ...type.body, color: colors.textMuted, textAlign: "center", paddingHorizontal: spacing.md },
   previewCard: {
     marginTop: spacing.md,
@@ -241,7 +260,9 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   miniGame: {
-    width: "47%",
+    flexGrow: 1,
+    flexBasis: 0,
+    minWidth: "45%",
     alignItems: "center",
     gap: spacing.sm,
     borderRadius: radius.lg,

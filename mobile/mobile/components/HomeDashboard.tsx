@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { t } from "../lib/i18n";
+import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Animated,
   Easing,
@@ -86,13 +88,14 @@ const CAT_DEFS: Array<{
 }> = [
   { key: "large", label: (s) => `>${formatThresholdMB(s.minSizeMB)}`, icon: "albums-outline", match: (p, s) => p.sizeMB >= s.minSizeMB },
   { key: "old", label: (s) => `>${formatAgeThreshold(s.minAgeYears)}`, icon: "time-outline", match: (p, s) => ageYears(p.creationTime) >= s.minAgeYears },
-  { key: "screenshots", label: () => "Screens", icon: "phone-portrait-outline", match: (p) => p.cleanupReasons.includes("Screenshot") || p.title.toLowerCase().includes("screen") },
-  { key: "live", label: () => "Live", icon: "radio-button-on-outline", match: (p) => p.cleanupReasons.includes("Live Photo") },
-  { key: "duplicates", label: () => "Similar Photos", icon: "copy-outline", match: (p) => p.cleanupReasons.includes("Similar") },
-  { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (p) => p.cleanupReasons.includes("Burst") },
+  { key: "screenshots", label: () => t("ui.home-screens"), icon: "phone-portrait-outline", match: (p) => p.cleanupReasons.includes("Screenshot") || p.title.toLowerCase().includes("screen") },
+  { key: "live", label: () => t("ui.home-live"), icon: "radio-button-on-outline", match: (p) => p.cleanupReasons.includes(t("ui.live-photo")) },
+  { key: "duplicates", label: () => t("ui.similar-photos"), icon: "copy-outline", match: (p) => p.cleanupReasons.includes("Similar") },
+  { key: "bursts", label: () => t("ui.home-bursts"), icon: "sparkles-outline", match: (p) => p.cleanupReasons.includes("Burst") },
 ];
 
 export function HomeDashboard(props: HomeDashboardProps) {
+  useTranslation();
   const {
     stats,
     today,
@@ -132,23 +135,19 @@ export function HomeDashboard(props: HomeDashboardProps) {
     ).start();
   }, [float]);
   const floatY = float.interpolate({ inputRange: [0, 1], outputRange: [0, -4] });
-  const categories: Category[] = useMemo(
-    () =>
-      CAT_DEFS.map((def) => {
-        const matched = queue.filter((photo) => def.match(photo, stats.settings));
-        const sumMB = matched.reduce((s, p) => s + p.sizeMB, 0);
-        const scanEstimate = scan ? estimateCategoryFromScan(scan, def.key) : null;
-        return {
-          key: def.key,
-          label: def.label(stats.settings),
-          icon: def.icon,
-          count: matched.length || scanEstimate?.count || estimateCountFor(stats, def.key),
-          estMB: sumMB || scanEstimate?.mb || estimateMBFor(stats, def.key),
-          thumb: matched[0]?.uri,
-        };
-      }),
-    [queue, scan, stats],
-  );
+  const categories: Category[] = CAT_DEFS.map((def) => {
+    const matched = queue.filter((photo) => def.match(photo, stats.settings));
+    const sumMB = matched.reduce((s, p) => s + p.sizeMB, 0);
+    const scanEstimate = scan ? estimateCategoryFromScan(scan, def.key) : null;
+    return {
+      key: def.key,
+      label: def.label(stats.settings),
+      icon: def.icon,
+      count: matched.length || scanEstimate?.count || estimateCountFor(stats, def.key),
+      estMB: sumMB || scanEstimate?.mb || estimateMBFor(stats, def.key),
+      thumb: matched[0]?.uri,
+    };
+  });
   const recommended =
     categories
       .filter((category) => category.count > 0)
@@ -165,10 +164,10 @@ export function HomeDashboard(props: HomeDashboardProps) {
   const dailyGoalProgress = Math.min(1, today.mbFreed / dailyGoalMB);
   const dailyGoalComplete = dailyGoalProgress >= 1;
   const scanHint = scanBusy
-    ? props.scanInProgressText ?? "Scanning..."
+    ? props.scanInProgressText ?? t("ui.home-scanning")
     : scanComplete
-      ? "Scanning completed"
-      : "Find savings";
+      ? t("ui.scanning-completed")
+      : t("ui.find-savings");
   const scanBg = scanComplete ? colors.sageSoft : "#e3ebf0";
   const scanAccent = scanComplete ? colors.sageDeep : tiles.scan.accent;
   const healthScore = libraryHealthScore(stats, scan, today);
@@ -190,13 +189,13 @@ export function HomeDashboard(props: HomeDashboardProps) {
         {/* Header */}
         <View style={styles.headerRow}>
           <View>
-            <Text style={styles.eyebrow}>Trimswipe</Text>
-            <Text style={styles.headerTitle}>Hey 👋</Text>
+            <Text style={styles.eyebrow}>{t("ui.trimswipe")}</Text>
+            <Text style={styles.headerTitle}>{t("ui.hey")}</Text>
           </View>
           <View style={styles.headerActions}>
             <Pressable onPress={onOpenShop} hitSlop={10} style={styles.tokenChip}>
               <Ionicons name="flash" size={14} color={colors.honey} />
-              <Text style={styles.tokenChipValue}>{hasUnlimitedTrims ? "∞" : tokens}</Text>
+              <Text style={styles.tokenChipValue}>{hasUnlimitedTrims ? String.fromCharCode(8734) : tokens}</Text>
             </Pressable>
             <Pressable onPress={() => setDetailsOpen(true)} hitSlop={10} style={styles.shareBtn}>
               <Ionicons name="search-outline" size={18} color={colors.primary} />
@@ -209,22 +208,22 @@ export function HomeDashboard(props: HomeDashboardProps) {
 
         {/* Today snapshot */}
         <SectionHeader
-          title="Today"
+          title={t("ui.today")}
           action={
-            <Text style={styles.sectionAction}>{formatMB(today.mbFreed)} freed</Text>
+            <Text style={styles.sectionAction}>{t("ui.home-freed", { value: formatMB(today.mbFreed) })}</Text>
           }
         />
         <View style={styles.todayCard}>
           <View style={styles.todayStatsRow}>
-            <TodayStat icon="checkmark-circle-outline" tint={colors.sage} value={today.kept} label="Kept" />
+            <TodayStat icon="checkmark-circle-outline" tint={colors.sage} value={today.kept} label={t("ui.kept")} />
             <View style={styles.todayDivider} />
-            <TodayStat icon="cut-outline" tint={colors.honey} value={today.trimmed} label="Trimmed" />
+            <TodayStat icon="cut-outline" tint={colors.honey} value={today.trimmed} label={t("ui.trimmed")} />
             <View style={styles.todayDivider} />
-            <TodayStat icon="trash-outline" tint={colors.danger} value={today.deleted} label="Deleted" />
+            <TodayStat icon="trash-outline" tint={colors.danger} value={today.deleted} label={t("ui.deleted")} />
           </View>
           <View style={styles.embeddedGoal}>
             <View style={styles.embeddedGoalTop}>
-              <Text style={styles.embeddedGoalTitle}>Daily goal</Text>
+              <Text style={styles.embeddedGoalTitle}>{t("ui.daily-goal")}</Text>
               <Text style={styles.embeddedGoalValue}>{formatMB(today.mbFreed)} / {dailyGoalMB} MB</Text>
             </View>
             <View style={styles.goalTrack}>
@@ -239,7 +238,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
               />
             </View>
             <Text style={styles.goalHint}>
-              {dailyGoalComplete ? "Goal complete" : `${formatMB(Math.max(0, dailyGoalMB - today.mbFreed))} left today`}
+              {dailyGoalComplete ? t("ui.goal-complete") : t("ui.home-left-today", { value: formatMB(Math.max(0, dailyGoalMB - today.mbFreed)) })}
             </Text>
           </View>
         </View>
@@ -250,8 +249,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
               <Ionicons name="play-circle" size={22} color={colors.sage} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.adBannerTitle}>Watch a short ad</Text>
-              <Text style={styles.adBannerSub}>Earn +5 tokens</Text>
+              <Text style={styles.adBannerTitle}>{t("ui.watch-a-short-ad")}</Text>
+              <Text style={styles.adBannerSub}>{t("ui.earn-5-tokens")}</Text>
             </View>
             <Ionicons
               name={adBusy ? "hourglass-outline" : "add-circle"}
@@ -261,7 +260,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
           </Pressable>
         ) : null}
 
-        <SectionHeader title="Recommended cleanup" />
+        <SectionHeader title={t("ui.recommended-cleanup")} />
         <Pressable
           onPress={() => recommended && onPickCategory(recommended.key)}
           style={styles.recommendedCard}
@@ -270,23 +269,23 @@ export function HomeDashboard(props: HomeDashboardProps) {
             <Ionicons name={recommended?.icon ?? "sparkles-outline"} size={22} color={colors.white} />
           </View>
           <View style={styles.recommendedCopy}>
-            <Text style={styles.recommendedTitle}>{recommended?.label ?? "Review photos"}</Text>
+            <Text style={styles.recommendedTitle}>{recommended?.label ?? t("ui.review-photos")}</Text>
             <Text style={styles.recommendedHint}>
-              {recommended ? `${recommended.count} photos - ~${formatMB(recommended.estMB)} possible` : "Find the next best cleanup set"}
+              {recommended ? t("ui.home-photos-possible", { count: recommended.count, value: formatMB(recommended.estMB) }) : t("ui.find-the-next-best-cleanup-set")}
             </Text>
           </View>
           <View style={styles.reviewButton}>
-            <Text style={styles.reviewButtonText}>Review now</Text>
+            <Text style={styles.reviewButtonText}>{t("ui.review-now")}</Text>
           </View>
         </Pressable>
 
         {/* Quick actions 2x2 */}
-        <SectionHeader title="Quick actions" />
+        <SectionHeader title={t("ui.quick-actions")} />
         <View style={styles.tileGrid}>
           <View style={styles.tileRow}>
             <IconTile
               icon="search-outline"
-              label="Quick scan"
+              label={t("ui.quick-scan")}
               hint={scanHint}
               bg={scanBg}
               accent={scanAccent}
@@ -297,8 +296,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
             />
             <IconTile
               icon="layers-outline"
-              label="Swipe"
-              hint={`${queue.length || "—"} in deck`}
+              label={t("ui.swipe")}
+              hint={t("ui.home-in-deck", { count: queue.length })}
               bg={tiles.swipe.bg}
               accent={tiles.swipe.accent}
               onPress={() => {
@@ -310,8 +309,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
           <View style={styles.tileRow}>
             <IconTile
               icon="bag-outline"
-              label="Deep Clean"
-              hint={isPro ? "Guided full scan" : "Pro guided scan"}
+              label={t("ui.deep-clean")}
+              hint={isPro ? t("ui.guided-full-scan") : t("ui.pro-guided-scan")}
               bg={tiles.trim.bg}
               accent={tiles.trim.accent}
               onPress={() => {
@@ -321,8 +320,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
             />
             <IconTile
               icon="game-controller-outline"
-              label="Games"
-              hint="Cleanup mini games"
+              label={t("ui.games")}
+              hint={t("ui.cleanup-mini-games")}
               bg={tiles.games.bg}
               accent={tiles.games.accent}
               onPress={() => {
@@ -333,27 +332,27 @@ export function HomeDashboard(props: HomeDashboardProps) {
           </View>
         </View>
 
-        <SectionHeader title="Storage actions" />
+        <SectionHeader title={t("ui.storage-actions")} />
         <View style={styles.storageActionRow}>
           <Pressable onPress={() => onPickCategory("screenshots")} style={[styles.storageActionCard, styles.nukeActionCard]}>
             <View style={[styles.storageActionIcon, { backgroundColor: colors.danger }]}>
               <Ionicons name="trash-outline" size={21} color={colors.white} />
             </View>
-            <Text style={styles.storageActionTitle}>Nuke</Text>
-            <Text style={styles.storageActionHint}>{oneTapCount} items - ~{formatMB(oneTapSavings)}</Text>
+            <Text style={styles.storageActionTitle}>{t("ui.nuke")}</Text>
+            <Text style={styles.storageActionHint}>{t("ui.home-items-possible", { count: oneTapCount, value: formatMB(oneTapSavings) })}</Text>
           </Pressable>
 
           <Pressable onPress={onOptimizeStorage} style={[styles.storageActionCard, styles.cloudActionCard]}>
             <View style={[styles.storageActionIcon, { backgroundColor: colors.info }]}>
               <Ionicons name="cloud-outline" size={21} color={colors.white} />
             </View>
-            <Text style={styles.storageActionTitle}>Cloud</Text>
-            <Text style={styles.storageActionHint}>Optimize storage</Text>
+            <Text style={styles.storageActionTitle}>{t("ui.cloud")}</Text>
+            <Text style={styles.storageActionHint}>{t("ui.optimize-storage")}</Text>
           </Pressable>
         </View>
 
         {/* Recent activity */}
-        <SectionHeader title="Recent activity" />
+        <SectionHeader title={t("ui.recent-activity")} />
         <RecentList entries={stats.actionLog.slice(0, 5)} onOpenRecentlyDeleted={onOpenRecentlyDeleted} />
 
         <View style={{ height: 110 }} />
@@ -362,7 +361,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
         <View style={styles.modalBackdrop}>
           <View style={styles.detailModal}>
             <View style={styles.detailModalHeader}>
-              <Text style={styles.detailModalTitle}>Library snapshot</Text>
+              <Text style={styles.detailModalTitle}>{t("ui.library-snapshot")}</Text>
               <Pressable onPress={() => setDetailsOpen(false)} hitSlop={10} style={styles.modalClose}>
                 <Ionicons name="close" size={18} color={colors.primary} />
               </Pressable>
@@ -370,16 +369,16 @@ export function HomeDashboard(props: HomeDashboardProps) {
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailModalContent}>
               <Card style={[styles.hero, styles.modalHero]} tone="warm">
                 <View style={styles.heroLeft}>
-                  <Text style={styles.heroEyebrow}>Reclaimed</Text>
+                  <Text style={styles.heroEyebrow}>{t("ui.reclaimed")}</Text>
                   <Text style={styles.heroFreed}>{freedDisplay}</Text>
-                  <Text style={styles.heroSub}>of ~{potentialDisplay} possible</Text>
+                  <Text style={styles.heroSub}>{t("ui.home-of-possible", { value: potentialDisplay })}</Text>
                   <View style={styles.pillRow}>
-                    <Pill icon="flame" value={String(streakOf(stats))} label="streak" tone="honey" />
-                    <Pill icon="checkmark-done" value={String(stats.reviewed)} label="reviewed" tone="sage" />
+                    <Pill icon="flame" value={String(streakOf(stats))} label={t("ui.streak")} tone="honey" />
+                    <Pill icon="checkmark-done" value={String(stats.reviewed)} label={t("ui.reviewed")} tone="sage" />
                   </View>
                   <View style={styles.heroBreakdown}>
-                    <BreakdownLine color={colors.sage} label="Trim" value={formatMB(stats.trimMbFreed)} />
-                    <BreakdownLine color={colors.danger} label="Delete" value={formatMB(stats.deleteMbFreed)} />
+                    <BreakdownLine color={colors.sage} label={t("ui.trim")} value={formatMB(stats.trimMbFreed)} />
+                    <BreakdownLine color={colors.danger} label={t("ui.delete")} value={formatMB(stats.deleteMbFreed)} />
                   </View>
                 </View>
                 <Animated.View style={{ transform: [{ translateY: floatY }] }}>
@@ -417,14 +416,14 @@ export function HomeDashboard(props: HomeDashboardProps) {
               <Card style={styles.healthCard}>
                 <ProgressRing progress={healthScore / 100} size={82} thickness={8}>
                   <Text style={styles.healthValue}>{healthScore}</Text>
-                  <Text style={styles.healthLabel}>score</Text>
+                  <Text style={styles.healthLabel}>{t("ui.score")}</Text>
                 </ProgressRing>
                 <View style={styles.healthCopy}>
                   <Text style={styles.goalTitle}>
-                    {healthScore >= 82 ? "Looking tidy" : "Easy wins are waiting"}
+                    {healthScore >= 82 ? t("ui.looking-tidy") : t("ui.easy-wins-are-waiting")}
                   </Text>
                   <Text style={styles.goalHint}>
-                    Projected savings: {formatMB(projectedFreed)}. Top hogs: large photos, screenshots, and uncategorized groups.
+                    {t("ui.home-projected-savings", { value: formatMB(projectedFreed) })}
                   </Text>
                 </View>
               </Card>
@@ -473,8 +472,8 @@ function RecentList({ entries, onOpenRecentlyDeleted }: { entries: NativeActionL
     return (
       <Card style={styles.emptyCard}>
         <Ionicons name="sparkles-outline" size={20} color={colors.primaryBright} />
-        <Text style={styles.emptyTitle}>No activity yet</Text>
-        <Text style={styles.emptyHint}>Tap Swipe to start your first round.</Text>
+        <Text style={styles.emptyTitle}>{t("ui.no-activity-yet")}</Text>
+        <Text style={styles.emptyHint}>{t("ui.tap-swipe-to-start-your-first-round")}</Text>
       </Card>
     );
   }
@@ -505,14 +504,14 @@ function RecentList({ entries, onOpenRecentlyDeleted }: { entries: NativeActionL
               {actionLabel(e.action)} {e.title}
             </Text>
             <Text style={styles.recentMeta}>
-              {e.mbFreed > 0 ? `${formatMB(e.mbFreed)} saved` : "kept"} ·{" "}
+              {e.mbFreed > 0 ? t("ui.home-saved", { value: formatMB(e.mbFreed) }) : t("ui.home-kept")} {t("ui.list-separator")}{" "}
               {timeAgo(e.createdAt)}
             </Text>
           </View>
           {e.action === "delete" ? (
             <View style={styles.restorePill}>
               <Ionicons name="refresh-outline" size={13} color={colors.danger} />
-              <Text style={styles.restorePillText}>Restore</Text>
+              <Text style={styles.restorePillText}>{t("ui.restore")}</Text>
             </View>
           ) : (
             <Ionicons
@@ -527,14 +526,16 @@ function RecentList({ entries, onOpenRecentlyDeleted }: { entries: NativeActionL
   );
 }
 
-// ── helpers ─────────────────────────────────────────────────────────────────
+// Helpers
 
 function formatMB(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "0 MB";
-  return value >= 1024 ? `${(value / 1024).toFixed(2)} GB` : `${value.toFixed(1)} MB`;
+  if (!Number.isFinite(value) || value <= 0) return t("ui.0-mb");
+  return value >= 1024
+    ? t("ui.storage-gb", { value: (value / 1024).toFixed(2) })
+    : t("ui.storage-mb", { value: value.toFixed(1) });
 }
 function formatThresholdMB(value: number): string {
-  return `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)}MB`;
+  return t("ui.threshold-mb", { value: Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1) });
 }
 function ageYears(createdAt: number): number {
   return (Date.now() - createdAt) / (365.25 * 24 * 3600 * 1000);
@@ -542,9 +543,9 @@ function ageYears(createdAt: number): number {
 function formatAgeThreshold(years: number): string {
   if (years < 1) {
     const months = Math.max(1, Math.round(years * 12));
-    return `${months} mo`;
+    return t("ui.age-months", { count: months });
   }
-  return `${Number.isInteger(years) ? years.toFixed(0) : years.toFixed(1)} ${years === 1 ? "year" : "yrs"}`;
+  return t("ui.age-years", { count: Number.isInteger(years) ? years.toFixed(0) : years.toFixed(1) });
 }
 function estimateCategoryFromScan(scan: NativeLibraryScan, key: NativeCleanupCategory): { count: number; mb: number } {
   const map: Record<NativeCleanupCategory, { count: number; mb: number }> = {
@@ -567,21 +568,21 @@ function libraryHealthScore(stats: NativeStats, scan: NativeLibraryScan | null, 
   return Math.round(Math.max(32, Math.min(99, 46 - scanBurden + momentum + reclaimed)));
 }
 function actionLabel(a: string) {
-  if (a === "delete") return "Deleted";
-  if (a === "trim") return "Trimmed";
-  return "Kept";
+  if (a === "delete") return t("ui.action-deleted");
+  if (a === "trim") return t("ui.action-trimmed");
+  return t("ui.action-kept");
 }
 function timeAgo(iso: string) {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "—";
-  const diff = Date.now() - t;
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  return `${d}d ago`;
+  const timestamp = Date.parse(iso);
+  if (Number.isNaN(timestamp)) return t("ui.not-available");
+  const diff = Date.now() - timestamp;
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return t("ui.time-just-now");
+  if (minutes < 60) return t("ui.time-minutes-ago", { count: minutes });
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return t("ui.time-hours-ago", { count: hours });
+  const days = Math.floor(hours / 24);
+  return t("ui.time-days-ago", { count: days });
 }
 function streakOf(stats: NativeStats): number {
   const dayMs = 24 * 3600 * 1000;

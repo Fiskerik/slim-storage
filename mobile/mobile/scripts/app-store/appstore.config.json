@@ -1,0 +1,21 @@
+{
+  "appId": "6764543618",
+  "bundleId": "com.fiskerik.trimswipe",
+  "platform": "IOS",
+  "metadataPath": "app-store-metadata.json",
+  "localeMap": {
+    "es": "es-ES",
+    "ar": "ar-SA",
+    "fr": "fr-FR",
+    "de": "de-DE",
+    "nl": "nl-NL",
+    "ta": "ta-IN"
+  },
+  "productIdMap": {
+    "monthly": "trimswipe_monthly_sub",
+    "yearly": "trimswipe_annual_sub",
+    "lifetime": "lifetime_premium_1",
+    "tokens-100": "tokens_100",
+    "tokens-500": "tokens_500"
+  }
+}

@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -53,38 +54,38 @@ export type ShopScreenProps = {
 const TOKEN_ORDER = ["tokens_50", "tokens_100", "tokens_200", "tokens_500"];
 const LEGAL_LINKS = [
   {
-    label: "Terms",
+    label: t("ui.terms-short"),
     url: process.env.EXPO_PUBLIC_TERMS_URL ?? "https://trimswipe.lovable.app/terms",
   },
   {
-    label: "Privacy",
+    label: t("ui.privacy-short"),
     url: process.env.EXPO_PUBLIC_PRIVACY_URL ?? "https://trimswipe.lovable.app/privacy",
   },
   {
-    label: "Apple EULA",
+    label: t("ui.apple-eula"),
     url: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/",
   },
 ] as const;
 const PREMIUM_PLANS = [
   {
     key: "monthly",
-    label: "Monthly",
+    label: t("ui.monthly"),
     productId: MONTHLY_PRODUCT_ID,
-    cadence: "per month",
+    cadence: t("ui.per-month"),
     tokens: 250,
   },
   {
     key: "yearly",
-    label: "Yearly",
+    label: t("ui.yearly"),
     productId: YEARLY_PRODUCT_ID,
-    cadence: "per year",
+    cadence: t("ui.per-year"),
     tokens: 500,
   },
   {
     key: "lifetime",
-    label: "Lifetime",
+    label: t("ui.lifetime"),
     productId: LIFETIME_PRODUCT_ID,
-    cadence: "one-time",
+    cadence: t("ui.one-time"),
     tokens: 0,
   },
 ] as const;
@@ -180,14 +181,14 @@ export function ShopScreen({
   const selectedIntroOffer = formatIntroductoryOffer(selectedProduct);
   const selectedPlanAction =
     selectedIntroOffer && !isPro
-      ? "Start free trial"
+      ? t("ui.start-free-trial")
       : isPro
         ? selectedPlan === "lifetime"
-          ? "Buy Lifetime Pro"
+          ? t("ui.buy-lifetime-pro")
           : selectedPlan === "yearly" && activeProductId === MONTHLY_PRODUCT_ID
-            ? "Upgrade to Yearly Pro"
-            : "Switch plan"
-        : "Unlock Pro";
+            ? t("ui.upgrade-to-yearly-pro")
+            : t("ui.switch-plan")
+        : t("ui.unlock-pro");
 
   async function handleBuyTokens(id: string) {
     if (busy) return;
@@ -197,9 +198,9 @@ export function ShopScreen({
       const res = await purchaseTokenPack(id);
       if (res.success) {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        onToast?.("Tokens added", `+${res.tokensGranted} tokens added to your balance.`, "success");
+        onToast?.(t("ui.tokens-added"), t("ui.tokens-added-to-balance", { count: res.tokensGranted }), "success");
       } else if (res.error && res.error !== "cancelled") {
-        onToast?.("Purchase failed", res.error, "error");
+        onToast?.(t("ui.purchase-failed"), res.error, "error");
       }
     } finally {
       setBusy(null);
@@ -222,16 +223,16 @@ export function ShopScreen({
         onProStatusChange?.(true, res.hasUnlimitedTrims);
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         onToast?.(
-          "Welcome to Pro",
+          t("ui.welcome-to-pro"),
           selectedPlan === "lifetime"
-            ? "Unlimited trims and an ad-free experience are unlocked forever."
-            : `${selectedPremium.label} Pro is now active. Your subscription is managed by Apple.${
-                res.tokensGranted > 0 ? ` +${res.tokensGranted} tokens added.` : ""
+            ? t("ui.unlimited-trims-and-an-ad-free-experience-are-un")
+            : `${t("ui.plan-pro-active", { plan: selectedPremium.label })}${
+                res.tokensGranted > 0 ? ` ${t("ui.tokens-added-to-balance", { count: res.tokensGranted })}` : ""
               }`,
           "success",
         );
       } else if (res.error && res.error !== "cancelled") {
-        onToast?.("Purchase failed", res.error, "error");
+        onToast?.(t("ui.purchase-failed"), res.error, "error");
       }
     } finally {
       setBusy(null);
@@ -242,7 +243,7 @@ export function ShopScreen({
     try {
       await Linking.openURL(url);
     } catch {
-      onToast?.("Could not open link", `Please try opening the ${label} link again.`, "error");
+      onToast?.(t("ui.could-not-open-link"), t("ui.try-opening-link-again", { label }), "error");
     }
   }
 
@@ -256,10 +257,10 @@ export function ShopScreen({
       setActiveProductId(access.activeProductId);
       onProStatusChange?.(access.isPro, access.hasUnlimitedTrims);
       onToast?.(
-        access.isPro ? "Restored" : "Nothing to restore",
+        access.isPro ? t("ui.purchases-restored") : t("ui.nothing-to-restore"),
         access.isPro
-          ? "Premium access restored."
-          : "No active purchases were found for this Apple ID.",
+          ? t("ui.premium-access-restored")
+          : t("ui.no-active-purchases-were-found-for-this-apple-id"),
         access.isPro ? "success" : "warning",
       );
     } finally {
@@ -280,17 +281,17 @@ export function ShopScreen({
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         if (result.tokensGranted > 0) {
           onToast?.(
-            "Code redeemed",
-            `+${result.tokensGranted} tokens added to your balance.`,
+            t("ui.code-redeemed"),
+            t("ui.tokens-added-to-balance", { count: result.tokensGranted }),
             "success",
           );
         } else if (result.isPro) {
-          onToast?.("Code redeemed", "Pro access is now unlocked.", "success");
+          onToast?.(t("ui.code-redeemed"), t("ui.pro-access-is-now-unlocked"), "success");
         } else {
-          onToast?.("Code redeemed", "Your purchase is being synced with Apple.", "success");
+          onToast?.(t("ui.code-redeemed"), t("ui.your-purchase-is-being-synced-with-apple"), "success");
         }
       } else if (result.error) {
-        onToast?.("Code not redeemed", result.error, "error");
+        onToast?.(t("ui.code-not-redeemed"), result.error, "error");
       }
     } finally {
       setBusy(null);
@@ -304,9 +305,9 @@ export function ShopScreen({
       const got = await showRewardedAd();
       if (got > 0) {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        onToast?.("Tokens added", `+${got} tokens added.`, "success");
+        onToast?.(t("ui.tokens-added"), t("ui.tokens-added-to-balance", { count: got }), "success");
       } else {
-        onToast?.("No ad available", "Try again in a moment.", "warning");
+        onToast?.(t("ui.no-ad-available"), t("ui.try-again-in-a-moment"), "warning");
       }
     } finally {
       setAdBusy(false);
@@ -321,24 +322,24 @@ export function ShopScreen({
             <Ionicons name="chevron-back" size={22} color={colors.primary} />
           </Pressable>
           <View style={{ flex: 1 }}>
-            <Text style={type.eyebrow}>Shop</Text>
-            <Text style={styles.title}>Trim Tokens</Text>
+            <Text style={type.eyebrow}>{t("ui.shop")}</Text>
+            <Text style={styles.title}>{t("ui.trim-tokens")}</Text>
           </View>
           <View style={styles.balance}>
             <Ionicons name="flash" size={16} color={colors.honey} />
-            <Text style={styles.balanceValue}>{hasUnlimitedTrims ? "∞" : tokens}</Text>
+            <Text style={styles.balanceValue}>{hasUnlimitedTrims ? String.fromCharCode(8734) : tokens}</Text>
           </View>
         </View>
 
         {isPro ? (
           <Card style={[styles.proCard]} tone="warm">
             <View style={{ flex: 1 }}>
-              <Text style={type.eyebrow}>TrimSwipe Pro</Text>
-              <Text style={styles.proTitle}>{"You're all set"}</Text>
+              <Text style={type.eyebrow}>{t("ui.trimswipe-pro")}</Text>
+              <Text style={styles.proTitle}>{t("ui.you're-all-set")}</Text>
               <Text style={styles.proSub}>
                 {hasUnlimitedTrims
-                  ? "Unlimited trims · no ads · forever"
-                  : "Subscription tokens · no ads"}
+                  ? t("ui.unlimited-trims-no-ads-forever")
+                  : t("ui.subscription-tokens-no-ads")}
               </Text>
             </View>
             <Ionicons name="diamond" size={28} color={colors.primary} />
@@ -349,7 +350,7 @@ export function ShopScreen({
           <View style={styles.lifetimeModal}>
             <View style={styles.lifetimeRibbon}>
               <Ionicons name="diamond" size={14} color={colors.white} />
-              <Text style={styles.lifetimeRibbonText}>UNLOCK PRO</Text>
+              <Text style={styles.lifetimeRibbonText}>{t("ui.unlock-pro")}</Text>
             </View>
             <View style={styles.planTabs}>
               {premiumProducts.map((plan) => {
@@ -357,9 +358,9 @@ export function ShopScreen({
                 const hasTrial = plan.product.introEligible && plan.product.introPrice?.price === 0;
                 const offerBadge =
                   plan.key === "yearly" && yearlySavingsPercent > 0
-                    ? `Save ${yearlySavingsPercent}%`
+                    ? t("ui.save-percent", { percent: yearlySavingsPercent })
                     : plan.key === "lifetime"
-                      ? "(Best offer)"
+                      ? t("ui.best-offer")
                       : null;
                 return (
                   <Pressable
@@ -375,7 +376,7 @@ export function ShopScreen({
                     </Text>
                     {hasTrial || offerBadge ? (
                       <View style={styles.planTabMetaRow}>
-                        {hasTrial ? <Text style={styles.planTabTrial}>FREE TRIAL</Text> : null}
+                        {hasTrial ? <Text style={styles.planTabTrial}>{t("ui.free-trial")}</Text> : null}
                         {offerBadge ? (
                           <View
                             style={[
@@ -394,11 +395,11 @@ export function ShopScreen({
             </View>
             <View style={styles.lifetimeHeaderRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.lifetimeBigTitle}>Go {selectedPremium.label} Pro</Text>
+                <Text style={styles.lifetimeBigTitle}>{t("ui.go-plan-pro", { plan: selectedPremium.label })}</Text>
                 <Text style={styles.lifetimeBigSub}>
                   {selectedPlan === "lifetime"
-                    ? "One payment. Every benefit. Forever."
-                    : `Full access, billed ${selectedPremium.cadence}.`}
+                    ? t("ui.one-payment-every-benefit-forever")
+                    : t("ui.full-access-billed", { cadence: selectedPremium.cadence })}
                 </Text>
                 {selectedIntroOffer ? (
                   <Text style={styles.trialText}>{selectedIntroOffer}</Text>
@@ -412,11 +413,11 @@ export function ShopScreen({
             <View style={styles.lifetimeBenefits}>
               {[
                 selectedPremium.tokens > 0
-                  ? `${selectedPremium.tokens} Trim Tokens every month`
-                  : "Unlimited Trim Tokens",
-                "No ads — ever",
-                "Multi-preset trim (stack actions)",
-                "Priority new features",
+                  ? t("ui.trim-tokens-every-month", { count: selectedPremium.tokens })
+                  : t("ui.unlimited-trim-tokens"),
+                t("ui.no-ads-ever"),
+                t("ui.multi-preset-trim-stack-actions"),
+                t("ui.priority-new-features"),
               ].map((b) => (
                 <View key={b} style={styles.lifetimeBenefitRow}>
                   <View style={styles.lifetimeCheck}>
@@ -434,10 +435,10 @@ export function ShopScreen({
               {busy === selectedProduct.id ? (
                 <ActivityIndicator color={colors.white} />
               ) : selectedProduct.id === activeProductId ? (
-                <Text style={styles.ctaText}>Current plan</Text>
+                <Text style={styles.ctaText}>{t("ui.current-plan")}</Text>
               ) : (
                 <Text style={styles.ctaText}>
-                  {selectedPlanAction} · {selectedProduct.price}
+                  {selectedPlanAction} {t("ui.list-separator")} {selectedProduct.price}
                 </Text>
               )}
             </Pressable>
@@ -447,7 +448,7 @@ export function ShopScreen({
                   {index > 0 ? <Text style={styles.planLegalSeparator}>|</Text> : null}
                   <Pressable
                     accessibilityRole="link"
-                    accessibilityLabel={`Open ${link.label}`}
+                    accessibilityLabel={t("ui.open-link", { label: link.label })}
                     hitSlop={8}
                     onPress={() => void handleOpenLegalLink(link.label, link.url)}
                   >
@@ -469,20 +470,20 @@ export function ShopScreen({
               <Ionicons name="pricetag-outline" size={22} color={colors.primary} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.redeemTitle}>Have an offer code?</Text>
-              <Text style={styles.redeemSub}>Redeem a free or discounted Apple purchase.</Text>
+              <Text style={styles.redeemTitle}>{t("ui.have-an-offer-code")}</Text>
+              <Text style={styles.redeemSub}>{t("ui.redeem-a-free-or-discounted-apple-purchase")}</Text>
             </View>
             {busy === "redeem" ? (
               <ActivityIndicator color={colors.primary} />
             ) : (
-              <Text style={styles.redeemAction}>Redeem</Text>
+              <Text style={styles.redeemAction}>{t("ui.redeem")}</Text>
             )}
           </Pressable>
         ) : null}
 
         {!isPro ? (
           <>
-            <SectionHeader title="Free tokens" />
+            <SectionHeader title={t("ui.free-tokens")} />
             <Pressable
               disabled={!dailyReward?.canClaimToday || dailyReward.claimedToday}
               onPress={onClaimDailyTokens}
@@ -497,15 +498,17 @@ export function ShopScreen({
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.dailyClaimTitle}>
-                  {dailyReward?.claimedToday ? "Daily tokens claimed" : "Claim daily tokens"}
+                  {dailyReward?.claimedToday ? t("ui.daily-tokens-claimed") : t("ui.claim-daily-tokens")}
                 </Text>
                 <Text style={styles.dailyClaimSub}>
-                  +{dailyReward?.rewardAmount ?? DAILY_CLAIM_TOKENS} free tokens - resets at{" "}
-                  {dailyReward?.nextResetLabel ?? "00:00"}
+                  {t("ui.free-tokens-reset-at", {
+                    count: dailyReward?.rewardAmount ?? DAILY_CLAIM_TOKENS,
+                    time: dailyReward?.nextResetLabel ?? "00:00",
+                  })}
                 </Text>
               </View>
               <Text style={styles.dailyClaimButtonText}>
-                {dailyReward?.claimedToday ? "Done" : "Claim"}
+                {dailyReward?.claimedToday ? t("ui.done") : t("ui.claim")}
               </Text>
             </Pressable>
             <Pressable disabled={adBusy} onPress={handleWatchAd} style={styles.adCard}>
@@ -534,8 +537,8 @@ export function ShopScreen({
                 <Ionicons name="play-circle" size={28} color={colors.sage} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.adTitle}>Watch a short ad</Text>
-                <Text style={styles.adSub}>Get +{REWARDED_AD_TOKENS} tokens</Text>
+                <Text style={styles.adTitle}>{t("ui.watch-a-short-ad")}</Text>
+                <Text style={styles.adSub}>{t("ui.get-tokens", { count: REWARDED_AD_TOKENS })}</Text>
               </View>
               {adBusy ? (
                 <ActivityIndicator color={colors.sage} />
@@ -546,11 +549,11 @@ export function ShopScreen({
           </>
         ) : null}
 
-        <SectionHeader title="Token packs" />
+        <SectionHeader title={t("ui.token-packs")} />
         {loading ? (
           <Card style={styles.loading}>
             <ActivityIndicator color={colors.primary} />
-            <Text style={styles.loadingText}>Loading offers…</Text>
+            <Text style={styles.loadingText}>{t("ui.loading-offers")}</Text>
           </Card>
         ) : (
           <View style={{ gap: spacing.md }}>
@@ -568,14 +571,14 @@ export function ShopScreen({
                   </View>
                   <View style={{ flex: 1 }}>
                     <View style={styles.packTitleRow}>
-                      <Text style={styles.packTokens}>{pack.tokens} tokens</Text>
+                      <Text style={styles.packTokens}>{t("ui.tokens-count", { count: pack.tokens })}</Text>
                       {isBest ? (
                         <View style={styles.badge}>
-                          <Text style={styles.badgeText}>BEST</Text>
+                          <Text style={styles.badgeText}>{t("ui.best")}</Text>
                         </View>
                       ) : null}
                     </View>
-                    <Text style={styles.packHint}>Consumable token pack</Text>
+                    <Text style={styles.packHint}>{t("ui.consumable-token-pack")}</Text>
                   </View>
                   <View style={styles.priceWrap}>
                     {busy === pack.id ? (
@@ -594,26 +597,19 @@ export function ShopScreen({
           {busy === "restore" ? (
             <ActivityIndicator color={colors.primary} />
           ) : (
-            <Text style={styles.restoreText}>Restore purchases</Text>
+            <Text style={styles.restoreText}>{t("ui.restore-purchases")}</Text>
           )}
         </Pressable>
 
-        <Text style={styles.legal}>
-          Purchases are processed by Apple and charged to your Apple Account at confirmation.
-          TrimSwipe Pro is available as an auto-renewable monthly or yearly subscription, or as a
-          one-time Lifetime purchase. Subscriptions renew automatically for the same period and
-          price unless auto-renew is turned off at least 24 hours before the end of the current
-          period. Manage or cancel anytime in Apple Account → Subscriptions. Token packs are
-          one-time consumable purchases and are non-refundable once used.
-        </Text>
+        <Text style={styles.legal}>{t("ui.shop-legal")}</Text>
 
         <View style={styles.legalLinks}>
           <Pressable onPress={() => Linking.openURL("https://trimswipe.lovable.app/terms")}>
-            <Text style={styles.legalLink}>Terms of Use (EULA)</Text>
+            <Text style={styles.legalLink}>{t("ui.terms-of-use-eula")}</Text>
           </Pressable>
-          <Text style={styles.legalDot}>·</Text>
+          <Text style={styles.legalDot}>{t("ui.list-separator")}</Text>
           <Pressable onPress={() => Linking.openURL("https://trimswipe.lovable.app/privacy")}>
-            <Text style={styles.legalLink}>Privacy Policy</Text>
+            <Text style={styles.legalLink}>{t("ui.privacy-policy")}</Text>
           </Pressable>
         </View>
 
@@ -633,8 +629,8 @@ function formatIntroductoryOffer(product: ShopProduct): string | null {
   const unit = intro.periodUnit.toLowerCase();
   const pluralUnit = intro.periodNumberOfUnits === 1 ? unit : unit + "s";
   const duration = String(intro.periodNumberOfUnits) + " " + pluralUnit;
-  const cadence = product.id === MONTHLY_PRODUCT_ID ? "per month" : "per year";
-  return "Free for " + duration + ", then " + product.price + " " + cadence + ".";
+  const cadence = product.id === MONTHLY_PRODUCT_ID ? t("ui.per-month") : t("ui.per-year");
+  return t("ui.free-for-duration-then-price", { duration, price: product.price, cadence });
 }
 
 function fallbackPack(id: string): ShopProduct | null {
@@ -642,9 +638,9 @@ function fallbackPack(id: string): ShopProduct | null {
   if (!tokens) return null;
   return {
     id,
-    title: `${tokens} Trim Tokens`,
-    description: "Token pack",
-    price: "—",
+    title: t("ui.trim-tokens-count", { count: tokens }),
+    description: t("ui.token-pack"),
+    price: "-",
     priceAmount: 0,
     currency: "USD",
     tokens,
@@ -656,20 +652,20 @@ function fallbackPack(id: string): ShopProduct | null {
 function fallbackPremiumProduct(key: PremiumPlanKey, id: string): ShopProduct {
   const details = {
     monthly: {
-      title: "Monthly Pro",
-      description: "250 Trim Tokens every month and no ads",
+      title: t("ui.monthly-pro"),
+      description: t("ui.250-trim-tokens-every-month-and-no-ads"),
       price: "$2.99",
       priceAmount: 2.99,
     },
     yearly: {
-      title: "Yearly Pro",
-      description: "500 Trim Tokens every month and no ads",
+      title: t("ui.yearly-pro"),
+      description: t("ui.500-trim-tokens-every-month-and-no-ads"),
       price: "$24.99",
       priceAmount: 24.99,
     },
     lifetime: {
-      title: "Lifetime Pro",
-      description: "Unlimited trims and no ads forever",
+      title: t("ui.lifetime-pro"),
+      description: t("ui.unlimited-trims-and-no-ads-forever"),
       price: "$49.99",
       priceAmount: 49.99,
     },

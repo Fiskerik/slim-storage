@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -104,7 +105,7 @@ export function SwipeMidsetAdCard({
       <NativeAdView nativeAd={ad} style={styles.adView}>
         <NativeMediaView resizeMode="cover" style={styles.media} />
         <View pointerEvents="none" style={styles.sponsoredBadge}>
-          <Text style={styles.sponsoredText}>Sponsored</Text>
+          <Text style={styles.sponsoredText}>{t("ui.sponsored")}</Text>
         </View>
 
         {ad.icon ? (
@@ -135,16 +136,16 @@ export function SwipeMidsetAdCard({
 
       <View
         accessibilityRole="timer"
-        accessibilityLabel={unlocked ? "Ad finished. Swipe to continue." : `Continue in ${secondsRemaining} seconds.`}
+        accessibilityLabel={unlocked ? t("ui.ad-finished-swipe-to-continue") : t("ui.continue-in-seconds", { seconds: secondsRemaining })}
         style={[styles.continuePanel, unlocked && styles.continuePanelUnlocked]}
       >
         <Ionicons name={unlocked ? "swap-horizontal" : "time-outline"} size={22} color="#315f7d" />
         <View>
           <Text style={styles.continueText}>
-            {unlocked ? "Swipe to continue" : `Continue in ${secondsRemaining} seconds`}
+            {unlocked ? t("ui.swipe-to-continue") : t("ui.continue-in-seconds", { seconds: secondsRemaining })}
           </Text>
           <Text style={styles.continueHint}>
-            {unlocked ? "Swipe the card left or right" : "The ad will unlock automatically"}
+            {unlocked ? t("ui.swipe-the-card-left-or-right") : t("ui.the-ad-will-unlock-automatically")}
           </Text>
         </View>
       </View>

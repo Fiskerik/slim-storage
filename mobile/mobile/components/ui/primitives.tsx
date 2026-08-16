@@ -1,3 +1,4 @@
+import { t } from "../../lib/i18n";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useRef } from "react";
 import type { ReactNode } from "react";
@@ -346,10 +347,10 @@ export function DonutSplit({
       fillColor={colors.sage}
     >
       <Text style={{ fontSize: 14, fontWeight: "700", color: colors.sage }}>
-        {Math.round(trimShare * 100)}% trim
+        {Math.round(trimShare * 100)}% {t("ui.trim-share")}
       </Text>
       <Text style={{ fontSize: 11, color: colors.danger, fontWeight: "700", marginTop: 2 }}>
-        {Math.round(deleteShare * 100)}% delete
+        {Math.round(deleteShare * 100)}% {t("ui.delete-share")}
       </Text>
     </ProgressRing>
   );
@@ -418,11 +419,11 @@ export function BeforeAfterSlider({
       >
         <Image source={{ uri: beforeUri }} style={{ width, height }} resizeMode="cover" />
         <View style={[styles.sliderBadge, { left: 12 }]}>
-          <Text style={styles.sliderBadgeText}>Before</Text>
+          <Text style={styles.sliderBadgeText}>{t("ui.before")}</Text>
         </View>
       </Animated.View>
       <View style={[styles.sliderBadge, { right: 12, top: 12 }]}>
-        <Text style={styles.sliderBadgeText}>After</Text>
+        <Text style={styles.sliderBadgeText}>{t("ui.after")}</Text>
         {savedLabel ? <Text style={styles.sliderSaved}>{savedLabel}</Text> : null}
       </View>
       <Animated.View

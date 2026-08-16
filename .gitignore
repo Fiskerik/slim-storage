@@ -16,6 +16,10 @@ dist-ssr
 .tanstack/**
 .nitro
 *.local
+.env
+.env.*
+!.env.example
+!**/.env.example
 
 # Expo & EAS
 .expo/
@@ -41,6 +45,12 @@ mobile/mobile/ios/
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars
+
+# Firebase local state and service-account credentials
+.firebase/
+firebase-debug.log
+firestore-debug.log
+*-firebase-adminsdk-*.json
 
 # Editor directories and files
 .vscode/*

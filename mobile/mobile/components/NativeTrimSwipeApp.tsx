@@ -1,5 +1,6 @@
 import * as Haptics from "expo-haptics";
 import Constants from "expo-constants";
+import { reloadAppAsync } from "expo";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as Print from "expo-print";
@@ -9,26 +10,33 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   AppState,
   Easing,
   Image,
+  I18nManager,
   Linking,
   Modal,
   PanResponder,
+  Platform,
   Pressable,
   ScrollView,
   Share,
   StyleSheet,
   Text,
+  TextInput,
+  useWindowDimensions,
   View,
   type ImageSourcePropType,
   type ViewStyle,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { captureRef } from "react-native-view-shot";
 import {
+  cleanupPreparedTrims,
   commitTrims,
   commitTrimsAndDeletes,
   deletePhotos,
@@ -38,6 +46,7 @@ import {
   loadCleanupPlan,
   loadDuplicatePhotoGroups,
   loadPhotoRound,
+  prepareTrimPhoto,
   requestPhotoPermission,
   scanPhotoLibrary,
   type NativeCleanupCategory,
@@ -46,6 +55,7 @@ import {
   type NativeLibraryScanProgress,
   type NativePhoto,
   type NativePhotoPermission,
+  type PreparedTrim,
 } from "../lib/native-photo-source";
 import {
   loadNativePhotoReviewLedger,
@@ -64,6 +74,7 @@ import {
   saveNativeStats,
   type NativeActionLogEntry,
   type NativeActionType,
+  type AppLanguage,
   type NativeBackgroundScanSchedule,
   type NativeDailyStats,
   type NativeSeenPhoto,
@@ -73,6 +84,7 @@ import {
   type NativeTargetMode,
   type NativeTrimKind,
 } from "../lib/native-store";
+import { APP_LANGUAGES, t } from "../lib/i18n";
 import { HomeDashboard } from "./HomeDashboard";
 import type { DailyRewardState } from "./HomeDashboard";
 import { StatsDashboard } from "./StatsDashboard";
@@ -103,10 +115,13 @@ import {
 import { colors } from "../constants/design";
 import { getNativeTheme, NATIVE_THEME_OPTIONS, type NativeThemePalette } from "../constants/themes";
 import {
-  ensureCleanupNotifications,
   notifyCleanupProgress,
   registerCleanupBackgroundTask,
 } from "../lib/progress-notifications";
+import {
+  subscribeToReminderResponses,
+  syncRemoteCleanupReminders,
+} from "../lib/remote-reminders";
 import { hasReachedMidset, shouldPresentMidsetAd } from "../lib/swipe-midset";
 
 type Screen =
@@ -183,7 +198,15 @@ const GAME_IMAGES = {
 const BUDGET_MIN_POOL_MB = 60;
 const BUDGET_MAX_POOL_MB = 75;
 const BUDGET_KEEP_LIMIT_MB = 50;
-const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAY_LABELS = [
+  "ui.weekday-sun",
+  "ui.weekday-mon",
+  "ui.weekday-tue",
+  "ui.weekday-wed",
+  "ui.weekday-thu",
+  "ui.weekday-fri",
+  "ui.weekday-sat",
+];
 const REPORT_PERIODS = ["weekly", "monthly"] as const;
 const FALLBACK_TARGET_MODES: NativeTargetMode[] = [
   "big-only",
@@ -205,11 +228,11 @@ function formatScanProgress(progress: NativeLibraryScanProgress): string {
   if (progress.phase === "similarity") {
     const analyzed = progress.analyzed ?? 0;
     const total = progress.analysisTotal ?? 0;
-    return total > 0 ? `Verifying similarity ${analyzed}/${total}` : "Verifying similarity";
+    return total > 0 ? t("ui.scan-verifying", { analyzed, total }) : t("ui.verifying-similarity");
   }
   return progress.total
-    ? `Scanning ${progress.scanned}/${progress.total}`
-    : `Scanning ${progress.scanned}`;
+    ? t("ui.scan-progress", { scanned: progress.scanned, total: progress.total })
+    : t("ui.scan-progress-count", { scanned: progress.scanned });
 }
 
 function cleanupPlanSavings(plan: NativeCleanupPlan): number {
@@ -221,15 +244,15 @@ function cleanupPlanActionCount(plan: NativeCleanupPlan): number {
 }
 
 function scheduleTimeLabel(times: string[]): string {
-  return times.length === 1 ? times[0] : `${times.length} times/day`;
+  return times.length === 1 ? times[0] : t("ui.times-per-day", { count: times.length });
 }
 
 function scheduleDaysLabel(days: number[]): string {
-  if (days.length === 7) return "Every day";
+  if (days.length === 7) return t("ui.every-day");
   const ordered = [...days].sort((a, b) => a - b);
-  if (ordered.join(",") === "1,2,3,4,5") return "Weekdays";
-  if (ordered.join(",") === "0,6") return "Weekends";
-  return ordered.map((day) => WEEKDAY_LABELS[day] ?? "").filter(Boolean).join(", ");
+  if (ordered.join(",") === "1,2,3,4,5") return t("ui.weekdays");
+  if (ordered.join(",") === "0,6") return t("ui.weekends");
+  return ordered.map((day) => WEEKDAY_LABELS[day] ? t(WEEKDAY_LABELS[day]) : "").filter(Boolean).join(", ");
 }
 
 function localTimeKey(date = new Date()): string {
@@ -289,8 +312,8 @@ function reportDashboardData(stats: NativeStats, period: ReportPeriod): ReportDa
   const periodStats = reportStatsForPeriod(stats, period);
   const beforeTotal = Math.max(0, stats.mbFreed - periodStats.mbFreed);
   const afterTotal = stats.mbFreed;
-  const title = period === "weekly" ? "Weekly report" : "Monthly report";
-  const rangeLabel = period === "weekly" ? "Last 7 days" : "This month";
+  const title = period === "weekly" ? t("ui.weekly-report") : t("ui.monthly-report");
+  const rangeLabel = period === "weekly" ? t("ui.last-7-days") : t("ui.this-month");
   const total = Math.max(1, periodStats.trimMbFreed + periodStats.deleteMbFreed);
   return {
     title,
@@ -306,16 +329,16 @@ function reportDashboardData(stats: NativeStats, period: ReportPeriod): ReportDa
 function cleanupReportText(stats: NativeStats, period: ReportPeriod): string {
   const data = reportDashboardData(stats, period);
   const { periodStats } = data;
-  const title = period === "weekly" ? "Weekly TrimSwipe report" : "Monthly TrimSwipe report";
+  const title = period === "weekly" ? t("ui.weekly-trimswipe-report") : t("ui.monthly-trimswipe-report");
   return [
     title,
     "",
-    `Before: ${formatMB(data.beforeTotal)} reclaimed before this ${period === "weekly" ? "week" : "month"}.`,
-    `After: ${formatMB(data.afterTotal)} reclaimed total.`,
-    `Progress this ${period === "weekly" ? "week" : "month"}: ${formatMB(periodStats.mbFreed)} freed from ${periodStats.reviewed} reviewed photos.`,
-    `Trimmed: ${periodStats.trimmed} photos (${formatMB(periodStats.trimMbFreed)}).`,
-    `Deleted: ${periodStats.deleted} photos (${formatMB(periodStats.deleteMbFreed)}).`,
-    `Kept: ${periodStats.kept} photos.`,
+    t("ui.report-before", { value: formatMB(data.beforeTotal), period: period === "weekly" ? t("ui.week") : t("ui.month") }),
+    t("ui.report-after", { value: formatMB(data.afterTotal) }),
+    t("ui.report-progress", { period: period === "weekly" ? t("ui.week") : t("ui.month"), value: formatMB(periodStats.mbFreed), count: periodStats.reviewed }),
+    t("ui.report-trimmed", { count: periodStats.trimmed, value: formatMB(periodStats.trimMbFreed) }),
+    t("ui.report-deleted", { count: periodStats.deleted, value: formatMB(periodStats.deleteMbFreed) }),
+    t("ui.report-kept", { count: periodStats.kept }),
   ].join("\n");
 }
 
@@ -329,7 +352,7 @@ function cleanupReportHtml(stats: NativeStats, period: ReportPeriod): string {
   <head>
     <meta charset="utf-8" />
     <style>
-      body { margin: 0; padding: 32px; background: #f3f6f8; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2937; }
+      body { margin: 0; padding: 32px; background: #f3f6f8; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; color: #1f2937; }
       .card { border-radius: 28px; background: #ffffff; border: 1px solid #cbd8e0; padding: 28px; }
       .eyebrow { color: #315f7d; font-size: 12px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; }
       h1 { margin: 8px 0 4px; font-size: 36px; }
@@ -350,18 +373,18 @@ function cleanupReportHtml(stats: NativeStats, period: ReportPeriod): string {
   </head>
   <body>
     <div class="card">
-      <div class="eyebrow">TrimSwipe</div>
+      <div class="eyebrow">${t("ui.trimswipe")}</div>
       <h1>${data.title}</h1>
-      <div class="muted">${data.rangeLabel} before/after progress</div>
+      <div class="muted">${t("ui.report-range-progress", { range: data.rangeLabel })}</div>
       <div class="hero">
-        <div class="metric"><div class="label">Before</div><div class="value">${formatMB(data.beforeTotal)}</div><div class="muted">Previously reclaimed</div></div>
-        <div class="metric"><div class="label">After</div><div class="value">${formatMB(data.afterTotal)}</div><div class="muted">Reclaimed total</div></div>
+        <div class="metric"><div class="label">${t("ui.before")}</div><div class="value">${formatMB(data.beforeTotal)}</div><div class="muted">${t("ui.previously-reclaimed")}</div></div>
+        <div class="metric"><div class="label">${t("ui.after")}</div><div class="value">${formatMB(data.afterTotal)}</div><div class="muted">${t("ui.reclaimed-total")}</div></div>
       </div>
-      <div class="big"><div class="label">Progress</div><div class="value">${formatMB(periodStats.mbFreed)}</div><div class="muted">${periodStats.reviewed} photos reviewed</div><div class="bar"><div class="trim"></div><div class="delete"></div></div></div>
+      <div class="big"><div class="label">${t("ui.progress")}</div><div class="value">${formatMB(periodStats.mbFreed)}</div><div class="muted">${t("ui.photos-reviewed-count", { count: periodStats.reviewed })}</div><div class="bar"><div class="trim"></div><div class="delete"></div></div></div>
       <div class="grid">
-        <div class="small"><div class="label">Kept</div><div class="value">${periodStats.kept}</div></div>
-        <div class="small"><div class="label">Trimmed</div><div class="value">${periodStats.trimmed}</div></div>
-        <div class="small"><div class="label">Deleted</div><div class="value">${periodStats.deleted}</div></div>
+        <div class="small"><div class="label">${t("ui.kept")}</div><div class="value">${periodStats.kept}</div></div>
+        <div class="small"><div class="label">${t("ui.trimmed")}</div><div class="value">${periodStats.trimmed}</div></div>
+        <div class="small"><div class="label">${t("ui.deleted")}</div><div class="value">${periodStats.deleted}</div></div>
       </div>
     </div>
   </body>
@@ -392,20 +415,20 @@ function roundSettings(settings: NativeSettings): NativeSettings {
 }
 
 function targetLabel(settings: NativeSettings): string {
-  const prefix = settings.trimReviewMode === "trimmed-only" ? "Trimmed only - " : "";
-  if (settings.targetMode === "balanced") return "Balanced";
-  if (settings.targetMode === "big-only") return `${prefix}${formatSizeThreshold(settings.minSizeMB)}+ only`;
-  if (settings.targetMode === "old-only") return `${prefix}${formatAgeThreshold(settings.minAgeYears)} old photos`;
+  const prefix = settings.trimReviewMode === "trimmed-only" ? `${t("ui.trimmed-only")} ` : "";
+  if (settings.targetMode === "balanced") return `${prefix}${t("ui.balanced")}`;
+  if (settings.targetMode === "big-only") return `${prefix}${t("ui.target-big-only", { value: formatSizeThreshold(settings.minSizeMB) })}`;
+  if (settings.targetMode === "old-only") return `${prefix}${t("ui.target-old-only", { value: formatAgeThreshold(settings.minAgeYears) })}`;
   if (settings.targetMode === "old-and-large") {
-    return `${prefix}${formatAgeThreshold(settings.minAgeYears)} and ${formatSizeThreshold(settings.minSizeMB)}+`;
+    return `${prefix}${t("ui.target-old-and-large", { age: formatAgeThreshold(settings.minAgeYears), size: formatSizeThreshold(settings.minSizeMB) })}`;
   }
-  if (settings.targetMode === "duplicates" || settings.targetMode === "similar") return `${prefix}Similar Photos`;
-  if (settings.targetMode === "blurry" || settings.targetMode === "mistakes") return `${prefix}Blurry`;
-  if (settings.targetMode === "screenshots") return `${prefix}Screenshots`;
-  if (settings.targetMode === "live-photos") return `${prefix}Live Photos`;
-  if (settings.targetMode === "multibursts" || settings.targetMode === "bursts") return `${prefix}Multibursts`;
-  if (settings.targetMode === "icloud") return `${prefix}iCloud-heavy`;
-  return `${prefix}${formatSizeThreshold(settings.minSizeMB)}+ or ${formatAgeThreshold(settings.minAgeYears)}`;
+  if (settings.targetMode === "duplicates" || settings.targetMode === "similar") return `${prefix}${t("ui.similar-photos")}`;
+  if (settings.targetMode === "blurry" || settings.targetMode === "mistakes") return `${prefix}${t("ui.blurry")}`;
+  if (settings.targetMode === "screenshots") return `${prefix}${t("ui.screenshots")}`;
+  if (settings.targetMode === "live-photos") return `${prefix}${t("ui.live-photos")}`;
+  if (settings.targetMode === "multibursts" || settings.targetMode === "bursts") return `${prefix}${t("ui.multibursts")}`;
+  if (settings.targetMode === "icloud") return `${prefix}${t("ui.icloud-heavy")}`;
+  return `${prefix}${t("ui.target-balanced-range", { size: formatSizeThreshold(settings.minSizeMB), age: formatAgeThreshold(settings.minAgeYears) })}`;
 }
 
 function formatSizeThreshold(value: number): string {
@@ -413,12 +436,12 @@ function formatSizeThreshold(value: number): string {
 }
 
 function formatAgeThreshold(years: number): string {
-  if (years <= 0) return "today";
+  if (years <= 0) return t("ui.age-today");
   if (years < 1) {
     const months = Math.max(1, Math.round(years * 12));
-    return `${months}+ mo`;
+    return t("ui.age-months-plus", { count: months });
   }
-  return `${Number.isInteger(years) ? years.toFixed(0) : years.toFixed(1)}+ ${years === 1 ? "year" : "yrs"}`;
+  return t("ui.age-years-plus", { count: Number.isInteger(years) ? years.toFixed(0) : years.toFixed(1) });
 }
 
 function formatGameSizeThreshold(value: number): string {
@@ -426,12 +449,12 @@ function formatGameSizeThreshold(value: number): string {
 }
 
 function formatGameAgeThreshold(years: number): string {
-  if (years <= 0) return "today";
+  if (years <= 0) return t("ui.age-today");
   if (years < 1) {
     const months = Math.max(1, Math.round(years * 12));
-    return `${months} mo`;
+    return t("ui.age-months", { count: months });
   }
-  return `${Number.isInteger(years) ? years.toFixed(0) : years.toFixed(1)} ${years === 1 ? "year" : "yrs"}`;
+  return t("ui.age-years", { count: Number.isInteger(years) ? years.toFixed(0) : years.toFixed(1) });
 }
 
 function gameAgeYears(createdAt: number): number {
@@ -445,15 +468,15 @@ function nextFallbackTargetMode(current: NativeTargetMode): NativeTargetMode {
 }
 
 function sessionModeLabel(mode: NativeSessionMode): string {
-  if (mode === "endless") return "Endless";
-  if (mode === "time-attack") return "Time attack";
-  return "Classic";
+  if (mode === "endless") return t("ui.session-endless");
+  if (mode === "time-attack") return t("ui.time-attack");
+  return t("ui.session-classic");
 }
 
 function actionVerb(action: NativeActionType): string {
-  if (action === "trim") return "Trimmed";
-  if (action === "delete") return "Deleted";
-  return "Kept";
+  if (action === "trim") return t("ui.trimmed");
+  if (action === "delete") return t("ui.deleted");
+  return t("ui.kept");
 }
 
 function dateKey(date = new Date()): string {
@@ -585,9 +608,9 @@ function levelInfo(stats: NativeStats): { level: number; title: string; progress
   const points = stats.reviewed + stats.mbFreed / 25 + stats.trimmed * 0.6 + stats.deleted * 0.8;
   const level = Math.max(1, Math.floor(points / 25) + 1);
   const progress = (points % 25) / 25;
-  const titles = ["Fresh Start", "Space Saver", "Camera Roll Pro", "Storage Guardian"];
+  const titles = [t("ui.fresh-start"), t("ui.space-saver"), t("ui.camera-roll-pro"), t("ui.storage-guardian")];
   const title = titles[Math.min(titles.length - 1, Math.floor((level - 1) / 3))];
-  return { level, title, progress, next: `${Math.ceil(25 - (points % 25))} pts to level ${level + 1}` };
+  return { level, title, progress, next: t("ui.points-to-level", { count: Math.ceil(25 - (points % 25)), level: level + 1 }) };
 }
 
 function yearOptions(correctYear: number): number[] {
@@ -677,9 +700,9 @@ function progressShareText(stats: NativeStats): string {
   const week = sumDays(stats, 7);
   const month = monthStats(stats);
   return [
-    `I freed ${formatMB(month.mbFreed)} this month with TrimSwipe.`,
-    `${stats.reviewed} photos reviewed, ${stats.trimmed} trimmed, ${stats.deleted} deleted.`,
-    `This week: ${formatMB(week.mbFreed)} saved.`,
+    t("ui.share-month", { value: formatMB(month.mbFreed) }),
+    t("ui.share-summary", { reviewed: stats.reviewed, trimmed: stats.trimmed, deleted: stats.deleted }),
+    t("ui.share-week", { value: formatMB(week.mbFreed) }),
     APP_STORE_URL,
   ].join("\n");
 }
@@ -775,6 +798,10 @@ function CelebrationBurst({ visible }: { visible: boolean }) {
 }
 
 export function NativeTrimSwipeApp() {
+  // Subscribe the app shell to i18next's languageChanged event. Most native
+  // screens use the shared `t` helper, so the shell subscription ensures the
+  // whole tree re-renders immediately after a language switch.
+  const { i18n: translationI18n } = useTranslation();
   const [screen, setScreen] = useState<Screen>("home");
   const [stats, setStats] = useState<NativeStats>(DEFAULT_NATIVE_STATS);
   const [reviewLedger, setReviewLedger] = useState<NativePhotoReviewLedger | null>(null);
@@ -807,11 +834,14 @@ export function NativeTrimSwipeApp() {
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
   const pendingDeletesRef = useRef<NativePhoto[]>([]);
   const pendingTrimsRef = useRef<NativePhoto[]>([]);
+  const preparedTrimPromisesRef = useRef<Map<string, Promise<PreparedTrim>>>(new Map());
+  const trimPreparationChainRef = useRef<Promise<void>>(Promise.resolve());
   const [pendingTrims, setPendingTrims] = useState<NativePhoto[]>([]);
   const [tokenBalance, setTokenBalance] = useState<number>(10);
   const [isPro, setIsPro] = useState(false);
   const [purchaseAccessReady, setPurchaseAccessReady] = useState(false);
   const [hasUnlimitedTrims, setHasUnlimitedTrims] = useState(false);
+  const isProRef = useRef(false);
   const [accountSignedIn, setAccountSignedInState] = useState(true);
   const [activeProductId, setActiveProductId] = useState<string | null>(null);
   const [adBusy, setAdBusy] = useState(false);
@@ -831,6 +861,12 @@ export function NativeTrimSwipeApp() {
   const reportCardRef = useRef<View>(null);
 
   const settings = roundSettings(stats.settings);
+  useEffect(() => {
+    void translationI18n.changeLanguage(settings.appLanguage);
+  }, [settings.appLanguage, translationI18n]);
+  const backgroundSchedulesRef = useRef(settings.backgroundScanSchedules);
+  backgroundSchedulesRef.current = settings.backgroundScanSchedules;
+  isProRef.current = isPro;
   const activeTheme = getNativeTheme(settings.theme);
   const top = queue[0];
   const next = queue[1];
@@ -839,6 +875,15 @@ export function NativeTrimSwipeApp() {
   const backgroundScheduleSignature = settings.backgroundScanSchedules
     .map((schedule) => `${schedule.id}:${schedule.active}:${schedule.days.join(",")}:${schedule.times.join(",")}:${schedule.targetMB}:${schedule.lastRunAt ?? ""}`)
     .join("|");
+  const engagementPayload = {
+    preferences: settings.smartReminders,
+    snapshot: stats.engagementSnapshot,
+    locale: settings.appLanguage,
+    streak: currentStreak(stats),
+    reviewedToday: dailyFor(stats, dateKey()).reviewed,
+    lastCleanupAt: stats.actionLog.find((entry) => entry.action !== "keep")?.createdAt ?? null,
+    lastActiveAt: stats.lastActiveAt,
+  };
 
   function showToast(title: string, detail?: string, tone: ToastMessage["tone"] = "info") {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -849,8 +894,8 @@ export function NativeTrimSwipeApp() {
   function requestConfirmation({
     title,
     detail,
-    cancelLabel = "Cancel",
-    confirmLabel = "Apply",
+    cancelLabel = t("ui.cancel"),
+    confirmLabel = t("ui.done"),
     danger,
     runInBackground = false,
     onConfirm,
@@ -883,10 +928,10 @@ export function NativeTrimSwipeApp() {
             setConfirmRequest(null);
             setConfirmBusy(false);
             resolve(0);
-            showToast("Trim started", "You can keep using TrimSwipe while the batch runs.", "info");
+            showToast(t("ui.trim-started"), t("ui.you-can-keep-using-trimswipe-while-the-batch-run"), "info");
             void onConfirm()
-              .then((count) => showToast("Trim finished", `${count} photo${count === 1 ? "" : "s"} processed.`, "success"))
-              .catch((err) => showToast("Trim failed", err instanceof Error ? err.message : "Please try again.", "error"));
+              .then((count) => showToast(t("ui.trim-finished"), t("ui.photos-processed-count", { count }), "success"))
+              .catch((err) => showToast(t("ui.trim-failed"), err instanceof Error ? err.message : t("ui.please-try-again"), "error"));
             return;
           }
           setConfirmBusy(true);
@@ -894,7 +939,7 @@ export function NativeTrimSwipeApp() {
             close(await onConfirm());
           } catch (err) {
             close(0);
-            showToast("Apply failed", err instanceof Error ? err.message : "Please try again.", "error");
+            showToast(t("ui.apply-failed"), err instanceof Error ? err.message : t("ui.please-try-again"), "error");
           }
         },
       });
@@ -907,7 +952,9 @@ export function NativeTrimSwipeApp() {
       if (cancelled) return;
       const ledger = await loadNativePhotoReviewLedger(loaded);
       if (cancelled) return;
-      setStats(loaded);
+      const activeStats = { ...loaded, lastActiveAt: new Date().toISOString() };
+      void saveNativeStats(activeStats);
+      setStats(activeStats);
       setReviewLedger(ledger);
       setStatsLoaded(true);
     });
@@ -930,11 +977,24 @@ export function NativeTrimSwipeApp() {
         setActiveProductId(null);
         // Do not risk showing an ad to a Pro user when entitlement lookup failed.
         setPurchaseAccessReady(false);
-      });
+    });
     void registerCleanupBackgroundTask();
-    void ensureCleanupNotifications();
     return () => unsub();
   }, []);
+
+  useEffect(
+    () => subscribeToReminderResponses(() => setScreen(isProRef.current ? "automation" : "games")),
+    [],
+  );
+
+  useEffect(() => {
+    if (!statsLoaded || !purchaseAccessReady) return;
+    void syncRemoteCleanupReminders(
+      isPro ? backgroundSchedulesRef.current : [],
+      { requestPermission: false },
+      engagementPayload,
+    );
+  }, [backgroundScheduleSignature, isPro, purchaseAccessReady, settings.appLanguage, statsLoaded, settings.smartReminders, stats.engagementSnapshot, stats.lastActiveAt]);
 
   useEffect(() => {
     if (!purchaseAccessReady || isPro) return;
@@ -947,9 +1007,9 @@ export function NativeTrimSwipeApp() {
     try {
       const got = await showRewardedAd();
       if (got > 0) {
-        showToast("Tokens added", `+${got} tokens added.`, "success");
+        showToast(t("ui.tokens-added"), t("ui.tokens-added-to-balance", { count: got }), "success");
       } else {
-        showToast("No ad available", "Please try again in a moment.", "warning");
+        showToast(t("ui.no-ad-available"), t("ui.please-try-again-in-a-moment"), "warning");
       }
     } finally {
       setAdBusy(false);
@@ -978,7 +1038,7 @@ export function NativeTrimSwipeApp() {
       },
     }));
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    showToast("Tokens claimed", `+${reward.rewardAmount} free tokens added.`, "success");
+    showToast(t("ui.tokens-claimed"), t("ui.free-tokens-added", { count: reward.rewardAmount }), "success");
   }
 
 
@@ -1010,10 +1070,55 @@ export function NativeTrimSwipeApp() {
       );
       commitStats((current) => ({ ...current, shareCount: current.shareCount + 1 }));
     } catch (error) {
-      console.log("[NativeTrimSwipe] Share failed", { error });
+      console.log(t("ui.nativetrimswipe-share-failed"), { error });
       await Share.share({ message: progressShareText(stats) }).catch(() => undefined);
     }
   }
+
+  function queueTrimPreparation(photo: NativePhoto): Promise<PreparedTrim> {
+    const existing = preparedTrimPromisesRef.current.get(photo.id);
+    if (existing) return existing;
+
+    const prepared = trimPreparationChainRef.current
+      .catch(() => undefined)
+      .then(() =>
+        prepareTrimPhoto(photo, settings.trimQuality, settings.trimKinds, {
+          allowSecondPass: settings.trimReviewMode === "trimmed-only",
+        }),
+      );
+    trimPreparationChainRef.current = prepared.then(
+      () => undefined,
+      () => undefined,
+    );
+    preparedTrimPromisesRef.current.set(photo.id, prepared);
+    return prepared;
+  }
+
+  async function discardPreparedTrimIds(ids: string[]): Promise<void> {
+    const pending = ids
+      .map((id) => {
+        const prepared = preparedTrimPromisesRef.current.get(id);
+        preparedTrimPromisesRef.current.delete(id);
+        return prepared;
+      })
+      .filter((item): item is Promise<PreparedTrim> => Boolean(item));
+    if (pending.length > 0) await cleanupPreparedTrims(await Promise.all(pending));
+  }
+
+  function discardAllPreparedTrims(): void {
+    void discardPreparedTrimIds([...preparedTrimPromisesRef.current.keys()]);
+  }
+
+  useEffect(
+    () => () => {
+      const pending = [...preparedTrimPromisesRef.current.values()];
+      preparedTrimPromisesRef.current.clear();
+      if (pending.length > 0) {
+        void Promise.all(pending).then(cleanupPreparedTrims);
+      }
+    },
+    [],
+  );
 
   function commitReviewLedger(updater: (current: NativePhotoReviewLedger) => NativePhotoReviewLedger) {
     setReviewLedger((current) => {
@@ -1086,8 +1191,8 @@ export function NativeTrimSwipeApp() {
       await shareExportedFile(uri, "image/png", cleanupReportText(stats, period));
       commitStats((current) => ({ ...current, shareCount: current.shareCount + 1 }));
     } catch (error) {
-      console.log("[NativeTrimSwipe] Report image export failed", { error });
-      showToast("Export failed", "Could not export the report image.", "error");
+      console.log(t("ui.nativetrimswipe-report-image-export-failed"), { error });
+      showToast(t("ui.export-failed"), t("ui.could-not-export-the-report-image"), "error");
     } finally {
       setReportExportBusy(null);
     }
@@ -1104,8 +1209,8 @@ export function NativeTrimSwipeApp() {
       await shareExportedFile(result.uri, "application/pdf", cleanupReportText(stats, period));
       commitStats((current) => ({ ...current, shareCount: current.shareCount + 1 }));
     } catch (error) {
-      console.log("[NativeTrimSwipe] Report PDF export failed", { error });
-      showToast("Export failed", "Could not export the report PDF.", "error");
+      console.log(t("ui.nativetrimswipe-report-pdf-export-failed"), { error });
+      showToast(t("ui.export-failed"), t("ui.could-not-export-the-report-pdf"), "error");
     } finally {
       setReportExportBusy(null);
     }
@@ -1121,22 +1226,38 @@ export function NativeTrimSwipeApp() {
       if (!permission.granted) {
         setPermissionDenied(true);
         setPermissionLimited(false);
-        setScanError("Photo access is needed to scan your library.");
+        setScanError(t("ui.photo-access-is-needed-to-scan-your-library"));
         return;
       }
       setPermissionDenied(false);
       setPermissionLimited(permission.limited);
-      await notifyCleanupProgress("TrimSwipe scan started", "Looking for easy storage wins.");
+      await notifyCleanupProgress(t("ui.trimswipe-scan-started"), t("ui.looking-for-easy-storage-wins"));
       const result = await scanPhotoLibrary(setScanProgress);
       setLibraryScan(result);
+      commitStats((current) => ({
+        ...current,
+        engagementSnapshot: {
+          capturedAt: new Date().toISOString(),
+          photoCount: result.assetCount,
+          totalSizeMB: result.totalSizeMB,
+          freeSpaceMB: result.freeSpaceMB,
+          deviceCapacityMB: result.deviceCapacityMB,
+          screenshotsCount: result.screenshotCount,
+          screenshotsMB: result.storageByType.screenshotsMB,
+          similarCount: result.duplicateRemovalCount,
+          similarMB: result.storageByType.similarPhotosMB,
+          trimSavingsMB: result.trimSavingsMB,
+          deleteSavingsMB: result.deleteSavingsMB,
+        },
+      }));
       setScanProgress(null);
       setScanComplete(true);
       await notifyCleanupProgress(
-        "TrimSwipe scan ready",
-        `Found about ${formatMB(result.trimSavingsMB + result.deleteSavingsMB)} to review.`,
+        t("ui.trimswipe-scan-ready"),
+        t("ui.scan-found-to-review", { value: formatMB(result.trimSavingsMB + result.deleteSavingsMB) }),
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not scan the photo library";
+      const message = error instanceof Error ? error.message : t("ui.could-not-scan-the-photo-library");
       setScanError(message);
       setScanComplete(false);
     } finally {
@@ -1149,6 +1270,7 @@ export function NativeTrimSwipeApp() {
     options: { showFallbackToast?: boolean } = {},
   ) {
     const activeSettings = roundSettings(settingsOverride);
+    discardAllPreparedTrims();
     // FIX 1: Guard against NaN cardsPerRound before calling MediaLibrary
     const safeCount = Math.max(1, Math.round(activeSettings.cardsPerRound) || 10);
     setLoading(true);
@@ -1187,18 +1309,17 @@ export function NativeTrimSwipeApp() {
           ...activeSettings,
           targetMode: fallbackTargetMode,
         });
-        fallbackNotice =
-          `${targetLabel(activeSettings)} did not return matching local photos. ` +
-          `Switched to ${targetLabel(fallbackSettings)}.`;
+        fallbackNotice = t("ui.filter-fallback-switched", {
+          from: targetLabel(activeSettings),
+          to: targetLabel(fallbackSettings),
+        });
         photos = await loadPhotoRound(safeCount, fallbackSettings, {
           avoidIds: currentAvoidIds(),
         });
       }
       if (photos.length === 0 && activeSettings.targetMode !== "balanced") {
         const broadSettings = roundSettings({ ...activeSettings, targetMode: "balanced" });
-        fallbackNotice =
-          `${targetLabel(activeSettings)} did not return matching local photos. ` +
-          "Loaded a balanced set instead.";
+        fallbackNotice = t("ui.filter-fallback-balanced", { from: targetLabel(activeSettings) });
         photos = await loadPhotoRound(safeCount, broadSettings, {
           avoidIds: currentAvoidIds(),
         });
@@ -1206,13 +1327,13 @@ export function NativeTrimSwipeApp() {
       setQueue(photos);
       setSwipeRoundInitialCount(photos.length);
       if (fallbackNotice && options.showFallbackToast) {
-        showToast("Filter widened", fallbackNotice, "info");
+        showToast(t("ui.filter-widened"), fallbackNotice, "info");
       }
       if (photos.length === 0) {
-        setError("No local photos were available in the current library selection.");
+        setError(t("ui.no-local-photos-were-available-in-the-current-li"));
       }
     } catch (loadError) {
-      const message = loadError instanceof Error ? loadError.message : "Could not load photos";
+      const message = loadError instanceof Error ? loadError.message : t("ui.could-not-load-photos");
       setError(message);
     } finally {
       setLoading(false);
@@ -1301,13 +1422,13 @@ export function NativeTrimSwipeApp() {
       return;
     }
     if (!hasUnlimitedTrims && tokenBalance - pendingTrimsRef.current.length <= 0) {
-      showToast("Not enough tokens", "Claim daily tokens, watch an ad, or visit the shop.", "warning");
+      showToast(t("ui.not-enough-tokens"), t("ui.claim-daily-tokens-watch-an-ad-or-visit-the-shop"), "warning");
       return;
     }
     if (!canAttemptTrim(photo, settings)) {
       showToast(
-        "Cannot trim this photo",
-        `${trimDisabledReason(photo, settings, "detail")}. Keep or delete it instead.`,
+        t("ui.cannot-trim-this-photo"),
+        t("ui.trim-disabled-keep-delete", { reason: trimDisabledReason(photo, settings, "detail") }),
         "warning",
       );
       return;
@@ -1320,22 +1441,22 @@ export function NativeTrimSwipeApp() {
     // aren't interrupted with iOS delete dialogs after every swipe.
     pendingTrimsRef.current = [...pendingTrimsRef.current, photo];
     setPendingTrims(pendingTrimsRef.current);
+    void queueTrimPreparation(photo);
     advance();
   }
 
   async function confirmActions(deletes: NativePhoto[], trims: NativePhoto[]) {
     if (applyingActionsRef.current) {
-      showToast("Already applying", "Please wait for the Photos confirmation.", "info");
+      showToast(t("ui.already-applying"), t("ui.please-wait-for-the-photos-confirmation"), "info");
       return;
     }
     applyingActionsRef.current = true;
-    setLoading(true);
     try {
     const requestedTrimIds = new Set(trims.map((p) => p.id));
     const requestedDeleteIds = new Set(deletes.map((p) => p.id));
     const chargeableTrims = hasUnlimitedTrims ? trims : trims.slice(0, tokenBalance);
     if (chargeableTrims.length < trims.length) {
-      showToast("Not enough tokens", `${chargeableTrims.length}/${trims.length} selected trims can be applied.`, "warning");
+      showToast(t("ui.not-enough-tokens"), t("ui.selected-trims-limit", { selected: chargeableTrims.length, total: trims.length }), "warning");
     }
 
     if (chargeableTrims.length > 0) {
@@ -1343,16 +1464,28 @@ export function NativeTrimSwipeApp() {
       setTrimmingCount((count) => count + chargeableTrims.length);
     }
     const totalActions = deletes.length + chargeableTrims.length;
+    const firstSuccessfulCleanup = stats.reviewed === 0 && totalActions > 0;
     if (totalActions >= 5) {
-      await notifyCleanupProgress("Cleanup started", `Applying ${totalActions} selected actions.`);
+      await notifyCleanupProgress(t("ui.cleanup-started"), t("ui.applying"));
     }
+    const preparedTrims = await Promise.all(
+      chargeableTrims.map((photo) => queueTrimPreparation(photo)),
+    );
     const batch = await commitTrimsAndDeletes(
       deletes,
       chargeableTrims,
       settings.trimQuality,
       settings.trimOutputMode === "replace",
       settings.trimKinds,
-      { allowSecondPass: settings.trimReviewMode === "trimmed-only" },
+      {
+        allowSecondPass: settings.trimReviewMode === "trimmed-only",
+        prepared: preparedTrims,
+      },
+    );
+    chargeableTrims.forEach((photo) => preparedTrimPromisesRef.current.delete(photo.id));
+    const chargeableTrimIds = new Set(chargeableTrims.map((photo) => photo.id));
+    void discardPreparedTrimIds(
+      trims.filter((photo) => !chargeableTrimIds.has(photo.id)).map((photo) => photo.id),
     );
     if (chargeableTrims.length > 0) {
       setTrimmingCount((count) => Math.max(0, count - chargeableTrims.length));
@@ -1412,11 +1545,10 @@ export function NativeTrimSwipeApp() {
       freed: +(deletedPhotos.reduce((s, p) => s + p.sizeMB, 0) + actualTrimSaved).toFixed(2),
     };
 
-    setLoading(false);
     if (deletedCount !== deletes.length || trimmedOkIds.size !== chargeableTrims.length) {
       showToast(
-        "Some actions skipped",
-        `${deletedCount}/${deletes.length} deleted and ${trimmedOkIds.size}/${chargeableTrims.length} trimmed. ${trimFailureSummary(trimmedResults)}`.trim(),
+        t("ui.some-actions-skipped"),
+        t("ui.actions-result-summary", { deleted: deletedCount, deleteTotal: deletes.length, trimmed: trimmedOkIds.size, trimTotal: chargeableTrims.length, details: trimFailureSummary(trimmedResults) }).trim(),
         "warning",
       );
     }
@@ -1431,7 +1563,17 @@ export function NativeTrimSwipeApp() {
     setPendingTrims(pendingTrimsRef.current);
     setRecap({ ...sessionRef.current });
     if (totalActions >= 5) {
-      await notifyCleanupProgress("Cleanup complete", `Saved about ${formatMB(sessionRef.current.freed)}.`);
+      await notifyCleanupProgress(t("ui.cleanup-complete"), t("ui.saved-about", { value: formatMB(sessionRef.current.freed) }));
+    }
+    if (firstSuccessfulCleanup && !settings.smartReminders.enabled) {
+      Alert.alert(
+        t("ui.keep-your-cleanup-momentum"),
+        t("ui.trimswipe-can-send-occasional-reminders-when-you"),
+        [
+          { text: t("ui.not-now"), style: "cancel" },
+          { text: t("ui.enable-reminders"), onPress: () => updateSettings({ smartReminders: { ...settings.smartReminders, enabled: true } }) },
+        ],
+      );
     }
     maybeShowInterstitialAfterCleanup(
       sessionRef.current.kept + sessionRef.current.deleted + sessionRef.current.trimmed,
@@ -1454,14 +1596,15 @@ export function NativeTrimSwipeApp() {
 
   function openRecentlyDeleted() {
     showToast(
-      "Restore deleted photos",
-      "Photos opens now. Go to Albums > Recently Deleted, select the photo, then tap Recover.",
+      t("ui.restore-deleted-photos"),
+      t("ui.restore-deleted-instructions"),
       "info",
     );
     void Linking.openURL("photos-redirect://").catch(() => Linking.openSettings());
   }
 
   function cancelPendingActions() {
+    discardAllPreparedTrims();
     pendingDeletesRef.current = [];
     pendingTrimsRef.current = [];
     setPendingDeletes([]);
@@ -1484,6 +1627,12 @@ export function NativeTrimSwipeApp() {
       ...current,
       settings: roundSettings({ ...current.settings, ...patch }),
     }));
+    if (patch.smartReminders?.enabled === true) {
+      void syncRemoteCleanupReminders(settings.backgroundScanSchedules, { requestPermission: true }, {
+        ...engagementPayload,
+        preferences: { ...settings.smartReminders, ...patch.smartReminders },
+      });
+    }
   }
 
   function changeScreen(nextScreen: Screen) {
@@ -1506,11 +1655,26 @@ export function NativeTrimSwipeApp() {
     scheduleId: string,
     updater: (schedule: NativeBackgroundScanSchedule) => NativeBackgroundScanSchedule,
   ) {
-    setBackgroundSchedules(
-      settings.backgroundScanSchedules.map((schedule) =>
-        schedule.id === scheduleId ? updater(schedule) : schedule,
-      ),
+    const currentSchedules = (pendingSettingsRef.current ?? settings).backgroundScanSchedules;
+    const hadActiveSchedule = currentSchedules.some((schedule) => schedule.active);
+    const nextSchedules = currentSchedules.map((schedule) =>
+      schedule.id === scheduleId ? updater(schedule) : schedule,
     );
+    const hasActiveSchedule = nextSchedules.some((schedule) => schedule.active);
+    setBackgroundSchedules(nextSchedules);
+
+    if (hadActiveSchedule === hasActiveSchedule) return;
+    void syncRemoteCleanupReminders(nextSchedules, {
+      requestPermission: hasActiveSchedule,
+    }, engagementPayload).then((result) => {
+      if (!result.configured) {
+        showToast(t("ui.cloud-reminders-not-configured"), t("ui.add-the-firebase-environment-values-before-enabl"), "warning");
+      } else if (hasActiveSchedule && !result.permissionGranted) {
+        showToast(t("ui.notifications-are-off"), t("ui.allow-notifications-in-ios-settings-to-receive-c"), "warning");
+      } else if (result.error) {
+        showToast(t("ui.reminder-sync-failed"), t("ui.your-schedule-is-saved-locally-cloud-reminders-w"), "warning");
+      }
+    });
   }
 
   function addBackgroundSchedule() {
@@ -1519,7 +1683,7 @@ export function NativeTrimSwipeApp() {
       ...settings.backgroundScanSchedules,
       {
         id: `cleanup-check-${Date.now()}`,
-        label: `Cleanup check ${nextIndex}`,
+        label: t("ui.automation-check-number", { count: nextIndex }),
         active: false,
         days: [1, 2, 3, 4, 5],
         times: ["09:00"],
@@ -1549,13 +1713,13 @@ export function NativeTrimSwipeApp() {
   }
 
   function planTitleForCategory(category: NativeCleanupCategory, planSettings: NativeSettings): string {
-    if (category === "large") return `Photos >${formatSizeThreshold(planSettings.minSizeMB)}`;
-    if (category === "old") return `Photos >${formatAgeThreshold(planSettings.minAgeYears)} old`;
-    if (category === "screenshots") return "Screenshots";
-    if (category === "live") return "Live Photos";
-    if (category === "duplicates") return "Similar Photos";
-    if (category === "bursts") return "Bursts";
-    return "Likely mistakes";
+    if (category === "large") return t("ui.photos-over-size", { value: formatSizeThreshold(planSettings.minSizeMB) });
+    if (category === "old") return t("ui.photos-over-age", { value: formatAgeThreshold(planSettings.minAgeYears) });
+    if (category === "screenshots") return t("ui.screenshots");
+    if (category === "live") return t("ui.live-photos");
+    if (category === "duplicates") return t("ui.similar-photos");
+    if (category === "bursts") return t("ui.home-bursts");
+    return t("ui.likely-mistakes");
   }
 
   async function buildExactCleanupPlan(
@@ -1569,7 +1733,7 @@ export function NativeTrimSwipeApp() {
       const deleteCandidates = screens.deleteCandidates;
       return {
         category: "screenshots",
-        title: "Screenshots",
+        title: t("ui.screenshots"),
         candidates: deleteCandidates,
         deleteCandidates,
         trimCandidates: [],
@@ -1617,7 +1781,7 @@ export function NativeTrimSwipeApp() {
     const trimCandidates = [...byId.values()].slice(0, count);
     return {
       category: "large",
-      title: "Trimmable photos",
+      title: t("ui.trimmable-photos"),
       candidates: trimCandidates,
       deleteCandidates: [],
       trimCandidates,
@@ -1640,7 +1804,7 @@ export function NativeTrimSwipeApp() {
       if (cleanupActionCount(withRecent) > 0) {
         return {
           plan: withRecent,
-          fallbackNotice: "Included previously reviewed photos because that setting is enabled.",
+          fallbackNotice: t("ui.included-previously-reviewed-photos-because-that"),
         };
       }
     }
@@ -1662,7 +1826,7 @@ export function NativeTrimSwipeApp() {
       if (cleanupActionCount(plan) > 0) {
         return {
           plan,
-          fallbackNotice: "No exact matches were found, so the filter was widened slightly.",
+          fallbackNotice: t("ui.no-exact-matches-were-found-so-the-filter-was-wi"),
         };
       }
     }
@@ -1672,7 +1836,7 @@ export function NativeTrimSwipeApp() {
       plan: fallbackPlan,
       fallbackNotice:
         cleanupActionCount(fallbackPlan) > 0
-          ? "No exact matches were found, so a nearby trimmable set was loaded instead."
+          ? t("ui.no-exact-matches-were-found-so-a-nearby-trimmabl")
           : undefined,
     };
   }
@@ -1689,7 +1853,7 @@ export function NativeTrimSwipeApp() {
       const permission = await requestPhotoPermission();
       if (!permission.granted) {
         setPermissionDenied(true);
-        showToast("Photo access needed", "Open iOS Settings to preview cleanup folders.", "warning");
+        showToast(t("ui.photo-access-needed"), t("ui.open-ios-settings-to-preview-cleanup-folders"), "warning");
         return;
       }
       setPermissionDenied(false);
@@ -1697,10 +1861,10 @@ export function NativeTrimSwipeApp() {
       const { plan, fallbackNotice } = await loadCleanupPlanWithFallback(category, 24, settings, avoidIds);
       setCleanupPlan(plan);
       if (fallbackNotice) {
-        showToast("Filter widened", fallbackNotice, "info");
+        showToast(t("ui.filter-widened"), fallbackNotice, "info");
       }
     } catch (error) {
-      showToast("Preview failed", error instanceof Error ? error.message : "Could not build this cleanup folder.", "error");
+      showToast(t("ui.preview-failed"), error instanceof Error ? error.message : t("ui.could-not-build-this-cleanup-folder"), "error");
     } finally {
       setCleanupPlanBusy(false);
     }
@@ -1708,7 +1872,7 @@ export function NativeTrimSwipeApp() {
 
   async function openDeepClean() {
     if (!isPro) {
-      showToast("Deep Clean is Pro", "Lifetime Pro unlocks the guided full-library scan.", "info");
+      showToast(t("ui.deep-clean-is-pro"), t("ui.lifetime-pro-unlocks-the-guided-full-library-sca"), "info");
       setScreen("shop");
       return;
     }
@@ -1736,7 +1900,7 @@ export function NativeTrimSwipeApp() {
       const deleteCandidates = [...deleteById.values()];
       setCleanupPlan({
         category: "mistakes",
-        title: "Deep Clean",
+        title: t("ui.deep-clean"),
         candidates: [...deleteCandidates, ...trimCandidates],
         deleteCandidates,
         trimCandidates,
@@ -1744,7 +1908,7 @@ export function NativeTrimSwipeApp() {
         estimatedTrimSavingsMB: +trimCandidates.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0).toFixed(2),
       });
     } catch (error) {
-      showToast("Deep Clean failed", error instanceof Error ? error.message : "Could not build a Deep Clean preview.", "error");
+      showToast(t("ui.deep-clean-failed"), error instanceof Error ? error.message : t("ui.could-not-build-a-deep-clean-preview"), "error");
     } finally {
       setCleanupPlanBusy(false);
     }
@@ -1754,13 +1918,13 @@ export function NativeTrimSwipeApp() {
     const permission = await requestPhotoPermission();
     if (!permission.granted) {
       setPermissionDenied(true);
-      showToast("Photo access needed", "Open iOS Settings to review trimmable photos.", "warning");
+      showToast(t("ui.photo-access-needed"), t("ui.open-ios-settings-to-review-trimmable-photos"), "warning");
       return [];
     }
     setPermissionDenied(false);
     const plan = await buildTrimmableFallbackPlan(count, settings, currentAvoidIds());
     if (plan.trimCandidates.length === 0) {
-      showToast("No trimmable photos", "No local photos currently have useful trim savings.", "info");
+      showToast(t("ui.no-trimmable-photos"), t("ui.no-local-photos-currently-have-useful-trim-savin"), "info");
     }
     return plan.trimCandidates;
   }
@@ -1795,11 +1959,11 @@ export function NativeTrimSwipeApp() {
     // picker immediately and return with a confirmation only when the set is ready.
     setTrimActionPickerVisible(false);
     setTrimActionLoading(true);
-    showToast("Finding photos", `Preparing up to ${BULK_TRIM_LIMIT} trimmable photos in the background.`, "info");
+    showToast(t("ui.finding-photos"), t("ui.preparing-trimmable-photos", { count: BULK_TRIM_LIMIT }), "info");
     try {
       const availableTrimSlots = hasUnlimitedTrims ? BULK_TRIM_LIMIT : Math.min(BULK_TRIM_LIMIT, tokenBalance);
       if (availableTrimSlots === 0) {
-        showToast("No trim tokens", "Claim tokens, watch an ad, or upgrade before bulk trimming.", "warning");
+        showToast(t("ui.no-trim-tokens"), t("ui.claim-tokens-watch-an-ad-or-upgrade-before-bulk-"), "warning");
         return;
       }
       const photos = await loadTrimmablePhotos(availableTrimSlots);
@@ -1807,9 +1971,9 @@ export function NativeTrimSwipeApp() {
       const candidates = photos.slice(0, availableTrimSlots);
       const estimated = candidates.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0);
       await requestConfirmation({
-        title: `Trim ${candidates.length} photos?`,
-        detail: `The photos are ready. Trimming will continue in the background and may save about ${formatMB(estimated)}. Their original capture dates will be retained. iOS may ask once before replacing originals.`,
-        confirmLabel: `Trim ${candidates.length}`,
+        title: t("ui.trim-photos-question", { count: candidates.length }),
+        detail: t("ui.trim-background-confirm-detail", { value: formatMB(estimated) }),
+        confirmLabel: t("ui.trim-count", { count: candidates.length }),
         runInBackground: true,
         onConfirm: async () => {
           await confirmActions([], candidates);
@@ -1879,7 +2043,7 @@ export function NativeTrimSwipeApp() {
 
     return {
       category: "mistakes",
-      title: `${schedule.label} suggestions`,
+      title: t("ui.cleanup-suggestions-ready"),
       candidates: [...selectedDeletes, ...selectedTrims],
       deleteCandidates: selectedDeletes,
       trimCandidates: selectedTrims,
@@ -1898,36 +2062,36 @@ export function NativeTrimSwipeApp() {
       const permission = await requestPhotoPermission();
       if (!permission.granted) {
         setPermissionDenied(true);
-        showToast("Photo access needed", "Allow photo access to run scheduled cleanup checks.", "warning");
+        showToast(t("ui.photo-access-needed"), t("ui.allow-photo-access-to-run-scheduled-cleanup-chec"), "warning");
         markBackgroundScheduleRun(schedule.id, false);
         return;
       }
       setPermissionDenied(false);
-      await notifyCleanupProgress("TrimSwipe check started", `${schedule.label} is looking for about ${formatMB(schedule.targetMB)} to clear.`);
+      await notifyCleanupProgress(t("ui.trimswipe-check-started"), t("ui.looking-for-easy-storage-wins"));
       const plan = await buildBackgroundCleanupPlan(schedule);
       const hasSuggestion = cleanupPlanActionCount(plan) > 0;
       markBackgroundScheduleRun(schedule.id, hasSuggestion);
 
       if (!hasSuggestion) {
         if (source === "manual") setScreen("automation");
-        showToast("No cleanup suggestion", "This check did not find enough local photos to recommend.", "info");
+        showToast(t("ui.no-cleanup-suggestion"), t("ui.this-check-did-not-find-enough-local-photos-to-r"), "info");
         return;
       }
 
       setCleanupPlan(plan);
       setScreen("cleanup-plan");
       await notifyCleanupProgress(
-        "Cleanup suggestions ready",
-        `${formatMB(cleanupPlanSavings(plan))} found. Confirm before anything is changed.`,
+        t("ui.cleanup-suggestions-ready"),
+        t("ui.saved-about", { value: formatMB(cleanupPlanSavings(plan)) }),
       );
       showToast(
-        source === "scheduled" ? "Scheduled scan complete" : "Scan complete",
-        `${formatMB(cleanupPlanSavings(plan))} ready for confirmation.`,
+        source === "scheduled" ? t("ui.scheduled-scan-complete") : t("ui.scan-complete"),
+        t("ui.review-photos"),
         "success",
       );
     } catch (error) {
       markBackgroundScheduleRun(schedule.id, false);
-      showToast("Scheduled scan failed", error instanceof Error ? error.message : "Could not build cleanup suggestions.", "error");
+      showToast(t("ui.scheduled-scan-failed"), error instanceof Error ? error.message : t("ui.could-not-build-cleanup-suggestions"), "error");
     } finally {
       scheduledScanBusyRef.current = false;
       setCleanupPlanBusy(false);
@@ -1955,9 +2119,9 @@ export function NativeTrimSwipeApp() {
     const sub = AppState.addEventListener("change", (nextState) => {
       const previousState = appStateRef.current;
       appStateRef.current = nextState;
-      if (!isPro) return;
       if ((previousState === "background" || previousState === "inactive") && nextState === "active") {
-        void runDueBackgroundScans();
+        commitStats((current) => ({ ...current, lastActiveAt: new Date().toISOString() }));
+        if (isPro) void runDueBackgroundScans();
       }
     });
     return () => sub.remove();
@@ -1972,17 +2136,17 @@ export function NativeTrimSwipeApp() {
     const available = hasUnlimitedTrims ? photos.length : tokenBalance;
     const candidates = photos.filter((photo) => canAttemptTrim(photo, settings)).slice(0, available);
     if (available <= 0) {
-      showToast("Not enough tokens", "Claim daily tokens, watch an ad, or visit the shop.", "warning");
+      showToast(t("ui.not-enough-tokens"), t("ui.claim-daily-tokens-watch-an-ad-or-visit-the-shop"), "warning");
       return;
     }
     if (candidates.length === 0) {
-      showToast("Nothing local to trim", "This deck only has iCloud-only or unavailable photos.", "warning");
+      showToast(t("ui.nothing-local-to-trim"), t("ui.this-deck-only-has-icloud-only-or-unavailable-ph"), "warning");
       return;
     }
     setBulkBusy(true);
     setTrimmingCount((count) => count + candidates.length);
     if (candidates.length >= 5) {
-      await notifyCleanupProgress("Trim batch started", `Optimizing ${candidates.length} photos.`);
+      await notifyCleanupProgress(t("ui.trim-batch-started"), t("ui.applying"));
     }
     const results = await commitTrims(
       candidates,
@@ -2026,11 +2190,11 @@ export function NativeTrimSwipeApp() {
     setTrimmingCount((count) => Math.max(0, count - candidates.length));
     setBulkBusy(false);
     if (candidates.length >= 5) {
-      await notifyCleanupProgress("Trim batch complete", `Optimized ${trimmed.length} photos.`);
+      await notifyCleanupProgress(t("ui.trim-batch-complete"), t("ui.optimized-photos", { count: trimmed.length }));
     }
     maybeShowInterstitialAfterCleanup(trimmed.length);
     if (trimmed.length !== candidates.length) {
-      showToast("Trim incomplete", `${trimmed.length}/${candidates.length} photos trimmed. ${trimFailureSummary(results.map((item) => ({ id: item.photo.id, trimmed: item.trimmed, error: item.error })))}`.trim(), "warning");
+      showToast(t("ui.trim-incomplete"), t("ui.trimmed-result-summary", { trimmed: trimmed.length, total: candidates.length, details: trimFailureSummary(results.map((item) => ({ id: item.photo.id, trimmed: item.trimmed, error: item.error }))) }).trim(), "warning");
     }
   }
 
@@ -2043,15 +2207,15 @@ export function NativeTrimSwipeApp() {
     const trimCandidates = toTrim.filter((photo) => canAttemptTrim(photo, settings)).slice(0, available);
     if (trimCandidates.length < toTrim.length) {
       showToast(
-        "Not enough tokens",
-        `${trimCandidates.length}/${toTrim.length} selected trims can be applied. Cloud-only photos cannot be trimmed until downloaded.`,
+        t("ui.not-enough-tokens"),
+        t("ui.selected-trims-cloud-limit", { selected: trimCandidates.length, total: toTrim.length }),
         "warning",
       );
     }
 
     return requestConfirmation({
-      title: "Apply suggested removals?",
-      detail: `Delete ${deleted.length} and trim ${trimCandidates.length}${trimCandidates.length < toTrim.length ? ` of ${toTrim.length}` : ""} photo${deleted.length + trimCandidates.length === 1 ? "" : "s"}.`,
+      title: t("ui.apply-suggested-removals"),
+      detail: t("ui.delete-trim-count", { deleted: deleted.length, trimmed: trimCandidates.length, total: toTrim.length }),
       danger: deleted.length > 0,
       runInBackground: trimCandidates.length > 0,
       onConfirm: async () => {
@@ -2118,12 +2282,12 @@ export function NativeTrimSwipeApp() {
             }
             if (deleteResult.deleted !== deleted.length || trimmed.length !== trimCandidates.length) {
               showToast(
-                "Apply incomplete",
-                `${deleteResult.deleted}/${deleted.length} deleted and ${trimmed.length}/${trimCandidates.length} trimmed. ${trimFailureSummary(results.map((result, index) => ({ id: trimCandidates[index]?.id ?? String(index), trimmed: result.trimmed, error: result.error })))}`.trim(),
+                t("ui.apply-incomplete"),
+                t("ui.actions-result-summary", { deleted: deleteResult.deleted, deleteTotal: deleted.length, trimmed: trimmed.length, trimTotal: trimCandidates.length, details: trimFailureSummary(results.map((result, index) => ({ id: trimCandidates[index]?.id ?? String(index), trimmed: result.trimmed, error: result.error }))) }).trim(),
                 "warning",
               );
             }
-            console.log("[NativeTrimSwipe] This-or-That trim result", {
+            console.log(t("ui.nativetrimswipe-this-or-that-trim-result"), {
               requested: trimCandidates.length,
               trimmed: trimmed.length,
             });
@@ -2142,16 +2306,16 @@ export function NativeTrimSwipeApp() {
     const available = hasUnlimitedTrims ? toTrim.length : tokenBalance;
     const trimCandidates = toTrim.filter((photo) => canAttemptTrim(photo, settings)).slice(0, available);
     if (trimCandidates.length < toTrim.length) {
-      showToast("Not enough tokens", `${trimCandidates.length}/${toTrim.length} selected trims can be applied.`, "warning");
+      showToast(t("ui.not-enough-tokens"), t("ui.selected-trims-limit", { selected: trimCandidates.length, total: toTrim.length }), "warning");
     }
     const trimSavings = trimCandidates.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0);
     if (kept.length + deleted.length + toTrim.length === 0) return 0;
 
     return requestConfirmation({
-      title: deleted.length === 0 && toTrim.length === 0 ? "Keep all photos?" : "Apply your budget choices?",
+      title: deleted.length === 0 && toTrim.length === 0 ? t("ui.keep-all-photos") : t("ui.apply-your-budget-choices"),
       detail: deleted.length === 0 && toTrim.length === 0
-        ? `Keep all ${kept.length} photos unchanged and finish this plan.`
-        : `Delete ${deleted.length} and trim ${trimCandidates.length}${trimCandidates.length < toTrim.length ? ` of ${toTrim.length}` : ""} photo${deleted.length + trimCandidates.length === 1 ? "" : "s"} for about ${formatMB(deleteSavings + trimSavings)} saved.`,
+        ? t("ui.keep-all-count-finish", { count: kept.length })
+        : t("ui.delete-trim-savings", { deleted: deleted.length, trimmed: trimCandidates.length, total: toTrim.length, value: formatMB(deleteSavings + trimSavings) }),
       danger: deleted.length > 0,
       runInBackground: trimCandidates.length > 0,
       onConfirm: async () => {
@@ -2215,8 +2379,8 @@ export function NativeTrimSwipeApp() {
 
               if (deleteResult.deleted !== deleted.length || trimmedPhotos.length !== trimCandidates.length) {
                 showToast(
-                  "Budget partly applied",
-                  `${deleteResult.deleted}/${deleted.length} deleted and ${trimmedPhotos.length}/${trimCandidates.length} trimmed. ${trimFailureSummary(trimResults.map((result, index) => ({ id: trimCandidates[index]?.id ?? String(index), trimmed: result.trimmed, error: result.error })))}`.trim(),
+                  t("ui.budget-partly-applied"),
+                  t("ui.actions-result-summary", { deleted: deleteResult.deleted, deleteTotal: deleted.length, trimmed: trimmedPhotos.length, trimTotal: trimCandidates.length, details: trimFailureSummary(trimResults.map((result, index) => ({ id: trimCandidates[index]?.id ?? String(index), trimmed: result.trimmed, error: result.error }))) }).trim(),
                   "warning",
                 );
               }
@@ -2235,13 +2399,13 @@ export function NativeTrimSwipeApp() {
     const available = hasUnlimitedTrims ? toTrim.length : tokenBalance;
     const trimCandidates = toTrim.filter((photo) => canAttemptTrim(photo, settings)).slice(0, available);
     if (trimCandidates.length < toTrim.length) {
-      showToast("Not enough tokens", `${trimCandidates.length}/${toTrim.length} selected trims can be applied.`, "warning");
+      showToast(t("ui.not-enough-tokens"), t("ui.selected-trims-limit", { selected: trimCandidates.length, total: toTrim.length }), "warning");
     }
     const trimSavings = trimCandidates.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0);
 
     return requestConfirmation({
-      title: "Apply Past Moments choices?",
-      detail: `Delete ${deleted.length} and trim ${trimCandidates.length}${trimCandidates.length < toTrim.length ? ` of ${toTrim.length}` : ""} photo${deleted.length + trimCandidates.length === 1 ? "" : "s"} for about ${formatMB(deleteSavings + trimSavings)} saved.`,
+      title: t("ui.apply-past-moments-choices"),
+      detail: t("ui.delete-trim-savings", { deleted: deleted.length, trimmed: trimCandidates.length, total: toTrim.length, value: formatMB(deleteSavings + trimSavings) }),
       danger: deleted.length > 0,
       runInBackground: trimCandidates.length > 0,
       onConfirm: async () => {
@@ -2305,8 +2469,8 @@ export function NativeTrimSwipeApp() {
 
               if (deleteResult.deleted !== deleted.length || trimmedPhotos.length !== trimCandidates.length) {
                 showToast(
-                  "Past Moments partly applied",
-                  `${deleteResult.deleted}/${deleted.length} deleted and ${trimmedPhotos.length}/${trimCandidates.length} trimmed. ${trimFailureSummary(trimResults.map((result, index) => ({ id: trimCandidates[index]?.id ?? String(index), trimmed: result.trimmed, error: result.error })))}`.trim(),
+                  t("ui.past-moments-partly-applied"),
+                  t("ui.actions-result-summary", { deleted: deleteResult.deleted, deleteTotal: deleted.length, trimmed: trimmedPhotos.length, trimTotal: trimCandidates.length, details: trimFailureSummary(trimResults.map((result, index) => ({ id: trimCandidates[index]?.id ?? String(index), trimmed: result.trimmed, error: result.error }))) }).trim(),
                   "warning",
                 );
               }
@@ -2370,7 +2534,7 @@ export function NativeTrimSwipeApp() {
         {!statsLoaded ? (
           <Centered>
             <ActivityIndicator color="#315f7d" size="large" />
-            <Text style={styles.muted}>Preparing TrimSwipe...</Text>
+            <Text style={styles.muted}>{t("ui.preparing-trimswipe")}</Text>
           </Centered>
         ) : onboardingDue ? (
           <OnboardingCarousel appVersion={APP_VERSION} onDone={completeOnboarding} />
@@ -2400,6 +2564,7 @@ export function NativeTrimSwipeApp() {
             onReload={() => loadRound(settings, { showFallbackToast: true })}
             onOpenSettings={() => Linking.openSettings()}
             isPro={isPro}
+            hasUnlimitedTrims={hasUnlimitedTrims}
             adEligibilityReady={purchaseAccessReady}
             onChangeSettings={updateSettings}
             onConfirmActions={confirmActions}
@@ -2427,7 +2592,7 @@ export function NativeTrimSwipeApp() {
           <ThisOrThatScreen
             settings={settings}
             tokens={tokenBalance}
-            isPro={isPro}
+            hasUnlimitedTrims={hasUnlimitedTrims}
             avoidIds={currentAvoidIds()}
             onBack={() => setScreen("games")}
             onConfirmOutcome={confirmThisOrThatOutcome}
@@ -2436,7 +2601,7 @@ export function NativeTrimSwipeApp() {
           <StorageBudgetScreen
             settings={settings}
             tokens={tokenBalance}
-            isPro={isPro}
+            hasUnlimitedTrims={hasUnlimitedTrims}
             trimsRemaining={trimCurrencyAvailable}
             avoidIds={currentAvoidIds()}
             onBack={() => setScreen("games")}
@@ -2447,7 +2612,7 @@ export function NativeTrimSwipeApp() {
           <MemoryLaneScreen
             settings={settings}
             tokens={tokenBalance}
-            isPro={isPro}
+            hasUnlimitedTrims={hasUnlimitedTrims}
             avoidIds={currentAvoidIds()}
             trimsRemaining={trimCurrencyAvailable}
             onBack={() => setScreen("games")}
@@ -2478,9 +2643,9 @@ export function NativeTrimSwipeApp() {
             onConfirm={(deletes, trims) => {
               setCleanupPlan(null);
               setScreen("swipe");
-              showToast("Cleanup started", "You can keep using TrimSwipe while the batch runs.", "info");
+              showToast(t("ui.cleanup-started"), t("ui.you-can-keep-using-trimswipe-while-the-batch-run"), "info");
               void confirmActions(deletes, trims).catch((err) => {
-                showToast("Cleanup failed", err instanceof Error ? err.message : "Please try again.", "error");
+                showToast(t("ui.cleanup-failed"), err instanceof Error ? err.message : t("ui.please-try-again"), "error");
               });
             }}
             trimsRemaining={trimCurrencyAvailable}
@@ -2518,7 +2683,7 @@ export function NativeTrimSwipeApp() {
             queue={queue}
             scan={libraryScan}
             tokens={tokenBalance}
-            isPro={isPro}
+            hasUnlimitedTrims={hasUnlimitedTrims}
             onStartGame={startGame}
             onPickCategory={openCleanupCategory}
             onChangeSettings={updateSettings}
@@ -2550,7 +2715,7 @@ export function NativeTrimSwipeApp() {
             onQuickScan={runLibraryScan}
             onDeepClean={openDeepClean}
             onOptimizeStorage={() => {
-              showToast("Open Settings", "Go to Photos > Optimize iPhone Storage.", "info");
+              showToast(t("ui.open-settings"), t("ui.optimize-storage-instructions"), "info");
               void Linking.openSettings();
             }}
             onOpenRecentlyDeleted={openRecentlyDeleted}
@@ -2565,6 +2730,35 @@ export function NativeTrimSwipeApp() {
             activeProductId={activeProductId}
             samplePhoto={top ?? queue[0]}
             onChange={updateSettings}
+            onChangeLanguage={async (appLanguage) => {
+              const rightToLeft = appLanguage === "ar";
+              const directionChanged = rightToLeft !== I18nManager.isRTL;
+              const nextSettings = roundSettings({
+                ...(pendingSettingsRef.current ?? settings),
+                appLanguage,
+              });
+              I18nManager.allowRTL(rightToLeft);
+              I18nManager.forceRTL(rightToLeft);
+              pendingSettingsRef.current = nextSettings;
+              const nextStats = {
+                ...stats,
+                settings: nextSettings,
+              };
+              setStats(nextStats);
+              await saveNativeStats(nextStats);
+              if (Platform.OS === "web") {
+                if (typeof document !== "undefined") document.documentElement.dir = rightToLeft ? "rtl" : "ltr";
+                return;
+              }
+              if (directionChanged) {
+                try {
+                  await reloadAppAsync("language-direction-changed");
+                } catch {
+                  // Expo Go cannot reliably restart after a dynamic RTL switch.
+                  // The selected language remains saved and applies on the next launch.
+                }
+              }
+            }}
             onReload={reloadSettingsRound}
             onCreateReport={openCleanupReport}
             onRestorePurchases={async () => {
@@ -2576,10 +2770,10 @@ export function NativeTrimSwipeApp() {
               setHasUnlimitedTrims(access.hasUnlimitedTrims);
               setActiveProductId(access.activeProductId);
               showToast(
-                access.isPro ? "Restored" : "Nothing to restore",
+                access.isPro ? "Restored" : t("ui.nothing-to-restore"),
                 access.isPro
-                  ? "Premium access restored."
-                  : "No active purchases were found for this Apple ID.",
+                  ? t("ui.premium-access-restored")
+                  : t("ui.no-active-purchases-were-found-for-this-apple-id"),
                 access.isPro ? "success" : "warning",
               );
             }}
@@ -2590,8 +2784,8 @@ export function NativeTrimSwipeApp() {
               setHasUnlimitedTrims(false);
               setActiveProductId(null);
               showToast(
-                "Signed out",
-                "Premium benefits are disconnected on this device. Your App Store purchases are unchanged.",
+                t("ui.signed-out"),
+                t("ui.premium-benefits-are-disconnected-on-this-device"),
                 "success",
               );
             }}
@@ -2599,7 +2793,7 @@ export function NativeTrimSwipeApp() {
               try {
                 await Linking.openURL("https://apps.apple.com/account/subscriptions");
               } catch {
-                showToast("Could not open subscriptions", "Open Settings > Apple Account > Subscriptions.", "warning");
+                showToast(t("ui.could-not-open-subscriptions"), t("ui.open-subscriptions-instructions"), "warning");
               }
             }}
           />
@@ -2685,41 +2879,41 @@ function canAttemptTrim(
 
 function trimReviewHint(photo: NativePhoto, settings: NativeSettings): string {
   const status = trimStatusForSettings(photo, settings);
-  if (!status.canTrim) return `Cannot trim: ${trimDisabledReason(photo, settings, "detail")}`;
-  return `Image size: ${formatMB(photo.sizeMB)} - Trim: -${formatMB(estimateTrimSavingsForSettings(photo, settings))}`;
+  if (!status.canTrim) return t("ui.cannot-trim-detail", { reason: trimDisabledReason(photo, settings, "detail") });
+  return t("ui.image-trim-savings", { size: formatMB(photo.sizeMB), value: formatMB(estimateTrimSavingsForSettings(photo, settings)) });
 }
 
 function trimDisabledReason(photo: NativePhoto, settings: NativeSettings, variant: "short" | "detail" = "short"): string {
   const source = photo.localUri || photo.uri;
   const status = trimStatusForSettings(photo, settings);
   if (photo.isCloudAsset || !source || source.startsWith("ph://")) {
-    return variant === "short" ? "iCloud only" : "photo is not downloaded locally";
+    return variant === "short" ? t("ui.icloud-only") : t("ui.photo-not-downloaded");
   }
   if (photo.sizeMB <= 1) {
-    return variant === "short" ? "Too small" : "file is too small to save meaningful space";
+    return variant === "short" ? t("ui.too-small") : t("ui.file-too-small");
   }
   if (photo.trimState?.blockedReason === "already-optimized") {
-    return variant === "short" ? "Optimized" : "already optimized; re-encoding would not make it smaller";
+    return variant === "short" ? t("ui.already-optimized") : t("ui.already-optimized-detail");
   }
-  if (status.statusLabel === "Already trimmed" || status.nextLabel === "Already trimmed") {
-    return variant === "short" ? "Already trimmed" : "all selected trim data was already removed";
+  if (status.statusLabel === t("ui.already-trimmed") || status.nextLabel === t("ui.already-trimmed")) {
+    return variant === "short" ? t("ui.already-trimmed") : t("ui.all-trim-data-removed");
   }
   if (status.nextKinds.length === 0) {
-    return variant === "short" ? "No trim left" : "none of the selected trim actions apply";
+    return variant === "short" ? t("ui.no-trim-left") : t("ui.no-selected-trim-actions");
   }
   if (estimateTrimSavingsForSettings(photo, settings) <= 0) {
-    return variant === "short" ? "No saving" : "selected trims are not expected to reduce this file";
+    return variant === "short" ? t("ui.no-saving") : t("ui.trims-no-saving");
   }
-  return variant === "short" ? "Unavailable" : status.statusLabel;
+  return variant === "short" ? t("ui.unavailable") : status.statusLabel;
 }
 
 function trimmedPhotoLabel(photo: NativePhoto, settings?: NativeSettings): string | null {
   if (!photo.trimState) return null;
-  if (photo.trimState.blockedReason === "already-optimized") return "Trimmed max";
+  if (photo.trimState.blockedReason === "already-optimized") return t("ui.trimmed-max");
   if (settings && trimStatusForSettings(photo, settings).nextKinds.length === 0) {
-    return "Trimmed max";
+    return t("ui.trimmed-max");
   }
-  return "Trimmed";
+  return t("ui.trimmed");
 }
 
 function pickStorageBudgetPool(photos: NativePhoto[]): NativePhoto[] {
@@ -2798,8 +2992,8 @@ function CleanupPlanScreen({
     return (
       <Centered>
         <ActivityIndicator color="#315f7d" size="large" />
-        <Text style={styles.heroTitle}>Building preview</Text>
-        <Text style={styles.centerText}>Finding the photos that will make the biggest dent.</Text>
+        <Text style={styles.heroTitle}>{t("ui.building-preview")}</Text>
+        <Text style={styles.centerText}>{t("ui.finding-the-photos-that-will-make-the-biggest-de")}</Text>
       </Centered>
     );
   }
@@ -2807,9 +3001,9 @@ function CleanupPlanScreen({
   if (!plan) {
     return (
       <Centered>
-        <Text style={styles.heroTitle}>No cleanup preview</Text>
-        <Text style={styles.centerText}>Run a scan or pick another smart folder.</Text>
-        <PrimaryButton label="Back home" onPress={onBack} />
+        <Text style={styles.heroTitle}>{t("ui.no-cleanup-preview")}</Text>
+        <Text style={styles.centerText}>{t("ui.run-a-scan-or-pick-another-smart-folder")}</Text>
+        <PrimaryButton label={t("ui.back-home")} onPress={onBack} />
       </Centered>
     );
   }
@@ -2821,16 +3015,16 @@ function CleanupPlanScreen({
     (plan.category === "duplicates" || plan.category === "bursts") && plan.candidates.length > 0
       ? plan.candidates[0]
       : null;
-  const deepCleanLocked = plan.title === "Deep Clean" && !isPro;
+  const deepCleanLocked = plan.title === t("ui.deep-clean") && !isPro;
   const actionCount = plan.deleteCandidates.length + plan.trimCandidates.length;
 
   if (deepCleanLocked) {
     return (
       <Centered>
-        <Text style={styles.heroTitle}>Deep Clean is Pro</Text>
-        <Text style={styles.centerText}>Lifetime Pro unlocks the guided full-library scan and auto-action preview.</Text>
-        <PrimaryButton label="Open Lifetime Pro" onPress={onOpenShop} />
-        <SecondaryButton label="Back home" onPress={onBack} />
+        <Text style={styles.heroTitle}>{t("ui.deep-clean-is-pro")}</Text>
+        <Text style={styles.centerText}>{t("ui.lifetime-pro-unlocks-the-guided-full-library-sca")}</Text>
+        <PrimaryButton label={t("ui.open-lifetime-pro")} onPress={onOpenShop} />
+        <SecondaryButton label={t("ui.back-home")} onPress={onBack} />
       </Centered>
     );
   }
@@ -2842,8 +3036,8 @@ function CleanupPlanScreen({
         <Text style={styles.centerText}>
           No matching local photos were found for this preview. Pick another smart folder or reload after changing focus.
         </Text>
-        {onRetry ? <PrimaryButton label="Try broader preview" onPress={onRetry} /> : null}
-        <SecondaryButton label="Back home" onPress={onBack} />
+        {onRetry ? <PrimaryButton label={t("ui.try-broader-preview")} onPress={onRetry} /> : null}
+        <SecondaryButton label={t("ui.back-home")} onPress={onBack} />
       </Centered>
     );
   }
@@ -2853,18 +3047,18 @@ function CleanupPlanScreen({
       title={plan.title}
       detail={
         bestKept
-          ? `Best kept: ${bestKept.title}. Review the rest before applying.`
-          : `Preview ${actionCount} actions before anything changes.`
+          ? t("ui.suggested-to-keep")
+          : t("ui.every-batch-is-previewed-first")
       }
       beforeAfter={
         <>
           <View style={styles.beforeAfterCard}>
-            <Text style={styles.beforeAfterLabel}>Before</Text>
+            <Text style={styles.beforeAfterLabel}>{t("ui.before")}</Text>
             <Text style={styles.beforeAfterValueRed}>+{formatMB(deleteMB)} clutter</Text>
           </View>
           <View style={styles.beforeAfterCard}>
-            <Text style={styles.beforeAfterLabel}>After</Text>
-            <Text style={styles.beforeAfterValueGreen}>Save ~{formatMB(total)}</Text>
+            <Text style={styles.beforeAfterLabel}>{t("ui.after")}</Text>
+            <Text style={styles.beforeAfterValueGreen}>{t("ui.save-approx", { value: formatMB(total) })}</Text>
           </View>
         </>
       }
@@ -2886,7 +3080,7 @@ function SwipeScreen({
   settings, recap, pendingDeletes, pendingTrims, trimmingCount, timeLeft,
   roundId, roundInitialCount, midsetAdDismissed, largeControls, tokens,
   trimsRemaining, trimLimit, onAction, onReload, onOpenSettings,
-  isPro, adEligibilityReady, onChangeSettings, onConfirmActions, onCancelPending, onOpenShop,
+  isPro, hasUnlimitedTrims, adEligibilityReady, onChangeSettings, onConfirmActions, onCancelPending, onOpenShop,
   onMidsetAdDismissed, onMidsetAdVisibilityChange, onShare,
 }: {
   top?: NativePhoto; next?: NativePhoto; queueCount: number; loading: boolean;
@@ -2897,7 +3091,7 @@ function SwipeScreen({
   midsetAdDismissed: boolean; largeControls: boolean; tokens: number; trimsRemaining: number;
   trimLimit: number; onAction: (photo: NativePhoto, action: Action) => void;
   onReload: () => void; onOpenSettings: () => void;
-  isPro: boolean; adEligibilityReady: boolean;
+  isPro: boolean; hasUnlimitedTrims: boolean; adEligibilityReady: boolean;
   onChangeSettings: (patch: Partial<NativeSettings>) => void;
   onConfirmActions: (deletes: NativePhoto[], trims: NativePhoto[]) => Promise<void> | void;
   onCancelPending: () => void;
@@ -2908,6 +3102,13 @@ function SwipeScreen({
 }) {
   const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
   const [midsetAd, setMidsetAd] = useState<LoadedSwipeMidsetNativeAd | null>(null);
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  // Keep the photo card within the visible area on 4.7-inch and 5.4-inch
+  // iPhones while retaining the larger card on modern Max-sized devices.
+  const deckHeight = Math.max(
+    330,
+    Math.min(492, Math.round(Math.min(windowHeight * 0.52, windowWidth * 1.15))),
+  );
   const showMidsetAd = shouldPresentMidsetAd({
     initialCount: roundInitialCount,
     remainingCount: queueCount,
@@ -2964,17 +3165,17 @@ function SwipeScreen({
     return (
       <Centered>
         <ActivityIndicator color="#315f7d" size="large" />
-        <Text style={styles.muted}>Loading your photo round...</Text>
+        <Text style={styles.muted}>{t("ui.loading-your-photo-round")}</Text>
       </Centered>
     );
   }
   if (permissionDenied) {
     return (
       <Centered>
-        <Text style={styles.heroTitle}>Photo access needed</Text>
-        <Text style={styles.centerText}>TrimSwipe needs photo access to build your cleanup deck.</Text>
-        <PrimaryButton label="Open iOS Settings" onPress={onOpenSettings} />
-        <SecondaryButton label="Try again" onPress={onReload} />
+        <Text style={styles.heroTitle}>{t("ui.photo-access-needed")}</Text>
+        <Text style={styles.centerText}>{t("ui.trimswipe-needs-photo-access-to-build-your-clean")}</Text>
+        <PrimaryButton label={t("ui.open-ios-settings")} onPress={onOpenSettings} />
+        <SecondaryButton label={t("ui.try-again")} onPress={onReload} />
       </Centered>
     );
   }
@@ -2996,9 +3197,9 @@ function SwipeScreen({
   if (error && !top) {
     return (
       <Centered>
-        <Text style={styles.heroTitle}>No deck yet</Text>
+        <Text style={styles.heroTitle}>{t("ui.no-deck-yet")}</Text>
         <Text style={styles.centerText}>{error}</Text>
-        <PrimaryButton label="Reload photos" onPress={onReload} />
+        <PrimaryButton label={t("ui.reload-photos")} onPress={onReload} />
       </Centered>
     );
   }
@@ -3006,19 +3207,19 @@ function SwipeScreen({
     <View style={styles.content}>
       <View style={styles.swipeHeader}>
         <View style={styles.swipeHeaderCopy}>
-          <Text style={styles.eyebrow}>Current focus</Text>
+          <Text style={styles.eyebrow}>{t("ui.current-focus")}</Text>
           <Text style={[styles.swipeTitle, largeControls && styles.swipeTitleLarge]}>{targetLabel(settings)}</Text>
-          <Text style={styles.swipeSubtitle}>{sessionModeLabel(settings.sessionMode)} mode. A cleaner set of photos, one quick decision at a time.</Text>
+          <Text style={styles.swipeSubtitle}>{t("ui.session-mode-subtitle", { mode: sessionModeLabel(settings.sessionMode) })}</Text>
         </View>
         <View style={styles.swipeStatusColumn}>
-          <TokenPill tokens={tokens} isPro={isPro} />
-          <Text style={styles.queuePill}>{queueCount} left</Text>
+          <TokenPill tokens={tokens} hasUnlimitedTrims={hasUnlimitedTrims} />
+          <Text style={styles.queuePill}>{t("ui.queue-left", { count: queueCount })}</Text>
           {settings.sessionMode === "time-attack" ? <Text style={styles.timerPill}>{timeLeft}s</Text> : null}
-          {trimmingCount > 0 ? <Text style={styles.trimBadge}>Trimming {trimmingCount}</Text> : null}
+          {trimmingCount > 0 ? <Text style={styles.trimBadge}>{t("ui.trimming-count", { count: trimmingCount })}</Text> : null}
         </View>
       </View>
-      {permissionLimited ? <Text style={styles.warning}>Limited photo access is enabled. Some photos may be hidden.</Text> : null}
-      <View style={styles.deck}>
+      {permissionLimited ? <Text style={styles.warning}>{t("ui.limited-photo-access-is-enabled-some-photos-may-")}</Text> : null}
+      <View style={[styles.deck, { height: deckHeight }]}>
         {showMidsetAd
           ? top ? <PhotoCard photo={top} settings={settings} stacked /> : null
           : next ? <PhotoCard photo={next} settings={settings} stacked /> : null}
@@ -3038,9 +3239,9 @@ function SwipeScreen({
       </View>
       {!showMidsetAd ? (
         <View style={styles.actions}>
-          <ActionButton label="Keep" tone="keep" large={largeControls} onPress={() => top && onAction(top, "keep")} />
+          <ActionButton label={t("ui.keep")} tone="keep" large={largeControls} onPress={() => top && onAction(top, "keep")} />
           <ActionButton
-            label={!top ? "Trim" : !canAttemptTrim(top, settings) ? trimDisabledReason(top, settings) : trimsRemaining <= 0 ? "Limit hit" : "Trim"}
+            label={!top ? t("ui.trim-label") : !canAttemptTrim(top, settings) ? trimDisabledReason(top, settings) : trimsRemaining <= 0 ? t("ui.limit-hit") : t("ui.trim-label")}
             tone="trim"
             large={largeControls}
             disabled={!top || !canAttemptTrim(top, settings)}
@@ -3053,7 +3254,7 @@ function SwipeScreen({
               onAction(top, "trim");
             }}
           />
-          <ActionButton label="Delete" tone="delete" large={largeControls} onPress={() => top && onAction(top, "delete")} />
+          <ActionButton label={t("ui.delete")} tone="delete" large={largeControls} onPress={() => top && onAction(top, "delete")} />
         </View>
       ) : null}
       <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
@@ -3074,15 +3275,13 @@ function trimFailureSummary(
   const maxed = failed.filter((result) => result.error?.toLowerCase().includes("all selected trims")).length;
   const reasons = new Set<string>();
   if (optimized > 0) {
-    reasons.add(
-      `${optimized} already optimized: they would not get smaller with the current Trim settings.`,
-    );
+    reasons.add(t("ui.trim-failure-optimized", { count: optimized }));
   }
   if (cloud > 0) {
-    reasons.add(`${cloud} not local: download from iCloud before trimming.`);
+    reasons.add(t("ui.trim-failure-cloud", { count: cloud }));
   }
   if (maxed > 0) {
-    reasons.add(`${maxed} already has all selected trims.`);
+    reasons.add(t("ui.trim-failure-maxed", { count: maxed }));
   }
   failed
     .map((result) => result.error)
@@ -3095,7 +3294,7 @@ function trimFailureSummary(
         !reason.toLowerCase().includes("all selected trims"),
     )
     .forEach((reason) => reasons.add(reason));
-  if (reasons.size === 0) return `${failed.length} photo${failed.length === 1 ? "" : "s"} could not be trimmed.`;
+  if (reasons.size === 0) return t("ui.trim-failure-count", { count: failed.length });
   return [...reasons].slice(0, 2).join(" ");
 }
 
@@ -3139,10 +3338,10 @@ function PhotoCard({ photo, settings, stacked, onOpenFull }: { photo: NativePhot
       <View style={styles.photoShade} />
       <View style={styles.photoTop}>
         {trimLabel ? <Text style={styles.trimmedLabel}>{trimLabel}</Text> : null}
-        <Text style={styles.pill}>Image size: {formatMB(photo.sizeMB)}</Text>
-        <Text style={styles.pill}>Delete: <Text style={styles.pillSaving}>-{formatMB(photo.sizeMB)}</Text></Text>
+        <Text style={styles.pill}>{t("ui.image-size", { value: formatMB(photo.sizeMB) })}</Text>
+        <Text style={styles.pill}>{t("ui.delete-prefix")}<Text style={styles.pillSaving}>-{formatMB(photo.sizeMB)}</Text></Text>
         {canTrim ? (
-          <Text style={styles.pill}>Trim: <Text style={styles.pillSaving}>-{formatMB(estimateTrimSavingsForSettings(photo, settings))}</Text></Text>
+          <Text style={styles.pill}>{t("ui.trim-prefix")}<Text style={styles.pillSaving}>-{formatMB(estimateTrimSavingsForSettings(photo, settings))}</Text></Text>
         ) : null}
       </View>
       <View style={styles.photoBottom}>
@@ -3151,7 +3350,7 @@ function PhotoCard({ photo, settings, stacked, onOpenFull }: { photo: NativePhot
         <View style={styles.reasonRow}>
           {photo.cleanupReasons.map((reason) => <Text key={reason} style={styles.reason}>{reason}</Text>)}
           {trimStatus.strippedLabels.map((label) => <Text key={label} style={styles.reasonTrimmed}>{label}</Text>)}
-          {photo.isCloudAsset ? <Text style={styles.reason}>iCloud</Text> : null}
+          {photo.isCloudAsset ? <Text style={styles.reason}>{t("ui.icloud")}</Text> : null}
         </View>
       </View>
     </Wrapper>
@@ -3161,7 +3360,7 @@ function PhotoCard({ photo, settings, stacked, onOpenFull }: { photo: NativePhot
 // Lets the user deselect any items they no longer want to delete or trim
 // before applying the actions in a single batch (one iOS confirmation).
 function ConfirmActionsReview({
-  title = "Confirm actions",
+  title = t("ui.confirm-actions"),
   detail,
   beforeAfter,
   deletes,
@@ -3318,14 +3517,14 @@ function ConfirmActionsReview({
       {detail ? <Text style={styles.centerText}>{detail}</Text> : null}
       {beforeAfter ? <View style={styles.beforeAfterRow}>{beforeAfter}</View> : null}
       <Text style={styles.muted}>
-        Untick the left checkmark to skip. Long-press a row to view full size. Use the bin/scissors to move photos between Delete and Trim. {chosenDeletes.length} to delete - {chosenTrims.length} to trim - ~{formatMB(total)} saved.
+        {t("ui.review-actions-help", { deletes: chosenDeletes.length, trims: chosenTrims.length, value: formatMB(total) })}
       </Text>
       {trimSelectionLimit < trimList.length ? (
-        <Text style={styles.warning}>Not enough tokens: {trimSelectionLimit}/{trimList.length} selected trims can be applied.</Text>
+        <Text style={styles.warning}>{t("ui.not-enough-tokens-count", { selected: trimSelectionLimit, total: trimList.length })}</Text>
       ) : null}
       <ScrollView style={styles.reviewList} contentContainerStyle={styles.reviewListContent}>
         {trimList.length > 0 ? (
-          <Text style={[styles.eyebrow, { marginBottom: 6 }]}>Trim ({chosenTrims.length}/{trimList.length})</Text>
+          <Text style={[styles.eyebrow, { marginBottom: 6 }]}>{t("ui.trim-count-of", { selected: chosenTrims.length, total: trimList.length })}</Text>
         ) : null}
         {trimList.map((photo) =>
           renderRow(
@@ -3338,7 +3537,7 @@ function ConfirmActionsReview({
         )}
         {deleteList.length > 0 ? (
           <Text style={[styles.eyebrow, { marginTop: trimList.length > 0 ? 14 : 0, marginBottom: 6 }]}>
-            Delete ({chosenDeletes.length}/{deleteList.length})
+            {t("ui.delete-count-of", { selected: chosenDeletes.length, total: deleteList.length })}
           </Text>
         ) : null}
         {deleteList.map((photo) =>
@@ -3347,8 +3546,8 @@ function ConfirmActionsReview({
             selectedDeletes.has(photo.id),
             () => toggleDelete(photo.id),
             canAttemptTrim(photo, settings)
-              ? `Delete - frees ${photo.sizeMB.toFixed(1)} MB`
-              : `Delete - frees ${photo.sizeMB.toFixed(1)} MB - Cannot trim: ${trimDisabledReason(photo, settings, "detail")}`,
+              ? t("ui.delete-frees", { value: photo.sizeMB.toFixed(1) })
+              : t("ui.delete-frees-cannot-trim", { value: photo.sizeMB.toFixed(1), reason: trimDisabledReason(photo, settings, "detail") }),
             "trim",
           ),
         )}
@@ -3357,8 +3556,8 @@ function ConfirmActionsReview({
         {applying ? (
           <View style={styles.applyProgressCard}>
             <View style={styles.applyProgressHeader}>
-              <Text style={styles.applyProgressTitle}>Preparing changes</Text>
-              <Text style={styles.applyProgressDetail}>Photos may ask for confirmation next.</Text>
+              <Text style={styles.applyProgressTitle}>{t("ui.preparing-changes")}</Text>
+              <Text style={styles.applyProgressDetail}>{t("ui.photos-may-ask-for-confirmation-next")}</Text>
             </View>
             <View style={styles.applyProgressTrack}>
               <View style={styles.applyProgressFill} />
@@ -3366,12 +3565,12 @@ function ConfirmActionsReview({
           </View>
         ) : null}
         <PrimaryButton
-          label={applying ? "Applying..." : nothingSelected ? "Nothing selected" : `Apply - save ${formatMB(total)}`}
+          label={applying ? t("ui.applying") : nothingSelected ? t("ui.nothing-selected") : t("ui.apply-save", { value: formatMB(total) })}
           danger={chosenDeletes.length > 0}
           disabled={nothingSelected || applying}
           onPress={handleApply}
         />
-        <SecondaryButton label="Keep them all" disabled={applying} onPress={onCancel} />
+        <SecondaryButton label={t("ui.keep-them-all")} disabled={applying} onPress={onCancel} />
       </View>
       <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </View>
@@ -3395,10 +3594,10 @@ function Recap({
   const trimShare = recap.freed > 0 ? Math.min(1, (recap.trimmed * 3) / Math.max(1, total)) : 0;
   const deleteShare = recap.freed > 0 ? Math.min(1, (recap.deleted * 3) / Math.max(1, total)) : 0;
   const insight = recap.deleted > recap.trimmed
-    ? "Deletes did the heavy lifting this round."
+    ? t("ui.deletes-did-the-heavy-lifting-this-round")
     : recap.trimmed > 0
-      ? "Trims quietly reclaimed space without losing memories."
-      : "A light pass still keeps the camera roll intentional.";
+      ? t("ui.trims-quietly-reclaimed-space-without-losing-mem")
+      : t("ui.a-light-pass-still-keeps-the-camera-roll-intenti");
 
   useEffect(() => {
     appear.setValue(0);
@@ -3467,8 +3666,8 @@ function Recap({
             <Ionicons name="checkmark" size={40} color="#ffffff" />
           </View>
         </Animated.View>
-        <Text style={styles.heroTitle}>Set complete</Text>
-        <Text style={styles.centerText}>You reviewed {total} photos and freed about {formatMB(recap.freed)}.</Text>
+        <Text style={styles.heroTitle}>{t("ui.set-complete")}</Text>
+        <Text style={styles.centerText}>{t("ui.reviewed-and-freed", { count: total, value: formatMB(recap.freed) })}</Text>
         <Text style={styles.insightText}>{insight}</Text>
       </Animated.View>
       <Animated.View
@@ -3500,27 +3699,27 @@ function Recap({
         />
         <View style={styles.recapImpactHeader}>
           <View>
-            <Text style={styles.eyebrow}>Round impact</Text>
+            <Text style={styles.eyebrow}>{t("ui.round-impact")}</Text>
             <Text style={styles.recapImpactValue}>{formatMB(recap.freed)}</Text>
           </View>
           <View style={styles.recapCleanBadge}>
             <Ionicons name="sparkles" size={18} color="#15803d" />
           </View>
         </View>
-        <ImpactRow label="Trim momentum" value={`${recap.trimmed} photos`} progress={trimShare} tone="trim" />
-        <ImpactRow label="Delete momentum" value={`${recap.deleted} photos`} progress={deleteShare} tone="delete" />
+        <ImpactRow label={t("ui.trim-momentum")} value={t("ui.photos-count", { count: recap.trimmed })} progress={trimShare} tone="trim" />
+        <ImpactRow label={t("ui.delete-momentum")} value={t("ui.photos-count", { count: recap.deleted })} progress={deleteShare} tone="delete" />
         <View style={styles.recapSuccessStrip}>
           <Ionicons name="shield-checkmark-outline" size={17} color="#15803d" />
-          <Text style={styles.recapSuccessText}>Cleanup applied successfully</Text>
+          <Text style={styles.recapSuccessText}>{t("ui.cleanup-applied-successfully")}</Text>
         </View>
       </Animated.View>
       <Animated.View style={[styles.statGrid, { opacity: appear }]}>
-        <MiniStat label="Kept" value={recap.kept} />
-        <MiniStat label="Trimmed" value={recap.trimmed} />
-        <MiniStat label="Deleted" value={recap.deleted} />
+        <MiniStat label={t("ui.kept")} value={recap.kept} />
+        <MiniStat label={t("ui.trimmed")} value={recap.trimmed} />
+        <MiniStat label={t("ui.deleted")} value={recap.deleted} />
       </Animated.View>
-      <PrimaryButton label={nextBusy ? "Loading..." : "New set"} disabled={nextBusy} onPress={handleNext} />
-      <SecondaryButton label="Share progress" disabled={nextBusy} onPress={onShare} />
+      <PrimaryButton label={nextBusy ? t("ui.loading") : t("ui.new-set")} disabled={nextBusy} onPress={handleNext} />
+      <SecondaryButton label={t("ui.share-progress")} disabled={nextBusy} onPress={onShare} />
     </ScrollView>
   );
 }
@@ -3537,14 +3736,14 @@ function StatsScreen({ stats, onStartRound, onOpenSettings, onShare }: {
   const health = storageHealthScore(stats, week, streak);
   const level = levelInfo(stats);
   const videoText = stats.mbFreed > 0
-    ? `≈ ${Math.max(1, Math.round(stats.mbFreed / FOUR_K_VIDEO_MB_PER_MINUTE))} min of 4K video reclaimed`
-    : "Start reviewing to build your impact story.";
+    ? t("ui.video-reclaimed", { count: Math.max(1, Math.round(stats.mbFreed / FOUR_K_VIDEO_MB_PER_MINUTE)) })
+    : t("ui.start-reviewing-to-build-your-impact-story");
 
   const achievements: Achievement[] = [
-    { title: "Daily rhythm", detail: `${today.reviewed}/${DAILY_REVIEW_TARGET} today`, progress: clampProgress(today.reviewed, DAILY_REVIEW_TARGET), unlocked: today.reviewed >= DAILY_REVIEW_TARGET },
-    { title: "Weekly saver", detail: `${formatMB(week.mbFreed)} / ${formatMB(WEEKLY_SAVINGS_TARGET_MB)}`, progress: clampProgress(week.mbFreed, WEEKLY_SAVINGS_TARGET_MB), unlocked: week.mbFreed >= WEEKLY_SAVINGS_TARGET_MB },
-    { title: "Metadata master", detail: `${stats.trimmed}/50 trims`, progress: clampProgress(stats.trimmed, 50), unlocked: stats.trimmed >= 50 },
-    { title: "Heavy hitter", detail: `${formatMB(stats.mbFreed)} / 1 GB`, progress: clampProgress(stats.mbFreed, 1024), unlocked: stats.mbFreed >= 1024 },
+    { title: t("ui.daily-rhythm"), detail: t("ui.challenge-today", { count: today.reviewed, target: DAILY_REVIEW_TARGET }), progress: clampProgress(today.reviewed, DAILY_REVIEW_TARGET), unlocked: today.reviewed >= DAILY_REVIEW_TARGET },
+    { title: t("ui.weekly-saver"), detail: `${formatMB(week.mbFreed)} / ${formatMB(WEEKLY_SAVINGS_TARGET_MB)}`, progress: clampProgress(week.mbFreed, WEEKLY_SAVINGS_TARGET_MB), unlocked: week.mbFreed >= WEEKLY_SAVINGS_TARGET_MB },
+    { title: t("ui.metadata-master"), detail: t("ui.stats-badge-trimmed-hint", { count: stats.trimmed }), progress: clampProgress(stats.trimmed, 50), unlocked: stats.trimmed >= 50 },
+    { title: t("ui.heavy-hitter"), detail: `${formatMB(stats.mbFreed)} / 1 GB`, progress: clampProgress(stats.mbFreed, 1024), unlocked: stats.mbFreed >= 1024 },
   ];
 
   return (
@@ -3552,11 +3751,11 @@ function StatsScreen({ stats, onStartRound, onOpenSettings, onShare }: {
       {/* Hero health card */}
       <View style={styles.statsHero}>
         <View style={styles.statsHeroLeft}>
-          <Text style={styles.eyebrow}>Storage Health</Text>
-          <Text style={styles.statsHeroTitle}>{health < 60 ? "Needs work" : health < 80 ? "Getting there" : "Looking great"}</Text>
+          <Text style={styles.eyebrow}>{t("ui.storage-health")}</Text>
+          <Text style={styles.statsHeroTitle}>{health < 60 ? t("ui.needs-work") : health < 80 ? t("ui.getting-there") : t("ui.looking-great")}</Text>
           <Text style={styles.statsHeroCopy}>{videoText}</Text>
           <View style={styles.levelRowInline}>
-            <Text style={styles.levelLabel}>Lv {level.level} · {level.title}</Text>
+            <Text style={styles.levelLabel}>{t("ui.level-title", { level: level.level, title: level.title })}</Text>
           </View>
           <View style={styles.levelBarTrack}>
             <View style={[styles.levelBarFill, { width: progressWidth(level.progress) }]} />
@@ -3567,70 +3766,70 @@ function StatsScreen({ stats, onStartRound, onOpenSettings, onShare }: {
       </View>
       {/* Impact summary */}
       <View style={styles.impactSummaryRow}>
-        <ImpactPill label="Freed" value={formatMB(stats.mbFreed)} accent="#315f7d" />
-        <ImpactPill label="Reviewed" value={String(stats.reviewed)} accent="#3b82f6" />
-        <ImpactPill label="Deleted" value={String(stats.deleted)} accent="#ef4444" />
-        <ImpactPill label="Trimmed" value={String(stats.trimmed)} accent="#22c55e" />
+        <ImpactPill label={t("ui.freed")} value={formatMB(stats.mbFreed)} accent="#315f7d" />
+        <ImpactPill label={t("ui.reviewed")} value={String(stats.reviewed)} accent="#3b82f6" />
+        <ImpactPill label={t("ui.deleted")} value={String(stats.deleted)} accent="#ef4444" />
+        <ImpactPill label={t("ui.trimmed")} value={String(stats.trimmed)} accent="#22c55e" />
       </View>
 
       {/* Streak + today */}
       <View style={styles.streakRow}>
         <View style={styles.streakHalf}>
-          <Text style={styles.eyebrow}>Streak</Text>
+          <Text style={styles.eyebrow}>{t("ui.streak")}</Text>
           <Text style={styles.streakBigNum}>{streak}</Text>
-          <Text style={styles.mutedSmall}>days active</Text>
+          <Text style={styles.mutedSmall}>{t("ui.days-active")}</Text>
         </View>
         <View style={styles.streakDivider} />
         <View style={styles.streakHalf}>
-          <Text style={styles.eyebrow}>Today</Text>
+          <Text style={styles.eyebrow}>{t("ui.today")}</Text>
           <Text style={styles.streakBigNum}>{today.reviewed}</Text>
-          <Text style={styles.mutedSmall}>photos reviewed</Text>
+          <Text style={styles.mutedSmall}>{t("ui.photos-reviewed")}</Text>
         </View>
       </View>
 
       {/* Activity bar chart */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Last 7 days</Text>
+        <Text style={styles.sectionTitle}>{t("ui.last-7-days")}</Text>
       </View>
       <ActivityBars stats={stats} />
 
       {/* Challenges */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Challenges</Text>
-        {streak > 0 ? <Text style={styles.sectionBadge}>{streak}-day streak 🔥</Text> : null}
+        <Text style={styles.sectionTitle}>{t("ui.challenges")}</Text>
+        {streak > 0 ? <Text style={styles.sectionBadge}>{t("ui.day-streak", { count: streak })} 🔥</Text> : null}
       </View>
-      <ChallengeCard title="Clean 10 photos today" value={`${today.reviewed}/${DAILY_REVIEW_TARGET}`} detail={`${today.trimmed + today.deleted} cleaned, ${formatMB(today.mbFreed)} reclaimed`} progress={clampProgress(today.reviewed, DAILY_REVIEW_TARGET)} />
-      <ChallengeCard title="Save 500 MB this week" value={formatMB(week.mbFreed)} detail={`${week.reviewed} reviewed across 7 days`} progress={clampProgress(week.mbFreed, WEEKLY_SAVINGS_TARGET_MB)} />
+      <ChallengeCard title={t("ui.clean-10-photos-today")} value={`${today.reviewed}/${DAILY_REVIEW_TARGET}`} detail={t("ui.challenge-cleaned", { count: today.trimmed + today.deleted, value: formatMB(today.mbFreed) })} progress={clampProgress(today.reviewed, DAILY_REVIEW_TARGET)} />
+      <ChallengeCard title={t("ui.save-500-mb-this-week")} value={formatMB(week.mbFreed)} detail={t("ui.challenge-reviewed-seven-days", { count: week.reviewed })} progress={clampProgress(week.mbFreed, WEEKLY_SAVINGS_TARGET_MB)} />
 
       {/* Trim savings grid */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Trim savings</Text>
-        <Text style={styles.sectionDetail}>week / month / year</Text>
+        <Text style={styles.sectionTitle}>{t("ui.trim-savings")}</Text>
+        <Text style={styles.sectionDetail}>{t("ui.week-month-year")}</Text>
       </View>
       <View style={styles.metricGrid}>
-        <MetricCard label="Today" value={formatMB(today.trimMbFreed)} />
-        <MetricCard label="This week" value={formatMB(week.trimMbFreed)} />
-        <MetricCard label="This month" value={formatMB(monthStats(stats).trimMbFreed)} />
-        <MetricCard label="This year" value={formatMB(yearStats(stats).trimMbFreed)} />
+        <MetricCard label={t("ui.today")} value={formatMB(today.trimMbFreed)} />
+        <MetricCard label={t("ui.this-week")} value={formatMB(week.trimMbFreed)} />
+        <MetricCard label={t("ui.this-month")} value={formatMB(monthStats(stats).trimMbFreed)} />
+        <MetricCard label={t("ui.this-year")} value={formatMB(yearStats(stats).trimMbFreed)} />
       </View>
 
       {/* Trim streak */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>TrimStreak</Text>
-        {trimsInARow > 0 ? <Text style={styles.sectionDetail}>{trimsInARow} days active</Text> : null}
+        <Text style={styles.sectionTitle}>{t("ui.trimstreak")}</Text>
+        {trimsInARow > 0 ? <Text style={styles.sectionDetail}>{t("ui.days-active-count", { count: trimsInARow })}</Text> : null}
       </View>
       <View style={styles.streakCard}>
         <Text style={styles.streakValue}>{trimsInARow}</Text>
         <View style={styles.streakDivider} />
         <View style={styles.streakCopy}>
-          <Text style={styles.challengeTitle}>{today.trimmed} trims today</Text>
-          <Text style={styles.mutedSmall}>Use your top-right balance for trims.</Text>
+          <Text style={styles.challengeTitle}>{t("ui.trims-today", { count: today.trimmed })}</Text>
+          <Text style={styles.mutedSmall}>{t("ui.use-your-top-right-balance-for-trims")}</Text>
         </View>
       </View>
 
       {/* Badges */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Badges</Text>
+        <Text style={styles.sectionTitle}>{t("ui.badges")}</Text>
       </View>
       <AchievementGrid achievements={achievements} />
     </ScrollView>
@@ -3691,10 +3890,10 @@ function ImpactBreakdown({ trimMB, deleteMB }: { trimMB: number; deleteMB: numbe
     <View style={styles.impactPanel}>
       <View style={styles.impactHeader}>
         <Text style={styles.impactValue}>{formatMB(total)}</Text>
-        <Text style={styles.mutedSmall}>Total estimated reclaimed</Text>
+        <Text style={styles.mutedSmall}>{t("ui.total-estimated-reclaimed")}</Text>
       </View>
-      <ImpactRow label="Trim" value={formatMB(trimMB)} progress={total > 0 ? trimMB / total : 0} tone="trim" />
-      <ImpactRow label="Delete" value={formatMB(deleteMB)} progress={total > 0 ? deleteMB / total : 0} tone="delete" />
+      <ImpactRow label={t("ui.trim")} value={formatMB(trimMB)} progress={total > 0 ? trimMB / total : 0} tone="trim" />
+      <ImpactRow label={t("ui.delete")} value={formatMB(deleteMB)} progress={total > 0 ? deleteMB / total : 0} tone="delete" />
     </View>
   );
 }
@@ -3750,7 +3949,7 @@ function AchievementGrid({ achievements }: { achievements: Achievement[] }) {
       {achievements.map((achievement) => (
         <View key={achievement.title} style={[styles.achievementCard, achievement.unlocked && styles.achievementUnlocked]}>
           <View style={styles.achievementStatus}>
-            <Text style={styles.achievementStatusText}>{achievement.unlocked ? "Done" : "Next"}</Text>
+            <Text style={styles.achievementStatusText}>{achievement.unlocked ? t("ui.done") : t("ui.next")}</Text>
           </View>
           <Text style={styles.achievementTitle}>{achievement.title}</Text>
           <Text style={styles.mutedSmall}>{achievement.detail}</Text>
@@ -3768,29 +3967,29 @@ function OnboardingScreen({ scan, scanBusy, scanError, scanProgress, permissionD
   scanProgress: NativeLibraryScanProgress | null; permissionDenied: boolean; permissionLimited: boolean;
   onScan: () => void; onDone: () => void; onOpenSettings: () => void;
 }) {
-  const progressText = scanProgress ? formatScanProgress(scanProgress) : "Scanning...";
+  const progressText = scanProgress ? formatScanProgress(scanProgress) : t("ui.scanning");
   return (
     <ScrollView contentContainerStyle={[styles.content, styles.onboardingContent]}>
       <View style={styles.dashboardHero}>
-        <Text style={styles.eyebrow}>Welcome</Text>
-        <Text style={styles.heroTitle}>See what your camera roll is costing.</Text>
-        <Text style={styles.dashboardCopy}>Start with a scan. TrimSwipe estimates photo storage, trim potential, uncategorized groups, and bad shots worth reviewing.</Text>
-        {permissionLimited ? <Text style={styles.warning}>Limited photo access is enabled.</Text> : null}
+        <Text style={styles.eyebrow}>{t("ui.welcome")}</Text>
+        <Text style={styles.heroTitle}>{t("ui.see-what-your-camera-roll-is-costing")}</Text>
+        <Text style={styles.dashboardCopy}>{t("ui.start-with-a-scan")}</Text>
+        {permissionLimited ? <Text style={styles.warning}>{t("ui.limited-photo-access-is-enabled")}</Text> : null}
         {scanError ? <Text style={styles.warning}>{scanError}</Text> : null}
-        <PrimaryButton label={scanBusy ? progressText : scan ? "Scan again" : "Scan photo library"} disabled={scanBusy} onPress={onScan} />
-        {permissionDenied ? <SecondaryButton label="Open iOS Settings" onPress={() => Linking.openSettings()} /> : null}
+        <PrimaryButton label={scanBusy ? progressText : scan ? t("ui.scan-again") : t("ui.scan-photo-library")} disabled={scanBusy} onPress={onScan} />
+        {permissionDenied ? <SecondaryButton label={t("ui.open-ios-settings")} onPress={() => Linking.openSettings()} /> : null}
       </View>
       {scan ? (
         <>
           <ScanResults scan={scan} />
-          <PrimaryButton label="Choose a cleanup game" onPress={onDone} />
-          <SecondaryButton label="Tune settings first" onPress={onOpenSettings} />
+          <PrimaryButton label={t("ui.choose-a-cleanup-game")} onPress={onDone} />
+          <SecondaryButton label={t("ui.tune-settings-first")} onPress={onOpenSettings} />
         </>
       ) : (
         <View style={styles.onboardingSteps}>
-          <OnboardingStep title="Device-aware bars" detail="The full bar is your iPhone or iPad storage capacity." />
-          <OnboardingStep title="Trim estimate" detail="See how much space compression can save without deleting." />
-          <OnboardingStep title="Review estimate" detail="See likely uncategorized-group and mistake savings before making choices." />
+          <OnboardingStep title={t("ui.device-aware-bars")} detail={t("ui.the-full-bar-is-your-iphone-or-ipad-storage-capa")} />
+          <OnboardingStep title={t("ui.trim-estimate")} detail={t("ui.see-how-much-space-compression-can-save-without-")} />
+          <OnboardingStep title={t("ui.review-estimate")} detail={t("ui.see-likely-uncategorized-group-and-mistake-savin")} />
         </View>
       )}
     </ScrollView>
@@ -3801,28 +4000,28 @@ function ScanResults({ scan }: { scan: NativeLibraryScan }) {
   const capacityMB = scan.deviceCapacityMB && scan.deviceCapacityMB > 0 ? scan.deviceCapacityMB : Math.max(1, scan.totalSizeMB);
   const afterTrimMB = Math.max(0, scan.totalSizeMB - scan.trimSavingsMB);
   const afterDeleteMB = Math.max(0, scan.totalSizeMB - scan.deleteSavingsMB);
-  const capacityLabel = scan.deviceCapacityMB ? `${formatMB(scan.deviceCapacityMB)} device capacity` : "Photo library size used as scale";
+  const capacityLabel = scan.deviceCapacityMB ? t("ui.device-capacity", { value: formatMB(scan.deviceCapacityMB) }) : t("ui.photo-library-size-used-as-scale");
   return (
     <View style={styles.scanPanel}>
       <View style={styles.scanHeader}>
         <View>
-          <Text style={styles.eyebrow}>Scan result</Text>
+          <Text style={styles.eyebrow}>{t("ui.scan-result")}</Text>
           <Text style={styles.scanTotal}>{formatMB(scan.totalSizeMB)}</Text>
         </View>
         <Text style={styles.scanCapacity}>{capacityLabel}</Text>
       </View>
       <View style={styles.scanMetricGrid}>
-        <ScanMetric label="Photos scanned" value={String(scan.assetCount)} />
-        <ScanMetric label="Trim can save" value={formatMB(scan.trimSavingsMB)} />
-        <ScanMetric label="Delete can save" value={formatMB(scan.deleteSavingsMB)} />
-        <ScanMetric label="Screenshots found" value={String(scan.screenshotCount)} />
+        <ScanMetric label={t("ui.photos-scanned")} value={String(scan.assetCount)} />
+        <ScanMetric label={t("ui.trim-can-save")} value={formatMB(scan.trimSavingsMB)} />
+        <ScanMetric label={t("ui.delete-can-save")} value={formatMB(scan.deleteSavingsMB)} />
+        <ScanMetric label={t("ui.screenshots-found")} value={String(scan.screenshotCount)} />
       </View>
       <View style={styles.storageBars}>
-        <StorageBar label="Photo library now" detail={`${formatMB(scan.totalSizeMB)} allocated`} valueMB={scan.totalSizeMB} capacityMB={capacityMB} tone="now" />
-        <StorageBar label="After Trim" detail={`${formatMB(scan.trimSavingsMB)} estimated savings`} valueMB={afterTrimMB} capacityMB={capacityMB} tone="trim" />
-        <StorageBar label="After Delete" detail={`${formatMB(scan.deleteSavingsMB)} from disjoint review categories`} valueMB={afterDeleteMB} capacityMB={capacityMB} tone="delete" />
+        <StorageBar label={t("ui.photo-library-now")} detail={t("ui.allocated", { value: formatMB(scan.totalSizeMB) })} valueMB={scan.totalSizeMB} capacityMB={capacityMB} tone="now" />
+        <StorageBar label={t("ui.after-trim")} detail={t("ui.estimated-savings", { value: formatMB(scan.trimSavingsMB) })} valueMB={afterTrimMB} capacityMB={capacityMB} tone="trim" />
+        <StorageBar label={t("ui.after-delete")} detail={t("ui.disjoint-review-savings", { value: formatMB(scan.deleteSavingsMB) })} valueMB={afterDeleteMB} capacityMB={capacityMB} tone="delete" />
       </View>
-      <Text style={styles.scanFootnote}>Delete estimate includes {scan.duplicateRemovalCount} uncategorized candidates and {scan.mistakeCount} likely blurry, dark, or accidental photos.</Text>
+      <Text style={styles.scanFootnote}>{t("ui.delete-estimate-detail", { duplicates: scan.duplicateRemovalCount, mistakes: scan.mistakeCount })}</Text>
     </View>
   );
 }
@@ -3879,30 +4078,30 @@ const GAME_SMART_FOLDER_DEFS: Array<{
   match: (photo: NativePhoto, settings: NativeSettings) => boolean;
 }> = [
   { key: "large", label: (settings) => `≥${formatGameSizeThreshold(settings.minSizeMB)}`, icon: "albums-outline", match: (photo, settings) => photo.sizeMB >= settings.minSizeMB },
-  { key: "old", label: (settings) => settings.minAgeYears <= 0 ? "Any age" : `≥${formatGameAgeThreshold(settings.minAgeYears)} old`, icon: "time-outline", match: (photo, settings) => gameAgeYears(photo.creationTime) >= settings.minAgeYears },
-  { key: "screenshots", label: () => "Screens", icon: "phone-portrait-outline", match: (photo) => photo.cleanupReasons.includes("Screenshot") || photo.title.toLowerCase().includes("screen") },
-  { key: "live", label: () => "Live", icon: "radio-button-on-outline", match: (photo) => photo.cleanupReasons.includes("Live Photo") },
-  { key: "duplicates", label: () => "Similar Photos", icon: "copy-outline", match: (photo) => photo.cleanupReasons.includes("Similar") },
-  { key: "bursts", label: () => "Bursts", icon: "sparkles-outline", match: (photo) => photo.cleanupReasons.includes("Burst") },
+  { key: "old", label: (settings) => settings.minAgeYears <= 0 ? t("ui.any-age") : t("ui.game-old", { value: `≥${formatGameAgeThreshold(settings.minAgeYears)}` }), icon: "time-outline", match: (photo, settings) => gameAgeYears(photo.creationTime) >= settings.minAgeYears },
+  { key: "screenshots", label: () => t("ui.home-screens"), icon: "phone-portrait-outline", match: (photo) => photo.cleanupReasons.includes("Screenshot") || photo.title.toLowerCase().includes("screen") },
+  { key: "live", label: () => t("ui.home-live"), icon: "radio-button-on-outline", match: (photo) => photo.cleanupReasons.includes(t("ui.live-photo")) },
+  { key: "duplicates", label: () => t("ui.similar-photos"), icon: "copy-outline", match: (photo) => photo.cleanupReasons.includes("Similar") },
+  { key: "bursts", label: () => t("ui.home-bursts"), icon: "sparkles-outline", match: (photo) => photo.cleanupReasons.includes("Burst") },
 ];
 
 function photoAccessLabel(permission: NativePhotoPermission | null): string {
-  if (!permission) return "Checking...";
-  if (!permission.granted || permission.accessLevel === "none") return "Not allowed";
-  if (permission.accessLevel === "all") return "All photos";
-  if (permission.accessLevel === "selected") return "Selected";
-  return "Limited";
+  if (!permission) return t("ui.game-checking");
+  if (!permission.granted || permission.accessLevel === "none") return t("ui.not-allowed");
+  if (permission.accessLevel === "all") return t("ui.all-photos");
+  if (permission.accessLevel === "selected") return t("ui.game-selected");
+  return t("ui.game-limited");
 }
 
-function GamesScreen({ stats, settings, queue, scan, tokens, isPro, onStartGame, onPickCategory, onChangeSettings, onOpenThisOrThat, onOpenStorageBudget, onOpenMemoryLane }: {
-  stats: NativeStats; settings: NativeSettings; queue: NativePhoto[]; scan: NativeLibraryScan | null; tokens: number; isPro: boolean; onStartGame: (patch: Partial<NativeSettings>) => void;
+function GamesScreen({ stats, settings, queue, scan, tokens, hasUnlimitedTrims, onStartGame, onPickCategory, onChangeSettings, onOpenThisOrThat, onOpenStorageBudget, onOpenMemoryLane }: {
+  stats: NativeStats; settings: NativeSettings; queue: NativePhoto[]; scan: NativeLibraryScan | null; tokens: number; hasUnlimitedTrims: boolean; onStartGame: (patch: Partial<NativeSettings>) => void;
   onPickCategory: (category: NativeCleanupCategory) => void;
   onChangeSettings: (patch: Partial<NativeSettings>) => void;
   onOpenThisOrThat: () => void; onOpenStorageBudget: () => void; onOpenMemoryLane: () => void;
 }) {
   const [photoPermission, setPhotoPermission] = useState<NativePhotoPermission | null>(null);
   const today = dailyFor(stats, dateKey());
-  const todayLabel = today.mbFreed > 0 ? `${formatMB(today.mbFreed)} today` : "Ready to clean";
+  const todayLabel = today.mbFreed > 0 ? `${formatMB(today.mbFreed)} ${t("ui.today").toLocaleLowerCase()}` : t("ui.ready-to-clean");
   const largestPhotoMB = Math.max(0.5, scan?.largestPhotoMB ?? 0, ...queue.map((photo) => photo.sizeMB));
   const oldestPhotoAgeYears = Math.max(0, scan?.oldestPhotoAgeYears ?? 0, ...queue.map((photo) => gameAgeYears(photo.creationTime)));
   // Keep a useful tuning range even when the current library happens to contain
@@ -3913,11 +4112,11 @@ function GamesScreen({ stats, settings, queue, scan, tokens, isPro, onStartGame,
   const oldSliderValue = Math.min(settings.minAgeYears, oldSliderMax);
   const displayedSettings = { ...settings, minSizeMB: largeSliderValue, minAgeYears: oldSliderValue };
   const largeMaxText = scan && largeSliderMax === largestPhotoMB
-    ? `Largest photo (${formatGameSizeThreshold(largestPhotoMB)})`
-    : `Range up to ${formatGameSizeThreshold(largeSliderMax)}`;
+    ? t("ui.game-largest-photo", { value: formatGameSizeThreshold(largestPhotoMB) })
+    : t("ui.game-range-up-to", { value: formatGameSizeThreshold(largeSliderMax) });
   const oldMaxText = scan && oldSliderMax === oldestPhotoAgeYears
-    ? `Oldest photo (${formatGameAgeThreshold(oldestPhotoAgeYears)})`
-    : `Range up to ${formatGameAgeThreshold(oldSliderMax)}`;
+    ? t("ui.game-oldest-photo", { value: formatGameAgeThreshold(oldestPhotoAgeYears) })
+    : t("ui.game-range-up-to", { value: formatGameAgeThreshold(oldSliderMax) });
   const smartFolders: GameSmartFolder[] = GAME_SMART_FOLDER_DEFS.map((def) => {
     const matched = queue.filter((photo) => def.match(photo, displayedSettings));
     const queueEstMB = matched.reduce((sum, photo) => sum + (def.key === "screenshots" || def.key === "duplicates" || def.key === "bursts" ? photo.sizeMB : estimateTrimSavingsForSettings(photo, displayedSettings)), 0);
@@ -3980,11 +4179,11 @@ function GamesScreen({ stats, settings, queue, scan, tokens, isPro, onStartGame,
       <View style={styles.gamesVisualHero}>
         <View style={styles.gameTopRow}>
           <View style={styles.gamesHeroCopy}>
-            <Text style={styles.eyebrow}>Review modes</Text>
-            <Text style={styles.heroTitle}>Choose how to clean</Text>
-            <Text style={styles.dashboardCopy}>{todayLabel} · {stats.reviewed} photos reviewed</Text>
+            <Text style={styles.eyebrow}>{t("ui.review-modes")}</Text>
+            <Text style={styles.heroTitle}>{t("ui.choose-how-to-clean")}</Text>
+            <Text style={styles.dashboardCopy}>{todayLabel} · {t("ui.game-photos-reviewed", { count: stats.reviewed })}</Text>
           </View>
-          <TokenPill tokens={tokens} isPro={isPro} />
+          <TokenPill tokens={tokens} hasUnlimitedTrims={hasUnlimitedTrims} />
         </View>
         <View style={styles.heroPhotoStrip}>
           {([GAME_IMAGES.swipe, GAME_IMAGES.choice, GAME_IMAGES.budget] as const).map((source, index) => (
@@ -4002,17 +4201,17 @@ function GamesScreen({ stats, settings, queue, scan, tokens, isPro, onStartGame,
           <Ionicons name="images-outline" size={18} color="#315f7d" />
         </View>
         <View style={styles.photoAccessCopy}>
-          <Text style={styles.photoAccessLabel}>Photo access</Text>
+          <Text style={styles.photoAccessLabel}>{t("ui.photo-access")}</Text>
           <Text style={styles.photoAccessValue}>{photoAccessLabel(photoPermission)}</Text>
         </View>
-        <Text style={styles.photoAccessButton}>{photoPermission?.accessLevel === "all" ? "Settings" : "Permit"}</Text>
+        <Text style={styles.photoAccessButton}>{photoPermission?.accessLevel === "all" ? t("ui.game-settings") : t("ui.game-permit")}</Text>
       </Pressable>
       <Pressable onPress={() => onStartGame({ sessionMode: "classic" })} style={styles.primaryGameVisualCard}>
         <Image source={GAME_IMAGES.swipe} style={styles.primaryGameArt} resizeMode="cover" />
         <View style={styles.primaryGameText}>
-          <View style={styles.primaryGameBadge}><Text style={styles.primaryGameBadgeText}>Primary review</Text></View>
-          <Text style={styles.primaryGameTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.66}>TrimSwipe</Text>
-          <Text style={styles.primaryGameDetail}>Swipe left, up, or right.</Text>
+          <View style={styles.primaryGameBadge}><Text style={styles.primaryGameBadgeText}>{t("ui.primary-review")}</Text></View>
+          <Text style={styles.primaryGameTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.66}>{t("ui.trimswipe")}</Text>
+          <Text style={styles.primaryGameDetail}>{t("ui.swipe-left-up-or-right")}</Text>
         </View>
         <View style={styles.primaryGameIcons}>
           <Ionicons name="checkmark-circle" size={30} color="#ffffff" />
@@ -4021,38 +4220,38 @@ function GamesScreen({ stats, settings, queue, scan, tokens, isPro, onStartGame,
         </View>
       </Pressable>
       <View style={styles.gameGrid}>
-        <VisualGameCard icon="swap-horizontal-outline" title="Compare Similar" detail="Review a full group" image={GAME_IMAGES.choice} active={settings.targetMode === "similar"} onPress={onOpenThisOrThat} />
-        <VisualGameCard icon="speedometer-outline" title="Free Space Plan" detail="Stay under 50 MB" image={GAME_IMAGES.budget} onPress={onOpenStorageBudget} />
-        <VisualGameCard icon="timer-outline" title="Quick Review" detail="60 seconds" image={GAME_IMAGES.speed} active={settings.sessionMode === "time-attack"} onPress={() => onStartGame({ sessionMode: "time-attack" })} />
-        <VisualGameCard icon="calendar-outline" title="Past Moments" detail="Old photos first" image={GAME_IMAGES.memory} active={settings.targetMode === "old-only"} onPress={onOpenMemoryLane} />
+        <VisualGameCard icon="swap-horizontal-outline" title={t("ui.compare-similar")} detail={t("ui.review-a-full-group")} image={GAME_IMAGES.choice} active={settings.targetMode === "similar"} onPress={onOpenThisOrThat} />
+        <VisualGameCard icon="speedometer-outline" title={t("ui.free-space-plan")} detail={t("ui.stay-under-50-mb")} image={GAME_IMAGES.budget} onPress={onOpenStorageBudget} />
+        <VisualGameCard icon="timer-outline" title={t("ui.quick-review")} detail={t("ui.game-quick-review-time")} image={GAME_IMAGES.speed} active={settings.sessionMode === "time-attack"} onPress={() => onStartGame({ sessionMode: "time-attack" })} />
+        <VisualGameCard icon="calendar-outline" title={t("ui.past-moments")} detail={t("ui.old-photos-first")} image={GAME_IMAGES.memory} active={settings.targetMode === "old-only"} onPress={onOpenMemoryLane} />
       </View>
       <View style={styles.focusPanel}>
         <View style={styles.focusHeader}>
           <View>
-            <Text style={styles.eyebrow}>Cleanup focus</Text>
-            <Text style={styles.focusTitle}>Tune smart folders</Text>
+            <Text style={styles.eyebrow}>{t("ui.cleanup-focus")}</Text>
+            <Text style={styles.focusTitle}>{t("ui.tune-smart-folders")}</Text>
           </View>
           <Ionicons name="options-outline" size={22} color="#315f7d" />
         </View>
         <GameFilterSlider
-          label="Large photos"
+          label={t("ui.large-photos")}
           value={largeSliderValue}
           min={0.5}
           max={largeSliderMax}
           step={0.5}
           formatValue={(sliderValue) => `≥${formatGameSizeThreshold(sliderValue)}`}
-          minText="0.5 MB minimum"
+          minText={t("ui.0-5-mb-minimum")}
           maxText={largeMaxText}
           onChange={(minSizeMB) => onChangeSettings({ minSizeMB })}
         />
         <GameFilterSlider
-          label="Older than"
+          label={t("ui.older-than")}
           value={oldSliderValue}
           min={0}
           max={oldSliderMax}
           step={1 / 12}
-          formatValue={(sliderValue) => sliderValue <= 0 ? "Any age" : `≥${formatGameAgeThreshold(sliderValue)} old`}
-          minText="Any age"
+          formatValue={(sliderValue) => sliderValue <= 0 ? t("ui.any-age") : t("ui.game-old", { value: `≥${formatGameAgeThreshold(sliderValue)}` })}
+          minText={t("ui.any-age")}
           maxText={oldMaxText}
           onChange={(minAgeYears) => onChangeSettings({ minAgeYears })}
         />
@@ -4139,8 +4338,8 @@ function GameSmartFolderCard({ folder, onPress }: { folder: GameSmartFolder; onP
 
 // ─── This or That ─────────────────────────────────────────────────────────────
 
-function ThisOrThatScreen({ settings, tokens, isPro, avoidIds, onBack, onConfirmOutcome }: {
-  settings: NativeSettings; tokens: number; isPro: boolean; avoidIds: string[]; onBack: () => void;
+function ThisOrThatScreen({ settings, tokens, hasUnlimitedTrims, avoidIds, onBack, onConfirmOutcome }: {
+  settings: NativeSettings; tokens: number; hasUnlimitedTrims: boolean; avoidIds: string[]; onBack: () => void;
   onConfirmOutcome: (kept: NativePhoto[], deleted: NativePhoto[], toTrim: NativePhoto[]) => Promise<number>;
 }) {
   const [clusters, setClusters] = useState<DuplicateCluster[]>([]);
@@ -4189,17 +4388,17 @@ function ThisOrThatScreen({ settings, tokens, isPro, avoidIds, onBack, onConfirm
   }
 
   if (loadingClusters) {
-    return <Centered><ActivityIndicator color="#334155" size="large" /><Text style={styles.muted}>Comparing photos privately on this iPhone...</Text></Centered>;
+    return <Centered><ActivityIndicator color="#334155" size="large" /><Text style={styles.muted}>{t("ui.comparing-photos-privately-on-this-iphone")}</Text></Centered>;
   }
 
   if (!cluster) {
     return (
       <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-        <MiniGameHeader title="Compare Similar" detail="No groups ready" tokens={tokens} isPro={isPro} onBack={onBack} />
+        <MiniGameHeader title={t("ui.compare-similar")} detail={t("ui.no-groups-ready")} tokens={tokens} hasUnlimitedTrims={hasUnlimitedTrims} onBack={onBack} />
         <View style={styles.dashboardHero}>
-          <Text style={styles.heroTitle}>No similar-photo groups found</Text>
-          <Text style={styles.dashboardCopy}>Only confirmed groups are shown here. Unrelated photos are never used as substitutes.</Text>
-          <PrimaryButton label="Scan again" onPress={() => void loadClusters()} />
+          <Text style={styles.heroTitle}>{t("ui.no-similar-photo-groups-found")}</Text>
+          <Text style={styles.dashboardCopy}>{t("ui.only-confirmed-groups-are-shown-here-unrelated-p")}</Text>
+          <PrimaryButton label={t("ui.scan-again")} onPress={() => void loadClusters()} />
         </View>
       </ScrollView>
     );
@@ -4207,10 +4406,10 @@ function ThisOrThatScreen({ settings, tokens, isPro, avoidIds, onBack, onConfirm
 
   return (
     <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-      <MiniGameHeader title="Compare Similar" detail={`Group ${index + 1}/${clusters.length}`} tokens={tokens} isPro={isPro} onBack={onBack} />
+      <MiniGameHeader title={t("ui.compare-similar")} detail={t("ui.group-progress", { current: index + 1, total: clusters.length })} tokens={tokens} hasUnlimitedTrims={hasUnlimitedTrims} onBack={onBack} />
       <DuplicateClusterReview
         cluster={cluster}
-        confirmLabel={busy ? "Applying..." : "Review suggested removals"}
+        confirmLabel={busy ? t("ui.applying") : t("ui.review-suggested-removals")}
         onPreviewPhoto={setFullPhoto}
         onConfirmRemovals={(selection) => void confirmSelection(selection)}
       />
@@ -4221,8 +4420,8 @@ function ThisOrThatScreen({ settings, tokens, isPro, avoidIds, onBack, onConfirm
 
 // ─── Storage Budget (FIX 3) ───────────────────────────────────────────────────
 
-function StorageBudgetScreen({ settings, tokens, isPro, trimsRemaining, avoidIds, onBack, onToast, onConfirmOutcome }: {
-  settings: NativeSettings; tokens: number; isPro: boolean; trimsRemaining: number; avoidIds: string[]; onBack: () => void;
+function StorageBudgetScreen({ settings, tokens, hasUnlimitedTrims, trimsRemaining, avoidIds, onBack, onToast, onConfirmOutcome }: {
+  settings: NativeSettings; tokens: number; hasUnlimitedTrims: boolean; trimsRemaining: number; avoidIds: string[]; onBack: () => void;
   onToast: (title: string, detail?: string, tone?: ToastMessage["tone"]) => void;
   onConfirmOutcome: (kept: NativePhoto[], deleted: NativePhoto[], toTrim: NativePhoto[]) => Promise<number>;
 }) {
@@ -4273,12 +4472,12 @@ function StorageBudgetScreen({ settings, tokens, isPro, trimsRemaining, avoidIds
         const broadSettings = roundSettings({ ...firstSettings, targetMode: "balanced" });
         fallbackNotice =
           `${targetLabel(firstSettings)} did not return matching local photos. ` +
-          "Trying a balanced board instead.";
+          t("ui.trying-a-balanced-board-instead");
         batch = await loadPhotoRound(48, broadSettings, { avoidIds: mergedAvoidIds, includeTrimmed: true });
         finalPool = pickStorageBudgetPool(batch);
       }
       if (fallbackNotice) {
-        onToast("Filter widened", fallbackNotice, "info");
+        onToast(t("ui.filter-widened"), fallbackNotice, "info");
       }
       setPhotos(finalPool);
       setKeptIds(new Set());
@@ -4320,7 +4519,7 @@ function StorageBudgetScreen({ settings, tokens, isPro, trimsRemaining, avoidIds
 
   async function lockBudget() {
     if (overBudget) {
-      onToast("Over budget", `Remove ${formatMB(usedMB - BUDGET_KEEP_LIMIT_MB)} from your kept photos before continuing.`, "warning");
+      onToast(t("ui.over-budget"), `Remove ${formatMB(usedMB - BUDGET_KEEP_LIMIT_MB)} from your kept photos before continuing.`, "warning");
       return;
     }
     setStep("unkept");
@@ -4354,18 +4553,16 @@ function StorageBudgetScreen({ settings, tokens, isPro, trimsRemaining, avoidIds
     }
   }
 
-  if (loadingPhotos) return <Centered><ActivityIndicator color="#334155" size="large" /><Text style={styles.muted}>Building a Free Space Plan...</Text></Centered>;
+  if (loadingPhotos) return <Centered><ActivityIndicator color="#334155" size="large" /><Text style={styles.muted}>{t("ui.building-a-free-space-plan")}</Text></Centered>;
 
   if (photos.length === 0) {
     return (
       <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-        <MiniGameHeader title="Free Space Plan" detail="No plan yet" tokens={tokens} isPro={isPro} onBack={onBack} />
+        <MiniGameHeader title={t("ui.free-space-plan")} detail={t("ui.no-plan-yet")} tokens={tokens} hasUnlimitedTrims={hasUnlimitedTrims} onBack={onBack} />
         <View style={styles.dashboardHero}>
-          <Text style={styles.heroTitle}>No budget photos found</Text>
-          <Text style={styles.dashboardCopy}>
-            The current library selection did not return enough local photos for a Free Space Plan.
-          </Text>
-          <PrimaryButton label="Reload photos" onPress={() => void loadBoard(photos.map((photo) => photo.id))} />
+          <Text style={styles.heroTitle}>{t("ui.no-budget-photos-found")}</Text>
+          <Text style={styles.dashboardCopy}>{t("ui.no-budget-photos-detail")}</Text>
+          <PrimaryButton label={t("ui.reload-photos")} onPress={() => void loadBoard(photos.map((photo) => photo.id))} />
         </View>
       </ScrollView>
     );
@@ -4378,26 +4575,24 @@ function StorageBudgetScreen({ settings, tokens, isPro, trimsRemaining, avoidIds
         onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
         scrollEventThrottle={16}
       >
-        <MiniGameHeader title="Free Space Plan" detail="Keep what fits" tokens={tokens} isPro={isPro} onBack={onBack} />
+        <MiniGameHeader title={t("ui.free-space-plan")} detail={t("ui.keep-what-fits")} tokens={tokens} hasUnlimitedTrims={hasUnlimitedTrims} onBack={onBack} />
       <View style={styles.dashboardHero}>
         <View style={styles.dashboardHeroTop}>
           <View>
-            <Text style={styles.eyebrow}>Budget</Text>
+            <Text style={styles.eyebrow}>{t("ui.budget")}</Text>
             <Text style={styles.heroTitle}>{formatMB(usedMB)} / {formatMB(BUDGET_KEEP_LIMIT_MB)}</Text>
           </View>
           <View style={styles.healthScore}>
             <Text style={styles.healthValue}>{keptPhotos.length}</Text>
-            <Text style={styles.healthLabel}>kept</Text>
+            <Text style={styles.healthLabel}>{t("ui.kept")}</Text>
           </View>
         </View>
         <View style={styles.storageTrack}>
           <View style={[styles.storageFill, overBudget ? styles.storageFillDelete : styles.storageFillTrim, { width: progressWidth(Math.min(1, usedMB / BUDGET_KEEP_LIMIT_MB)) }]} />
         </View>
-        <Text style={styles.dashboardCopy}>
-          Tap photos you want to keep. Then choose what happens to unkept photos and kept photos.
-        </Text>
+        <Text style={styles.dashboardCopy}>{t("ui.budget-selection-help")}</Text>
         <Text style={styles.mutedSmall}>
-          Pool: {formatMB(totalPoolMB)} total
+          {t("ui.pool-total", { value: formatMB(totalPoolMB) })}
         </Text>
       </View>
       {step === "select" ? (
@@ -4408,23 +4603,23 @@ function StorageBudgetScreen({ settings, tokens, isPro, trimsRemaining, avoidIds
             ))}
           </View>
           <PrimaryButton
-            label={busy ? "Applying..." : `Continue with ${keptPhotos.length} kept`}
+            label={busy ? t("ui.applying") : t("ui.continue-with-kept", { count: keptPhotos.length })}
             disabled={busy || photos.length === 0}
             onPress={lockBudget}
           />
           <SecondaryButton
-            label="Keep all & finish"
+            label={t("ui.keep-all-finish")}
             disabled={busy}
             onPress={() => void keepAllAndFinish()}
           />
         </>
       ) : step === "unkept" ? (
         <BudgetDecisionStep
-          title="Unkept photos"
-          detail={`${notKeptPhotos.length} photos outside your keep set`}
+          title={t("ui.unkept-photos")}
+          detail={t("ui.photos-outside-keep", { count: notKeptPhotos.length })}
           options={[
-            { key: "delete", label: "Delete", detail: `Free ${formatMB(notKeptPhotos.reduce((sum, photo) => sum + photo.sizeMB, 0))}` },
-            { key: "trim", label: unkeptTrimCandidates.length > 0 ? "Trim" : "No trimmable photos", detail: `Try to save ~${formatMB(unkeptTrimCandidates.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0))}` },
+            { key: "delete", label: t("ui.delete-label"), detail: t("ui.free-value", { value: formatMB(notKeptPhotos.reduce((sum, photo) => sum + photo.sizeMB, 0)) }) },
+            { key: "trim", label: unkeptTrimCandidates.length > 0 ? t("ui.trim-label") : t("ui.no-trimmable-photos"), detail: t("ui.try-save-value", { value: formatMB(unkeptTrimCandidates.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0)) }) },
           ]}
           value={unkeptAction}
           onChange={(value) => setUnkeptAction(value as "delete" | "trim")}
@@ -4433,24 +4628,24 @@ function StorageBudgetScreen({ settings, tokens, isPro, trimsRemaining, avoidIds
         />
       ) : (
         <BudgetDecisionStep
-          title="Kept photos"
-          detail={`${keptPhotos.length} selected photos`}
+          title={t("ui.kept-photos")}
+          detail={t("ui.selected-photos", { count: keptPhotos.length })}
           options={[
-            { key: "keep", label: "Keep", detail: "Leave originals as they are" },
-            { key: "trim", label: keptTrimCandidates.length > 0 ? "Trim" : "No trimmable photos", detail: `Try to save ~${formatMB(keptTrimCandidates.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0))}` },
+            { key: "keep", label: t("ui.keep-label"), detail: t("ui.leave-originals-as-they-are") },
+            { key: "trim", label: keptTrimCandidates.length > 0 ? t("ui.trim-label") : t("ui.no-trimmable-photos"), detail: t("ui.try-save-value", { value: formatMB(keptTrimCandidates.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0)) }) },
           ]}
           value={keptAction}
           onChange={(value) => setKeptAction(value as "keep" | "trim")}
           onBack={() => setStep("unkept")}
           onNext={applyBudgetPlan}
-          nextLabel={busy ? "Applying..." : `Apply, save ~${formatMB(deleteSavings + trimSavings)}`}
+          nextLabel={busy ? t("ui.applying") : t("ui.apply-save-approx", { value: formatMB(deleteSavings + trimSavings) })}
           disabled={busy}
         />
       )}
       </Animated.ScrollView>
       <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
       <Animated.View style={[styles.floatingBudget, { transform: [{ translateY: budgetTranslateY }, { scale: budgetScale }] }]}>
-        <Text style={styles.floatingBudgetLabel}>Used</Text>
+        <Text style={styles.floatingBudgetLabel}>{t("ui.used")}</Text>
         <Text style={[styles.floatingBudgetValue, overBudget && styles.floatingBudgetOver]}>{formatMB(usedMB)} / {formatMB(BUDGET_KEEP_LIMIT_MB)}</Text>
         <View style={styles.floatingBudgetTrack}>
           <View style={[styles.floatingBudgetFill, overBudget ? styles.storageFillDelete : styles.storageFillTrim, { width: progressWidth(Math.min(1, usedMB / BUDGET_KEEP_LIMIT_MB)) }]} />
@@ -4462,8 +4657,8 @@ function StorageBudgetScreen({ settings, tokens, isPro, trimsRemaining, avoidIds
 
 // ─── Memory Lane (FIX 4) ──────────────────────────────────────────────────────
 
-function MemoryLaneScreen({ settings, tokens, isPro, avoidIds, trimsRemaining, onBack, onToast, onConfirmOutcome }: {
-  settings: NativeSettings; tokens: number; isPro: boolean; avoidIds: string[]; trimsRemaining: number; onBack: () => void;
+function MemoryLaneScreen({ settings, tokens, hasUnlimitedTrims, avoidIds, trimsRemaining, onBack, onToast, onConfirmOutcome }: {
+  settings: NativeSettings; tokens: number; hasUnlimitedTrims: boolean; avoidIds: string[]; trimsRemaining: number; onBack: () => void;
   onToast: (title: string, detail?: string, tone?: ToastMessage["tone"]) => void;
   onConfirmOutcome: (kept: NativePhoto[], deleted: NativePhoto[], toTrim: NativePhoto[]) => Promise<number>;
 }) {
@@ -4520,11 +4715,11 @@ function MemoryLaneScreen({ settings, tokens, isPro, avoidIds, trimsRemaining, o
           });
         }
         if (next.length > 0) {
-          fallbackNotice = "No older matches were available, so any age and any size were included.";
+          fallbackNotice = t("ui.no-older-matches-were-available-so-any-age-and-a");
         }
       }
       if (fallbackNotice) {
-        onToast("Older photos finished", fallbackNotice, "info");
+        onToast(t("ui.older-photos-finished"), fallbackNotice, "info");
       }
       setPhotos(next);
       setIndex(0); setGuess(null); setKept([]); setDeleted([]); setToTrim([]); setRevealed(false);
@@ -4579,7 +4774,7 @@ function MemoryLaneScreen({ settings, tokens, isPro, avoidIds, trimsRemaining, o
     }
   }
 
-  if (loadingPhotos) return <Centered><ActivityIndicator color="#315f7d" size="large" /><Text style={styles.muted}>Finding older memories...</Text></Centered>;
+  if (loadingPhotos) return <Centered><ActivityIndicator color="#315f7d" size="large" /><Text style={styles.muted}>{t("ui.finding-older-memories")}</Text></Centered>;
 
   if (!photo) {
     const hasReviewedAny = kept.length + deleted.length + toTrim.length > 0;
@@ -4587,38 +4782,36 @@ function MemoryLaneScreen({ settings, tokens, isPro, avoidIds, trimsRemaining, o
     if (!hasReviewedAny) {
       return (
         <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-          <MiniGameHeader title="Past Moments" detail="No memories loaded" tokens={tokens} isPro={isPro} onBack={onBack} />
+          <MiniGameHeader title={t("ui.past-moments")} detail={t("ui.no-memories-loaded")} tokens={tokens} hasUnlimitedTrims={hasUnlimitedTrims} onBack={onBack} />
           <View style={styles.dashboardHero}>
-            <Text style={styles.heroTitle}>No memories found</Text>
-            <Text style={styles.dashboardCopy}>
-              The current photo access selection did not return older local photos for Past Moments.
-            </Text>
-            <PrimaryButton label="Reload photos" disabled={busy} onPress={() => void loadMemories()} />
+            <Text style={styles.heroTitle}>{t("ui.no-memories-found")}</Text>
+            <Text style={styles.dashboardCopy}>{t("ui.no-memories-detail")}</Text>
+            <PrimaryButton label={t("ui.reload-photos")} disabled={busy} onPress={() => void loadMemories()} />
           </View>
         </ScrollView>
       );
     }
     return (
       <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-        <MiniGameHeader title="Past Moments" detail="Round complete" tokens={tokens} isPro={isPro} onBack={onBack} />
+          <MiniGameHeader title={t("ui.past-moments")} detail={t("ui.round-complete")} tokens={tokens} hasUnlimitedTrims={hasUnlimitedTrims} onBack={onBack} />
         <View style={styles.dashboardHero}>
           <View style={styles.memorySummaryList}>
-            <MemorySummaryItem label="Kept" value={kept.length} tone="keep" />
-            <MemorySummaryItem label="Trimmed" value={toTrim.length} tone="trim" />
-            <MemorySummaryItem label="Cleared" value={deleted.length} tone="delete" />
+            <MemorySummaryItem label={t("ui.kept")} value={kept.length} tone="keep" />
+            <MemorySummaryItem label={t("ui.trimmed")} value={toTrim.length} tone="trim" />
+            <MemorySummaryItem label={t("ui.cleared")} value={deleted.length} tone="delete" />
           </View>
           <Text style={styles.dashboardCopy}>
             {hasActions
-              ? `${toTrim.length} marked to trim. Applying choices would save about ${formatMB(freed + trimFreed)}.`
-              : "No photos were marked to trim or delete."}
+              ? t("ui.memory-actions-summary", { count: toTrim.length, value: formatMB(freed + trimFreed) })
+              : t("ui.no-photos-were-marked-to-trim-or-delete")}
           </Text>
           {hasActions ? (
             <>
-              <PrimaryButton label={busy ? "Applying..." : `Apply choices, save ${formatMB(freed + trimFreed)}`} disabled={busy} onPress={confirmDeletes} />
-              <SecondaryButton label="Play another round without deleting" onPress={() => void loadMemories()} />
+              <PrimaryButton label={busy ? t("ui.applying") : t("ui.apply-choices-save", { value: formatMB(freed + trimFreed) })} disabled={busy} onPress={confirmDeletes} />
+              <SecondaryButton label={t("ui.play-another-round-without-deleting")} onPress={() => void loadMemories()} />
             </>
           ) : (
-            <PrimaryButton label="Play another round" disabled={busy} onPress={() => void loadMemories()} />
+            <PrimaryButton label={t("ui.play-another-round")} disabled={busy} onPress={() => void loadMemories()} />
           )}
         </View>
       </ScrollView>
@@ -4631,7 +4824,7 @@ function MemoryLaneScreen({ settings, tokens, isPro, avoidIds, trimsRemaining, o
 
   return (
     <ScrollView contentContainerStyle={[styles.content, styles.dashboardContent]}>
-      <MiniGameHeader title="Past Moments" detail={`${index + 1}/${photos.length} memories`} tokens={tokens} isPro={isPro} onBack={onBack} />
+      <MiniGameHeader title={t("ui.past-moments")} detail={t("ui.memories-progress", { current: index + 1, total: photos.length })} tokens={tokens} hasUnlimitedTrims={hasUnlimitedTrims} onBack={onBack} />
       <Pressable onLongPress={() => setFullPhoto(photo)} delayLongPress={350} style={[styles.memoryCard, { borderColor: cardBorderColor, borderWidth: revealed ? 3 : StyleSheet.hairlineWidth }]}>
         <Image source={{ uri: photo.uri }} style={styles.memoryImage} resizeMode="cover" />
         <View style={styles.photoShade} />
@@ -4645,7 +4838,7 @@ function MemoryLaneScreen({ settings, tokens, isPro, avoidIds, trimsRemaining, o
 
       {!revealed ? (
         <View style={styles.dashboardHero}>
-          <Text style={styles.heroTitle}>What year was this?</Text>
+          <Text style={styles.heroTitle}>{t("ui.what-year-was-this")}</Text>
           <View style={styles.yearGrid}>
             {options.map((year) => (
               <Pressable key={year} onPress={() => chooseYear(year)} style={styles.yearButton}>
@@ -4656,20 +4849,20 @@ function MemoryLaneScreen({ settings, tokens, isPro, avoidIds, trimsRemaining, o
         </View>
       ) : (
         <View style={styles.dashboardHero}>
-          <Text style={styles.eyebrow}>Actually</Text>
+          <Text style={styles.eyebrow}>{t("ui.actually")}</Text>
           <Text style={styles.heroTitle}>{photo.month} {photo.year}</Text>
           <Text style={styles.dashboardCopy}>
-            You guessed {guess}.{isCorrect ? " 🎉 Correct!" : ` The actual year was ${photo.year}.`} Now decide if this memory still earns its space.
+            {isCorrect ? "🎉" : t("ui.actual-year", { year: photo.year })} {t("ui.memory-result-next")}
           </Text>
           <View style={styles.actions}>
-            <ActionButton label="Keep" tone="keep" onPress={() => decide("keep")} />
+            <ActionButton label={t("ui.keep")} tone="keep" onPress={() => decide("keep")} />
             <ActionButton
-              label={toTrim.length >= trimsRemaining ? "No tokens" : canAttemptTrim(photo, settings) ? "Trim" : trimDisabledReason(photo, settings)}
+              label={toTrim.length >= trimsRemaining ? t("ui.no-tokens") : canAttemptTrim(photo, settings) ? t("ui.trim-label") : trimDisabledReason(photo, settings)}
               tone="trim"
               disabled={toTrim.length >= trimsRemaining || !canAttemptTrim(photo, settings)}
               onPress={() => decide("trim")}
             />
-            <ActionButton label="Clear" tone="delete" onPress={() => decide("delete")} />
+            <ActionButton label={t("ui.clear")} tone="delete" onPress={() => decide("delete")} />
           </View>
         </View>
       )}
@@ -4691,24 +4884,24 @@ function MemorySummaryItem({ label, value, tone }: { label: string; value: numbe
   );
 }
 
-function MiniGameHeader({ title, detail, tokens, isPro, onBack }: { title: string; detail: string; tokens: number; isPro: boolean; onBack: () => void }) {
+function MiniGameHeader({ title, detail, tokens, hasUnlimitedTrims, onBack }: { title: string; detail: string; tokens: number; hasUnlimitedTrims: boolean; onBack: () => void }) {
   return (
     <View style={styles.miniGameHeader}>
-      <Pressable onPress={onBack} style={styles.backButton}><Text style={styles.backButtonText}>Back</Text></Pressable>
+      <Pressable onPress={onBack} style={styles.backButton}><Text style={styles.backButtonText}>{t("ui.back")}</Text></Pressable>
       <View style={styles.miniGameHeaderCopy}>
         <Text style={styles.eyebrow}>{detail}</Text>
         <Text style={styles.heroTitle}>{title}</Text>
       </View>
-      <TokenPill tokens={tokens} isPro={isPro} />
+      <TokenPill tokens={tokens} hasUnlimitedTrims={hasUnlimitedTrims} />
     </View>
   );
 }
 
-function TokenPill({ tokens, isPro = false }: { tokens: number; isPro?: boolean }) {
+function TokenPill({ tokens, hasUnlimitedTrims = false }: { tokens: number; hasUnlimitedTrims?: boolean }) {
   return (
     <View style={styles.tokenPill}>
       <Ionicons name="flash" size={14} color="#66552f" />
-      <Text style={styles.tokenPillText}>{isPro ? "∞" : tokens}</Text>
+      <Text style={styles.tokenPillText}>{hasUnlimitedTrims ? "∞" : tokens}</Text>
     </View>
   );
 }
@@ -4756,7 +4949,7 @@ function BudgetDecisionStep({
         })}
       </View>
       <View style={styles.budgetDecisionActions}>
-        <SecondaryButton label="Back" onPress={onBack} />
+        <SecondaryButton label={t("ui.back")} onPress={onBack} />
         <PrimaryButton label={nextLabel} disabled={disabled} onPress={onNext} />
       </View>
     </View>
@@ -4776,7 +4969,7 @@ function ConfirmSheet({ request, busy }: { request: ConfirmRequest | null; busy:
           <Text style={styles.confirmDetail}>{request.detail}</Text>
           <View style={styles.confirmActions}>
             <SecondaryButton label={request.cancelLabel} onPress={request.onCancel} />
-            <PrimaryButton label={busy ? "Applying..." : request.confirmLabel} danger={request.danger} disabled={busy} onPress={request.onConfirm} />
+            <PrimaryButton label={busy ? t("ui.applying") : request.confirmLabel} danger={request.danger} disabled={busy} onPress={request.onConfirm} />
           </View>
         </View>
       </View>
@@ -4812,9 +5005,9 @@ function ReportDashboardModal({
           <View ref={reportRef} collapsable={false} style={styles.reportDashboardCard}>
             <View style={styles.dashboardHeroTop}>
               <View style={styles.gameCopy}>
-                <Text style={styles.eyebrow}>TrimSwipe</Text>
+                <Text style={styles.eyebrow}>{t("ui.trimswipe")}</Text>
                 <Text style={styles.reportModalTitle}>{data.title}</Text>
-                <Text style={styles.dashboardCopy}>{data.rangeLabel} before/after progress</Text>
+                <Text style={styles.dashboardCopy}>{t("ui.report-range-progress", { range: data.rangeLabel })}</Text>
               </View>
               <View style={styles.reportIcon}>
                 <Ionicons name="document-text-outline" size={22} color="#315f7d" />
@@ -4823,51 +5016,51 @@ function ReportDashboardModal({
 
             <View style={styles.reportBeforeAfterRow}>
               <View style={styles.reportBeforeAfterCard}>
-                <Text style={styles.beforeAfterLabel}>Before</Text>
+                <Text style={styles.beforeAfterLabel}>{t("ui.before")}</Text>
                 <Text style={styles.reportBeforeAfterValue}>{formatMB(data.beforeTotal)}</Text>
-                <Text style={styles.mutedSmall}>Previously reclaimed</Text>
+                <Text style={styles.mutedSmall}>{t("ui.previously-reclaimed")}</Text>
               </View>
               <View style={styles.reportBeforeAfterCard}>
-                <Text style={styles.beforeAfterLabel}>After</Text>
+                <Text style={styles.beforeAfterLabel}>{t("ui.after")}</Text>
                 <Text style={styles.reportBeforeAfterValue}>{formatMB(data.afterTotal)}</Text>
-                <Text style={styles.mutedSmall}>Reclaimed total</Text>
+                <Text style={styles.mutedSmall}>{t("ui.reclaimed-total")}</Text>
               </View>
             </View>
 
             <View style={styles.reportProgressPanel}>
               <View style={styles.impactLabelRow}>
-                <Text style={styles.impactLabel}>Progress</Text>
+                <Text style={styles.impactLabel}>{t("ui.progress")}</Text>
                 <Text style={styles.impactAmount}>{formatMB(periodStats.mbFreed)}</Text>
               </View>
               <Text style={styles.reportProgressValue}>{formatMB(periodStats.mbFreed)}</Text>
-              <Text style={styles.mutedSmall}>{periodStats.reviewed} photos reviewed</Text>
+              <Text style={styles.mutedSmall}>{t("ui.photos-reviewed-count", { count: periodStats.reviewed })}</Text>
               <View style={styles.reportStackedTrack}>
                 <View style={[styles.reportStackedTrim, { width: percentValue(data.trimPercent) }]} />
                 <View style={[styles.reportStackedDelete, { width: percentValue(data.deletePercent) }]} />
               </View>
               <View style={styles.reportLegendRow}>
-                <Text style={styles.reportLegendTrim}>Trim {formatMB(periodStats.trimMbFreed)}</Text>
-                <Text style={styles.reportLegendDelete}>Delete {formatMB(periodStats.deleteMbFreed)}</Text>
+                <Text style={styles.reportLegendTrim}>{t("ui.trim-value", { value: formatMB(periodStats.trimMbFreed) })}</Text>
+                <Text style={styles.reportLegendDelete}>{t("ui.delete-value", { value: formatMB(periodStats.deleteMbFreed) })}</Text>
               </View>
             </View>
 
             <View style={styles.statGrid}>
-              <MiniStat label="Kept" value={periodStats.kept} />
-              <MiniStat label="Trimmed" value={periodStats.trimmed} />
-              <MiniStat label="Deleted" value={periodStats.deleted} />
+              <MiniStat label={t("ui.kept")} value={periodStats.kept} />
+              <MiniStat label={t("ui.trimmed")} value={periodStats.trimmed} />
+              <MiniStat label={t("ui.deleted")} value={periodStats.deleted} />
             </View>
           </View>
 
           <View style={styles.reportModalActions}>
-            <SecondaryButton label="Close" disabled={busy !== null} onPress={onClose} />
+            <SecondaryButton label={t("ui.close")} disabled={busy !== null} onPress={onClose} />
             <View style={styles.reportButtonRow}>
               <Pressable disabled={busy !== null} style={[styles.reportButton, busy !== null && styles.secondaryButtonDisabled]} onPress={onExportImage}>
                 <Ionicons name="image-outline" size={18} color="#315f7d" />
-                <Text style={styles.reportButtonText}>{busy === "image" ? "Exporting..." : "Image"}</Text>
+                <Text style={styles.reportButtonText}>{busy === "image" ? t("ui.exporting") : t("ui.image")}</Text>
               </Pressable>
               <Pressable disabled={busy !== null} style={[styles.reportButton, busy !== null && styles.secondaryButtonDisabled]} onPress={onExportPdf}>
                 <Ionicons name="document-outline" size={18} color="#315f7d" />
-                <Text style={styles.reportButtonText}>{busy === "pdf" ? "Exporting..." : "PDF"}</Text>
+                <Text style={styles.reportButtonText}>{busy === "pdf" ? t("ui.exporting") : t("ui.pdf")}</Text>
               </Pressable>
             </View>
           </View>
@@ -4906,7 +5099,7 @@ function BudgetPhotoTile({ photo, kept, onPress, onLongPress }: { photo: NativeP
     <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={350} style={[styles.budgetTile, kept && styles.budgetTileKept]}>
       <Image source={{ uri: photo.uri }} style={styles.budgetImage} resizeMode="cover" />
       <View style={styles.choiceShade} />
-      <Text style={[styles.budgetStatus, kept && styles.budgetStatusKept]}>{kept ? "Keep" : "Cut"}</Text>
+      <Text style={[styles.budgetStatus, kept && styles.budgetStatusKept]}>{kept ? t("ui.keep-label") : t("ui.cut")}</Text>
       {trimLabel ? <Text style={styles.trimmedTileBadge}>{trimLabel}</Text> : null}
       <Text style={styles.budgetSize}>{formatMB(photo.sizeMB)}</Text>
     </Pressable>
@@ -4956,7 +5149,7 @@ function ActionLogRow({ entry, compact }: { entry: NativeActionLogEntry; compact
       <View style={styles.actionLogDot} />
       <View style={styles.reviewCopy}>
         <Text style={styles.reviewTitle} numberOfLines={1}>{actionVerb(entry.action)} {entry.title}</Text>
-        <Text style={styles.mutedSmall}>{entry.mbFreed > 0 ? `${formatMB(entry.mbFreed)} saved` : "No storage change"} - {entry.createdAt.slice(0, 10)}</Text>
+        <Text style={styles.mutedSmall}>{entry.mbFreed > 0 ? t("ui.value-saved", { value: formatMB(entry.mbFreed) }) : t("ui.no-storage-change")} - {entry.createdAt.slice(0, 10)}</Text>
       </View>
     </View>
   );
@@ -4975,13 +5168,13 @@ function EmptyPanel({ title, detail, actionLabel, onAction }: { title: string; d
 // ─── Settings ────────────────────────────────────────────────────────────────
 
 const FOCUS_OPTIONS: [NativeTargetMode, string, string][] = [
-  ["big-or-old", "Large or old", "Photos over either threshold"],
-  ["big-only", "Large", "Photos over the size threshold"],
-  ["old-only", "Old", "Older memories first"],
-  ["similar", "Similar Photos", "Visually related photos to compare together"],
-  ["blurry", "Blurry", "Likely blurry, dark, or accidental shots"],
-  ["multibursts", "Bursts", "Rapid-fire photo groups"],
-  ["screenshots", "Screens", "Screenshots and screen grabs"],
+  ["big-or-old", "ui.large-or-old", "ui.photos-over-either-threshold"],
+  ["big-only", "ui.focus-large", "ui.photos-over-the-size-threshold"],
+  ["old-only", "ui.focus-old", "ui.older-memories-first"],
+  ["similar", "ui.similar-photos", "ui.visually-related-photos-to-compare-together"],
+  ["blurry", "ui.focus-blurry", "ui.likely-blurry-dark-or-accidental-shots"],
+  ["multibursts", "ui.focus-bursts", "ui.rapid-fire-photo-groups"],
+  ["screenshots", "ui.focus-screens", "ui.screenshots-and-screen-grabs"],
 ];
 
 function FocusDropdown({ value, onChange }: { value: NativeTargetMode; onChange: (value: NativeTargetMode) => void }) {
@@ -4990,10 +5183,10 @@ function FocusDropdown({ value, onChange }: { value: NativeTargetMode; onChange:
     <View style={styles.settingCardVertical}>
       <View style={styles.dashboardHeroTop}>
         <View style={styles.scanQuickCopy}>
-          <Text style={styles.settingLabel}>Focus mode</Text>
-          <Text style={styles.mutedSmall}>One active filter keeps cleanup rounds predictable.</Text>
+          <Text style={styles.settingLabel}>{t("ui.focus-mode")}</Text>
+          <Text style={styles.mutedSmall}>{t("ui.one-active-filter-keeps-cleanup-rounds-predictab")}</Text>
         </View>
-        <Text style={styles.proPill}>{selected[1]}</Text>
+        <Text style={styles.proPill}>{t(selected[1])}</Text>
       </View>
       <View style={styles.dropdownList}>
         {FOCUS_OPTIONS.map(([option, label, detail]) => {
@@ -5011,8 +5204,8 @@ function FocusDropdown({ value, onChange }: { value: NativeTargetMode; onChange:
                   {active ? <View style={styles.radioInner} /> : null}
                 </View>
                 <View style={styles.reviewCopy}>
-                  <Text style={[styles.dropdownOptionTitle, active && styles.dropdownOptionTitleActive]}>{label}</Text>
-                  <Text style={styles.mutedSmall}>{detail}</Text>
+                  <Text style={[styles.dropdownOptionTitle, active && styles.dropdownOptionTitleActive]}>{t(label)}</Text>
+                  <Text style={styles.mutedSmall}>{t(detail)}</Text>
                 </View>
               </View>
             </Pressable>
@@ -5034,8 +5227,8 @@ function QualityPreview({ photo, currentQuality }: { photo?: NativePhoto; curren
     <View style={styles.qualityPreview}>
       <View style={styles.dashboardHeroTop}>
         <View style={styles.scanQuickCopy}>
-          <Text style={styles.settingLabel}>Trim quality preview</Text>
-          <Text style={styles.mutedSmall}>{photo ? photo.title : "Load a deck to preview with one of your photos."}</Text>
+          <Text style={styles.settingLabel}>{t("ui.trim-quality-preview")}</Text>
+          <Text style={styles.mutedSmall}>{photo ? photo.title : t("ui.load-a-deck-to-preview-with-one-of-your-photos")}</Text>
         </View>
         {photo ? <Image source={{ uri: photo.uri }} style={styles.qualityThumb} resizeMode="cover" /> : null}
       </View>
@@ -5160,8 +5353,8 @@ function EnhancedQualityPreview({ photo, currentQuality }: { photo?: NativePhoto
     <View style={styles.qualityPreview}>
       <View style={styles.dashboardHeroTop}>
         <View style={styles.scanQuickCopy}>
-          <Text style={styles.settingLabel}>Trim quality preview</Text>
-          <Text style={styles.mutedSmall}>{photo ? photo.title : "Load a deck to preview with one of your photos."}</Text>
+          <Text style={styles.settingLabel}>{t("ui.trim-quality-preview")}</Text>
+          <Text style={styles.mutedSmall}>{photo ? photo.title : t("ui.load-a-deck-to-preview-with-one-of-your-photos")}</Text>
         </View>
         {photo ? (
           <Pressable onPress={() => setExpanded(true)} style={styles.qualityThumbButton}>
@@ -5179,7 +5372,12 @@ function EnhancedQualityPreview({ photo, currentQuality }: { photo?: NativePhoto
               <View style={[styles.qualityFill, { width: progressWidth(variant.sizeMB / baseSize), backgroundColor: variant.color }]} />
             </View>
             <Text style={styles.mutedSmall}>
-              {formatMB(variant.sizeMB)} - save {formatMB(saved)} ({Math.round((saved / Math.max(baseSize, 0.01)) * 100)}%){variant.generated ? "" : " est."}
+              {t("ui.quality-save", {
+                size: formatMB(variant.sizeMB),
+                saved: formatMB(saved),
+                percent: Math.round((saved / Math.max(baseSize, 0.01)) * 100),
+                estimated: variant.generated ? "" : t("ui.estimated-short"),
+              })}
             </Text>
           </Pressable>
         );
@@ -5212,17 +5410,18 @@ function EnhancedQualityPreview({ photo, currentQuality }: { photo?: NativePhoto
   );
 }
 
-const TRIM_KIND_OPTIONS: Array<{ kind: NativeTrimKind; label: string; detail: string; icon: keyof typeof Ionicons.glyphMap }> = [
-  { kind: "metadata", label: "Metadata", detail: "Camera, lens, edits, app notes", icon: "document-text-outline" },
-  { kind: "location", label: "Location", detail: "GPS coordinates when present", icon: "location-outline" },
-  { kind: "compression", label: "Compression", detail: "Final shrink pass for already-stripped photos", icon: "contract-outline" },
+const TRIM_KIND_OPTIONS: Array<{ kind: NativeTrimKind; labelKey: string; detailKey: string; icon: keyof typeof Ionicons.glyphMap }> = [
+  { kind: "metadata", labelKey: "ui.metadata", detailKey: "ui.camera-lens-edits-app-notes", icon: "document-text-outline" },
+  { kind: "location", labelKey: "ui.location", detailKey: "ui.gps-coordinates-when-present", icon: "location-outline" },
+  { kind: "compression", labelKey: "ui.compression", detailKey: "ui.final-shrink-pass-for-already-stripped-photos", icon: "contract-outline" },
 ];
 
 function trimKindDetail(option: (typeof TRIM_KIND_OPTIONS)[number], quality: number): string {
-  if (option.kind === "metadata") return `${option.detail} - roughly 1-8%`;
-  if (option.kind === "location") return `${option.detail} - roughly 0.1-0.5 MB`;
+  const detail = t(option.detailKey);
+  if (option.kind === "metadata") return t("ui.trim-detail-percent", { detail });
+  if (option.kind === "location") return t("ui.trim-detail-location", { detail });
   const savedPercent = Math.max(0, Math.round((1 - projectedQualitySize(1, quality)) * 100));
-  return `${option.detail} - roughly ${savedPercent}% at ${Math.round(quality * 100)}% quality`;
+  return t("ui.trim-detail-quality", { detail, saved: savedPercent, quality: Math.round(quality * 100) });
 }
 
 function TrimKindSettings({
@@ -5249,12 +5448,12 @@ function TrimKindSettings({
     <View style={[styles.settingCardVertical, compact && styles.trimKindCompact]}>
       <View style={styles.dashboardHeroTop}>
         <View style={styles.scanQuickCopy}>
-          <Text style={styles.settingLabel}>{compact ? "Trim settings" : "Default trim data"}</Text>
+          <Text style={styles.settingLabel}>{compact ? t("ui.trim-settings") : t("ui.default-trim-data")}</Text>
           <Text style={styles.mutedSmall}>
-            {isPro ? "Choose what Trim is allowed to remove." : "Lifetime Pro unlocks selectable trim data."}
+            {isPro ? t("ui.choose-what-trim-is-allowed-to-remove") : t("ui.lifetime-pro-unlocks-selectable-trim-data")}
           </Text>
         </View>
-        {!isPro ? <Text style={styles.proPill}>Pro</Text> : null}
+        {!isPro ? <Text style={styles.proPill}>{t("ui.pro")}</Text> : null}
       </View>
       <View style={styles.trimKindGrid}>
         {TRIM_KIND_OPTIONS.map((option) => {
@@ -5268,7 +5467,7 @@ function TrimKindSettings({
             >
               <Ionicons name={isPro ? option.icon : "lock-closed-outline"} size={17} color={active ? "#315f7d" : "#64748b"} />
               <View style={styles.reviewCopy}>
-                <Text style={[styles.trimKindLabel, active && styles.trimKindLabelActive]}>{option.label}</Text>
+                <Text style={[styles.trimKindLabel, active && styles.trimKindLabelActive]}>{t(option.labelKey)}</Text>
                 {!compact ? <Text style={styles.mutedSmall}>{trimKindDetail(option, settings.trimQuality)}</Text> : null}
               </View>
               <View style={[styles.checkbox, active && styles.checkboxOn]}>
@@ -5288,17 +5487,17 @@ function BackgroundTrimStatus({ count, result, onOpenResult }: { count: number; 
     <Pressable
       disabled={!finished}
       accessibilityRole={finished ? "button" : "progressbar"}
-      accessibilityLabel={finished ? "Trimming finished. Open results." : `Trimming ${count} photos in the background`}
+      accessibilityLabel={finished ? t("ui.trimming-finished-open-results") : t("ui.trimming-background-count", { count })}
       onPress={onOpenResult}
       style={({ pressed }) => [styles.backgroundTrimStatus, finished && styles.backgroundTrimFinished, pressed && styles.backgroundTrimPressed]}
     >
       {finished ? <Ionicons name="checkmark-circle" size={22} color="#ffffff" /> : <ActivityIndicator size="small" color="#ffffff" />}
       <View style={styles.backgroundTrimCopy}>
-        <Text style={styles.backgroundTrimTitle}>{finished ? "Trimming finished" : "Trimming in background"}</Text>
+        <Text style={styles.backgroundTrimTitle}>{finished ? t("ui.trimming-finished") : t("ui.trimming-in-background")}</Text>
         <Text style={styles.backgroundTrimDetail}>
           {finished && result
-            ? `${result.trimmed} trimmed · ${formatMB(result.savedMB)} saved · Tap for results`
-            : `${count} photo${count === 1 ? "" : "s"} processing · You can keep browsing`}
+            ? t("ui.trim-result-tap", { count: result.trimmed, value: formatMB(result.savedMB) })
+            : t("ui.trimming-processing", { count })}
         </Text>
       </View>
       {finished ? <Ionicons name="chevron-forward" size={19} color="#ffffff" /> : null}
@@ -5318,19 +5517,19 @@ function TrimmableActionSheet({ visible, loading, onClose, onStartSet, onTrimAll
       <View style={styles.confirmBackdrop}>
         <View style={styles.confirmSheet}>
           <View style={styles.confirmIcon}><Ionicons name="cut-outline" size={24} color="#315f7d" /></View>
-          <Text style={styles.confirmTitle}>Review trimmable photos</Text>
-          <Text style={styles.confirmDetail}>Choose a swipe-game set, or prepare up to {BULK_TRIM_LIMIT} eligible local photos.</Text>
-          <Text style={styles.eyebrow}>Swipe a set</Text>
+          <Text style={styles.confirmTitle}>{t("ui.review-trimmable-photos")}</Text>
+          <Text style={styles.confirmDetail}>{t("ui.trim-action-sheet-detail", { count: BULK_TRIM_LIMIT })}</Text>
+          <Text style={styles.eyebrow}>{t("ui.swipe-a-set")}</Text>
           <View style={styles.trimSetChoices}>
             {[10, 20, 30].map((count) => (
               <Pressable key={count} disabled={loading} onPress={() => onStartSet(count)} style={styles.trimSetChoice}>
                 <Text style={styles.trimSetChoiceValue}>{count}</Text>
-                <Text style={styles.trimSetChoiceLabel}>photos</Text>
+                <Text style={styles.trimSetChoiceLabel}>{t("ui.photos")}</Text>
               </Pressable>
             ))}
           </View>
-          <PrimaryButton label={`Trim up to ${BULK_TRIM_LIMIT}`} disabled={loading} onPress={onTrimAll} />
-          <SecondaryButton label="Cancel" disabled={loading} onPress={onClose} />
+          <PrimaryButton label={t("ui.trim-up-to", { count: BULK_TRIM_LIMIT })} disabled={loading} onPress={onTrimAll} />
+          <SecondaryButton label={t("ui.cancel")} disabled={loading} onPress={onClose} />
         </View>
       </View>
     </Modal>
@@ -5349,19 +5548,19 @@ function TrimResultSheet({ visible, result, onClose, onDismiss }: {
       <View style={styles.confirmBackdrop}>
         <View style={styles.confirmSheet}>
           <View style={[styles.confirmIcon, styles.trimResultIcon]}><Ionicons name="checkmark" size={26} color="#ffffff" /></View>
-          <Text style={styles.confirmTitle}>Trimming finished</Text>
-          <Text style={styles.confirmDetail}>{result.trimmed} of {result.requested} photos were trimmed successfully.</Text>
+          <Text style={styles.confirmTitle}>{t("ui.trimming-finished")}</Text>
+          <Text style={styles.confirmDetail}>{t("ui.trim-result-success", { trimmed: result.trimmed, requested: result.requested })}</Text>
           <View style={styles.trimBeforeAfter}>
-            <View style={styles.trimResultMetric}><Text style={styles.trimResultLabel}>Before</Text><Text style={styles.trimResultValue}>{formatMB(result.beforeMB)}</Text></View>
+            <View style={styles.trimResultMetric}><Text style={styles.trimResultLabel}>{t("ui.before")}</Text><Text style={styles.trimResultValue}>{formatMB(result.beforeMB)}</Text></View>
             <Ionicons name="arrow-forward" size={20} color="#64748b" />
-            <View style={styles.trimResultMetric}><Text style={styles.trimResultLabel}>After</Text><Text style={styles.trimResultValue}>{formatMB(result.afterMB)}</Text></View>
+            <View style={styles.trimResultMetric}><Text style={styles.trimResultLabel}>{t("ui.after")}</Text><Text style={styles.trimResultValue}>{formatMB(result.afterMB)}</Text></View>
           </View>
           <View style={styles.trimSavedCard}>
-            <Text style={styles.trimSavedLabel}>Space saved</Text>
+            <Text style={styles.trimSavedLabel}>{t("ui.space-saved")}</Text>
             <Text style={styles.trimSavedValue}>{formatMB(result.savedMB)}</Text>
             {result.failed > 0 ? <Text style={styles.trimFailedText}>{result.failed} photo{result.failed === 1 ? "" : "s"} could not be trimmed.</Text> : null}
           </View>
-          <PrimaryButton label="Done" onPress={onDismiss} />
+          <PrimaryButton label={t("ui.done")} onPress={onDismiss} />
         </View>
       </View>
     </Modal>
@@ -5389,16 +5588,14 @@ function ProAutomationScreen({
       <View style={styles.dashboardHero}>
         <View style={styles.dashboardHeroTop}>
           <View style={styles.gameCopy}>
-            <Text style={styles.eyebrow}>Pro automation</Text>
-            <Text style={styles.heroTitle}>Scheduled cleanup checks</Text>
+            <Text style={styles.eyebrow}>{t("ui.pro-automation")}</Text>
+            <Text style={styles.heroTitle}>{t("ui.scheduled-cleanup-checks")}</Text>
           </View>
           <View style={styles.reportIcon}>
             <Ionicons name="alarm-outline" size={23} color="#315f7d" />
           </View>
         </View>
-        <Text style={styles.dashboardCopy}>
-          Run background-style scans on chosen days and times. TrimSwipe prepares suggestions, then waits for you to confirm every trim or delete.
-        </Text>
+        <Text style={styles.dashboardCopy}>{t("ui.automation-copy")}</Text>
       </View>
 
       {schedules.map((schedule) => (
@@ -5411,7 +5608,7 @@ function ProAutomationScreen({
         />
       ))}
 
-      <SecondaryButton label="Add schedule" onPress={onAddSchedule} />
+      <SecondaryButton label={t("ui.add-schedule")} onPress={onAddSchedule} />
     </ScrollView>
   );
 }
@@ -5428,7 +5625,16 @@ function AutomationScheduleCard({
   onUpdate: (updater: (schedule: NativeBackgroundScanSchedule) => NativeBackgroundScanSchedule) => void;
 }) {
   const lastSuggestion = schedule.lastSuggestionAt ? new Date(schedule.lastSuggestionAt) : null;
-  const summary = `${scheduleDaysLabel(schedule.days)} at ${scheduleTimeLabel(schedule.times)} - ${formatMB(schedule.targetMB)} target`;
+  const summary = t("ui.automation-summary", {
+    days: scheduleDaysLabel(schedule.days),
+    time: scheduleTimeLabel(schedule.times),
+    value: formatMB(schedule.targetMB),
+  });
+  const scheduleLabel = schedule.label === "Daily cleanup check"
+    ? t("ui.automation-daily-check")
+    : /^Cleanup check \d+$/.test(schedule.label)
+      ? t("ui.automation-check-number", { count: schedule.label.replace(/\D/g, "") })
+      : schedule.label;
 
   function toggleDay(day: number) {
     onUpdate((current) => {
@@ -5464,8 +5670,8 @@ function AutomationScheduleCard({
     <View style={styles.automationCard}>
       <View style={styles.dashboardHeroTop}>
         <View style={styles.automationTitleBlock}>
-          <Text style={styles.settingLabel}>{schedule.label}</Text>
-          <Text style={styles.settingValue}>{schedule.active ? "Active" : "Inactive"}</Text>
+          <Text style={styles.settingLabel}>{scheduleLabel}</Text>
+          <Text style={styles.settingValue}>{schedule.active ? t("ui.automation-active") : t("ui.automation-inactive")}</Text>
           <Text style={styles.mutedSmall}>{summary}</Text>
         </View>
         <Pressable
@@ -5483,7 +5689,7 @@ function AutomationScheduleCard({
           const active = schedule.days.includes(index);
           return (
             <Pressable key={label} onPress={() => toggleDay(index)} style={[styles.dayToggle, active && styles.dayToggleActive]}>
-              <Text style={[styles.dayToggleText, active && styles.dayToggleTextActive]}>{label.slice(0, 1)}</Text>
+              <Text style={[styles.dayToggleText, active && styles.dayToggleTextActive]}>{t(label).slice(0, 1)}</Text>
             </Pressable>
           );
         })}
@@ -5507,14 +5713,14 @@ function AutomationScheduleCard({
         {schedule.times.length < 5 ? (
           <Pressable style={styles.addTimeButton} onPress={addTime}>
             <Ionicons name="add-circle-outline" size={17} color="#315f7d" />
-            <Text style={styles.addTimeText}>Add time</Text>
+            <Text style={styles.addTimeText}>{t("ui.add-time")}</Text>
           </Pressable>
         ) : null}
       </View>
 
       <View style={styles.automationTargetRow}>
         <View>
-          <Text style={styles.settingLabel}>Suggestion target</Text>
+          <Text style={styles.settingLabel}>{t("ui.suggestion-target")}</Text>
           <Text style={styles.settingValue}>{formatMB(schedule.targetMB)}</Text>
         </View>
         <View style={styles.stepper}>
@@ -5535,22 +5741,22 @@ function AutomationScheduleCard({
 
       {lastSuggestion ? (
         <Text style={styles.mutedSmall}>
-          Last suggestion: {lastSuggestion.toLocaleDateString()} {lastSuggestion.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          {t("ui.automation-last-suggestion", { date: `${lastSuggestion.toLocaleDateString()} ${lastSuggestion.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` })}
         </Text>
       ) : (
-        <Text style={styles.mutedSmall}>No completed suggestion yet.</Text>
+        <Text style={styles.mutedSmall}>{t("ui.no-completed-suggestion-yet")}</Text>
       )}
 
-      <PrimaryButton label={busy ? "Scanning..." : "Run now"} disabled={busy} onPress={() => onRunNow(schedule)} />
+      <PrimaryButton label={busy ? t("ui.automation-scanning") : t("ui.run-now")} disabled={busy} onPress={() => onRunNow(schedule)} />
     </View>
   );
 }
 
 function purchaseName(productId: string): string {
-  if (productId === LIFETIME_PRODUCT_ID) return "Lifetime Pro connected";
-  if (productId === MONTHLY_PRODUCT_ID) return "Monthly Pro connected";
-  if (productId === YEARLY_PRODUCT_ID) return "Yearly Pro connected";
-  return "Purchase connected";
+  if (productId === LIFETIME_PRODUCT_ID) return t("ui.lifetime-pro-connected");
+  if (productId === MONTHLY_PRODUCT_ID) return t("ui.monthly-pro-connected");
+  if (productId === YEARLY_PRODUCT_ID) return t("ui.yearly-pro-connected");
+  return t("ui.purchase-connected");
 }
 
 function SettingsScreen({
@@ -5560,6 +5766,7 @@ function SettingsScreen({
   activeProductId,
   samplePhoto,
   onChange,
+  onChangeLanguage,
   onReload,
   onCreateReport,
   onRestorePurchases,
@@ -5572,6 +5779,7 @@ function SettingsScreen({
   activeProductId: string | null;
   samplePhoto?: NativePhoto;
   onChange: (patch: Partial<NativeSettings>) => void;
+  onChangeLanguage: (appLanguage: AppLanguage) => Promise<void>;
   onReload: () => Promise<void> | void;
   onCreateReport: (period: (typeof REPORT_PERIODS)[number]) => void;
   onRestorePurchases: () => Promise<void> | void;
@@ -5585,6 +5793,10 @@ function SettingsScreen({
   const [adInspectorMessage, setAdInspectorMessage] = useState("");
   const [openingPrivacyOptions, setOpeningPrivacyOptions] = useState(false);
   const [privacyOptionsMessage, setPrivacyOptionsMessage] = useState("");
+  const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
+  const [languageQuery, setLanguageQuery] = useState("");
+  const { width: windowWidth } = useWindowDimensions();
+  const compactLayout = windowWidth <= 390;
   const showsThresholds =
     settings.targetMode === "big-or-old" ||
     settings.targetMode === "big-only" ||
@@ -5623,7 +5835,7 @@ function SettingsScreen({
     setAdInspectorMessage("");
     try {
       const opened = await openAdInspector();
-      if (!opened) setAdInspectorMessage("Ad Inspector is unavailable in this build.");
+      if (!opened) setAdInspectorMessage(t("ui.ad-inspector-is-unavailable-in-this-build"));
     } finally {
       setOpeningAdInspector(false);
     }
@@ -5634,32 +5846,70 @@ function SettingsScreen({
     setPrivacyOptionsMessage("");
     try {
       const opened = await openAdsPrivacyOptions();
-      if (!opened) setPrivacyOptionsMessage("Privacy choices are not required for this location or are temporarily unavailable.");
+      if (!opened) setPrivacyOptionsMessage(t("ui.privacy-choices-are-not-required-for-this-locati"));
     } finally {
       setOpeningPrivacyOptions(false);
     }
   }
 
   const purchaseStatus = !accountSignedIn
-    ? "Not signed in"
+    ? t("ui.not-signed-in")
     : activeProductId
       ? purchaseName(activeProductId)
-      : "Connected - no Pro purchase";
+      : t("ui.connected-no-pro-purchase");
   const hasManageableSubscription =
     activeProductId === MONTHLY_PRODUCT_ID || activeProductId === YEARLY_PRODUCT_ID;
   const theme = getNativeTheme(settings.theme);
   const themed = useMemo(() => createSettingsThemeStyles(theme), [theme]);
+  const selectedLanguage = APP_LANGUAGES.find(([code]) => code === settings.appLanguage) ?? APP_LANGUAGES[0];
+  const visibleLanguages = APP_LANGUAGES.filter(([, nativeName, englishName]) => `${nativeName} ${englishName}`.toLowerCase().includes(languageQuery.trim().toLowerCase()));
 
   return (
     <ScrollView style={themed.screen} contentContainerStyle={styles.content}>
       <View style={[styles.settingsHero, themed.hero]}>
-        <Text style={[styles.settingsEyebrow, themed.heroEyebrow]}>Settings</Text>
-        <Text style={[styles.settingsHeroTitle, themed.heroTitle]}>Your space, your pace</Text>
-        <Text style={[styles.settingsHeroCopy, themed.heroCopy]}>Manage purchase access, then tune how TrimSwipe finds and cleans your photos.</Text>
+        <Text style={[styles.settingsEyebrow, themed.heroEyebrow]}>{t("ui.settings")}</Text>
+        <Text style={[styles.settingsHeroTitle, themed.heroTitle]}>{t("ui.your-space-your-pace")}</Text>
+        <Text style={[styles.settingsHeroCopy, themed.heroCopy]}>{t("ui.manage-purchase-access-then-tune-how-trimswipe-f")}</Text>
       </View>
       <View style={[styles.settingCardVertical, themed.card]}>
-        <Text style={[styles.settingLabel, themed.label]}>Color theme</Text>
-        <Text style={[styles.mutedSmall, themed.muted]}>Choose a pastel palette for your space.</Text>
+        <Text style={[styles.settingLabel, themed.label]}>{t("ui.language")}</Text>
+        <Text style={[styles.mutedSmall, themed.muted]}>{t("ui.choose-the-language-used-throughout-trimswipe")}</Text>
+        <Pressable accessibilityRole="button" onPress={() => setLanguagePickerOpen(true)} style={[styles.languagePickerButton, { borderColor: theme.border, backgroundColor: theme.cardSoft }]}>
+          <Text
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.78}
+            style={[styles.languagePickerText, compactLayout && styles.languagePickerTextCompact, { color: theme.text }]}
+          >{selectedLanguage[1]}{" · "}{selectedLanguage[2]}</Text>
+          <Ionicons name="chevron-down" size={18} color={theme.textMuted} />
+        </Pressable>
+      </View>
+      <Modal visible={languagePickerOpen} animationType="slide" onRequestClose={() => setLanguagePickerOpen(false)}>
+        <SafeAreaView style={[styles.languageModal, { backgroundColor: theme.background }]}>
+          <View style={styles.languageModalHeader}><Text style={[styles.settingLabel, { color: theme.text }]}>{t("ui.choose-language")}</Text><Pressable onPress={() => setLanguagePickerOpen(false)}><Text style={{ color: theme.primary, fontWeight: "800" }}>{t("ui.done")}</Text></Pressable></View>
+          <TextInput value={languageQuery} onChangeText={setLanguageQuery} placeholder={t("ui.search-languages")} placeholderTextColor={theme.textMuted} style={[styles.languageSearch, { color: theme.text, borderColor: theme.border, backgroundColor: theme.card }]} />
+          <ScrollView contentContainerStyle={styles.languageList} keyboardShouldPersistTaps="handled">
+            {visibleLanguages.map(([code, nativeName, englishName]) => (
+              <Pressable
+                key={code}
+                onPress={() => {
+                  setLanguagePickerOpen(false);
+                  setLanguageQuery("");
+                  void onChangeLanguage(code);
+                }}
+                style={[styles.languageRow, compactLayout && styles.languageRowCompact, { borderBottomColor: theme.border }]}
+              >
+                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78} style={[styles.languageNative, compactLayout && styles.languageNativeCompact, { color: theme.text }]}>{nativeName}</Text>
+                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78} style={[styles.languageEnglish, compactLayout && styles.languageEnglishCompact, { color: theme.textMuted }]}>{englishName}</Text>
+                {code === settings.appLanguage ? <Ionicons name="checkmark" size={20} color={theme.primary} /> : null}
+              </Pressable>
+            ))}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+      <View style={[styles.settingCardVertical, themed.card]}>
+        <Text style={[styles.settingLabel, themed.label]}>{t("ui.color-theme")}</Text>
+        <Text style={[styles.mutedSmall, themed.muted]}>{t("ui.choose-a-pastel-palette-for-your-space")}</Text>
         <View style={styles.themeOptionRow}>
           {NATIVE_THEME_OPTIONS.map((option) => {
             const optionTheme = getNativeTheme(option.id);
@@ -5675,11 +5925,25 @@ function SettingsScreen({
                 <View style={[styles.themeSwatch, { backgroundColor: optionTheme.background, borderColor: optionTheme.border }]}>
                   <View style={[styles.themeSwatchAccent, { backgroundColor: optionTheme.primaryBright }]} />
                 </View>
-                <Text style={[styles.themeOptionText, { color: theme.text }, selected && { color: theme.primary, fontWeight: "900" }]}>{option.label}</Text>
+                <Text style={[styles.themeOptionText, { color: theme.text }, selected && { color: theme.primary, fontWeight: "900" }]}>{t(`ui.theme-${option.id}`)}</Text>
               </Pressable>
             );
           })}
         </View>
+      </View>
+      <View style={[styles.settingCardVertical, themed.card]}>
+        <Text style={[styles.settingLabel, themed.label]}>{t("ui.smart-reminders")}</Text>
+        <Text style={[styles.mutedSmall, themed.muted]}>{t("ui.helpful-nudges-only-when-trimswipe-already-knows")}</Text>
+        <ReminderToggle label={t("ui.allow-smart-reminders")} value={settings.smartReminders.enabled} theme={theme} onChange={(enabled) => onChange({ smartReminders: { ...settings.smartReminders, enabled } })} />
+        {settings.smartReminders.enabled ? (
+          <>
+            <ReminderToggle label={t("ui.protect-my-streak")} value={settings.smartReminders.streak} theme={theme} onChange={(streak) => onChange({ smartReminders: { ...settings.smartReminders, streak } })} />
+            <ReminderToggle label={t("ui.low-storage")} value={settings.smartReminders.storage} theme={theme} onChange={(storage) => onChange({ smartReminders: { ...settings.smartReminders, storage } })} />
+            <ReminderToggle label={t("ui.new-photos")} value={settings.smartReminders.newPhotos} theme={theme} onChange={(newPhotos) => onChange({ smartReminders: { ...settings.smartReminders, newPhotos } })} />
+            <ReminderToggle label={t("ui.cleanup-opportunities")} value={settings.smartReminders.cleanup} theme={theme} onChange={(cleanup) => onChange({ smartReminders: { ...settings.smartReminders, cleanup } })} />
+            <ReminderToggle label={t("ui.weekly-progress")} value={settings.smartReminders.weekly} theme={theme} onChange={(weekly) => onChange({ smartReminders: { ...settings.smartReminders, weekly } })} />
+          </>
+        ) : null}
       </View>
       <View style={[styles.accountCard, themed.card]}>
         <View style={styles.accountHeader}>
@@ -5691,22 +5955,22 @@ function SettingsScreen({
             />
           </View>
           <View style={styles.accountCopy}>
-            <Text style={[styles.settingLabel, themed.label]}>Account & purchases</Text>
+            <Text style={[styles.settingLabel, themed.label]}>{t("ui.account-purchases")}</Text>
             <Text style={[styles.accountStatus, themed.text]}>{purchaseStatus}</Text>
           </View>
           <View style={[styles.accountStatusDot, { backgroundColor: accountSignedIn ? theme.sage : theme.textSubtle }]} />
         </View>
         <Text style={[styles.mutedSmall, themed.muted]}>
           {accountSignedIn
-            ? "Purchases are connected to the Apple Account currently used by the App Store."
-            : "Free mode is active. Ads and free limits apply until you reconnect your App Store purchases."}
+            ? t("ui.purchases-are-connected-to-the-apple-account-cur")
+            : t("ui.free-mode-is-active-ads-and-free-limits-apply-un")}
         </Text>
         {accountSignedIn ? (
           <View style={styles.accountActions}>
             {hasManageableSubscription ? (
               <Pressable style={[styles.accountSecondaryButton, styles.accountManageButton, themed.secondaryButton]} onPress={() => void onManagePurchases()}>
                 <Ionicons name="card-outline" size={17} color={colors.primary} />
-                <Text style={[styles.accountSecondaryText, { color: theme.primary }]}>Manage subscription</Text>
+                <Text style={[styles.accountSecondaryText, { color: theme.primary }]}>{t("ui.manage-subscription")}</Text>
               </Pressable>
             ) : null}
             <Pressable
@@ -5719,14 +5983,14 @@ function SettingsScreen({
               ) : (
                 <Ionicons name="refresh-outline" size={17} color={colors.primary} />
               )}
-              <Text style={[styles.accountSecondaryText, { color: theme.primary }]}>Restore</Text>
+              <Text style={[styles.accountSecondaryText, { color: theme.primary }]}>{t("ui.restore")}</Text>
             </Pressable>
             <Pressable
               disabled={signingOut}
               style={[styles.accountSignOutButton, themed.signOutButton]}
               onPress={() => void handleSignOut()}
             >
-              <Text style={[styles.accountSignOutText, { color: theme.danger }]}>{signingOut ? "Signing out..." : "Sign out"}</Text>
+              <Text style={[styles.accountSignOutText, { color: theme.danger }]}>{signingOut ? t("ui.signing-out") : t("ui.sign-out")}</Text>
             </Pressable>
           </View>
         ) : (
@@ -5736,7 +6000,7 @@ function SettingsScreen({
             style={[styles.accountSignInButton, { backgroundColor: theme.primary }]}
           >
             {restoring ? <ActivityIndicator color={colors.white} /> : <Ionicons name="logo-apple" size={18} color={colors.white} />}
-            <Text style={styles.accountSignInText}>{restoring ? "Connecting..." : "Sign in & restore purchases"}</Text>
+            <Text style={styles.accountSignInText}>{restoring ? t("ui.connecting") : t("ui.sign-in-restore-purchases")}</Text>
           </Pressable>
         )}
       </View>
@@ -5744,8 +6008,8 @@ function SettingsScreen({
         <View style={styles.settingCardVertical}>
           <View style={styles.dashboardHeroTop}>
             <View style={styles.scanQuickCopy}>
-              <Text style={styles.settingLabel}>Progress reports</Text>
-              <Text style={styles.mutedSmall}>Create before/after weekly or monthly summaries.</Text>
+              <Text style={styles.settingLabel}>{t("ui.progress-reports")}</Text>
+              <Text style={styles.mutedSmall}>{t("ui.create-before-after-weekly-or-monthly-summaries")}</Text>
             </View>
             <View style={styles.reportIcon}>
               <Ionicons name="document-text-outline" size={22} color="#315f7d" />
@@ -5754,20 +6018,20 @@ function SettingsScreen({
           <View style={styles.reportButtonRow}>
             <Pressable style={styles.reportButton} onPress={() => onCreateReport("weekly")}>
               <Ionicons name="document-text-outline" size={18} color="#315f7d" />
-              <Text style={styles.reportButtonText}>Weekly</Text>
+              <Text style={styles.reportButtonText}>{t("ui.weekly")}</Text>
             </Pressable>
             <Pressable style={styles.reportButton} onPress={() => onCreateReport("monthly")}>
               <Ionicons name="document-text-outline" size={18} color="#315f7d" />
-              <Text style={styles.reportButtonText}>Monthly</Text>
+              <Text style={styles.reportButtonText}>{t("ui.monthly")}</Text>
             </Pressable>
           </View>
         </View>
       ) : null}
       {!isPro ? (
         <View style={[styles.settingCardVertical, themed.card]}>
-          <Text style={[styles.settingLabel, themed.label]}>Advertising privacy</Text>
+          <Text style={[styles.settingLabel, themed.label]}>{t("ui.advertising-privacy")}</Text>
           <Text style={[styles.mutedSmall, themed.muted]}>
-            Review or change the privacy choices used for ads in TrimSwipe.
+            {t("ui.advertising-privacy-copy")}
           </Text>
           <Pressable
             disabled={openingPrivacyOptions}
@@ -5779,16 +6043,16 @@ function SettingsScreen({
             ) : (
               <Ionicons name="shield-checkmark-outline" size={17} color={colors.primary} />
             )}
-            <Text style={[styles.accountSecondaryText, { color: theme.primary }]}>Privacy choices</Text>
+            <Text style={[styles.accountSecondaryText, { color: theme.primary }]}>{t("ui.privacy-choices")}</Text>
           </Pressable>
           {privacyOptionsMessage ? <Text style={[styles.mutedSmall, themed.muted]}>{privacyOptionsMessage}</Text> : null}
         </View>
       ) : null}
       {(__DEV__ || process.env.EXPO_PUBLIC_ADMOB_ENABLE_INSPECTOR === "true") ? (
         <View style={[styles.settingCardVertical, themed.card]}>
-          <Text style={[styles.settingLabel, themed.label]}>Ad mediation diagnostics</Text>
+          <Text style={[styles.settingLabel, themed.label]}>{t("ui.ad-mediation-diagnostics")}</Text>
           <Text style={[styles.mutedSmall, themed.muted]}>
-            Inspect adapter readiness and test Meta or Unity as a single ad source.
+            {t("ui.ad-mediation-copy")}
           </Text>
           <Pressable
             disabled={openingAdInspector}
@@ -5800,35 +6064,35 @@ function SettingsScreen({
             ) : (
               <Ionicons name="analytics-outline" size={17} color={colors.primary} />
             )}
-            <Text style={[styles.accountSecondaryText, { color: theme.primary }]}>Open Ad Inspector</Text>
+            <Text style={[styles.accountSecondaryText, { color: theme.primary }]}>{t("ui.open-ad-inspector")}</Text>
           </Pressable>
           {adInspectorMessage ? <Text style={[styles.mutedSmall, themed.muted]}>{adInspectorMessage}</Text> : null}
         </View>
       ) : null}
-      <SettingStepper label="Cards per round" value={settings.cardsPerRound} suffix="cards" min={5} max={30} step={1} onChange={(cardsPerRound) => onChange({ cardsPerRound })} />
-      <Segmented label="Session mode" value={settings.sessionMode} options={[["classic", "Classic"], ["endless", "Endless"], ["time-attack", "60 sec"]]} onChange={(sessionMode) => onChange({ sessionMode })} />
+      <SettingStepper label={t("ui.cards-per-round")} value={settings.cardsPerRound} suffix="cards" min={5} max={30} step={1} onChange={(cardsPerRound) => onChange({ cardsPerRound })} />
+      <Segmented label={t("ui.session-mode")} value={settings.sessionMode} options={[["classic", t("ui.session-classic")], ["endless", t("ui.session-endless")], ["time-attack", t("ui.session-time")]]} onChange={(sessionMode) => onChange({ sessionMode })} />
       <Segmented
-        label="Photo pool"
+        label={t("ui.photo-pool")}
         value={settings.trimReviewMode}
-        options={[["normal", "Untrimmed"], ["trimmed-only", "Trimmed only"], ["all", "All photos"]]}
+        options={[["normal", t("ui.pool-untrimmed")], ["trimmed-only", t("ui.trimmed-only")], ["all", t("ui.all-photos")]]}
         onChange={(trimReviewMode) => onChange({ trimReviewMode })}
       />
       <Segmented
-        label="Previously reviewed"
+        label={t("ui.previously-reviewed")}
         value={settings.includePreviouslyReviewed ? "include" : "hide"}
-        options={[["hide", "Hide by default"], ["include", "Include"]]}
+        options={[["hide", t("ui.hide-by-default")], ["include", t("ui.include")]]}
         onChange={(value) => onChange({ includePreviouslyReviewed: value === "include" })}
       />
-      <SettingStepper label="Daily goal" value={settings.dailyGoalMB} suffix="MB" min={5} max={500} step={5} onChange={(dailyGoalMB) => onChange({ dailyGoalMB })} />
+      <SettingStepper label={t("ui.daily-goal")} value={settings.dailyGoalMB} suffix="MB" min={5} max={500} step={5} onChange={(dailyGoalMB) => onChange({ dailyGoalMB })} />
       <FocusDropdown value={settings.targetMode} onChange={(targetMode) => onChange({ targetMode })} />
       {showsThresholds ? (
         <>
-          <SettingStepper label="Large threshold" value={settings.minSizeMB} suffix="MB" min={0.5} max={MAX_PHOTO_SIZE_THRESHOLD_MB} step={0.5} onChange={(minSizeMB) => onChange({ minSizeMB })} />
-          <SettingStepper label="Old threshold" value={settings.minAgeYears} suffix="years" min={0} max={MAX_PHOTO_AGE_THRESHOLD_YEARS} step={1 / 12} onChange={(minAgeYears) => onChange({ minAgeYears })} />
+          <SettingStepper label={t("ui.large-threshold")} value={settings.minSizeMB} suffix="MB" min={0.5} max={MAX_PHOTO_SIZE_THRESHOLD_MB} step={0.5} onChange={(minSizeMB) => onChange({ minSizeMB })} />
+          <SettingStepper label={t("ui.old-threshold")} value={settings.minAgeYears} suffix="years" min={0} max={MAX_PHOTO_AGE_THRESHOLD_YEARS} step={1 / 12} onChange={(minAgeYears) => onChange({ minAgeYears })} />
         </>
       ) : null}
       <SettingStepper
-        label="Trim quality"
+        label={t("ui.trim-quality")}
         value={Math.round(settings.trimQuality * 100)}
         suffix="%"
         min={isPro ? 50 : 65}
@@ -5837,15 +6101,15 @@ function SettingsScreen({
         onChange={(quality) => onChange({ trimQuality: Math.max(isPro ? 50 : 65, quality) / 100 })}
       />
       <Segmented
-        label="Trim output"
+        label={t("ui.trim-output")}
         value={settings.trimOutputMode}
-        options={[["replace", "Replace originals"], ["save-new", "Save as new"]]}
+        options={[["replace", t("ui.replace-originals")], ["save-new", t("ui.save-as-new")]]}
         onChange={(trimOutputMode) => onChange({ trimOutputMode })}
       />
       <TrimKindSettings settings={settings} isPro={isPro} onChange={onChange} />
       <EnhancedQualityPreview photo={samplePhoto} currentQuality={settings.trimQuality} />
       <View style={styles.settingsReloadWrap}>
-        <PrimaryButton label={reloading ? "Reloading photos..." : "Reload with these settings"} disabled={reloading} onPress={() => void handleReload()} />
+        <PrimaryButton label={reloading ? t("ui.reloading-photos") : t("ui.reload-with-these-settings")} disabled={reloading} onPress={() => void handleReload()} />
       </View>
     </ScrollView>
   );
@@ -5854,27 +6118,59 @@ function SettingsScreen({
 // ─── Navigation ───────────────────────────────────────────────────────────────
 
 function BottomNav({ screen, isPro, theme, onChange }: { screen: Screen; isPro: boolean; theme: NativeThemePalette; onChange: (screen: Screen) => void }) {
+  const { width: windowWidth } = useWindowDimensions();
+  const compact = windowWidth <= 390;
   const gamesActive = screen === "games" || screen === "swipe" || screen === "this-or-that" || screen === "storage-budget" || screen === "memory-lane";
   return (
     <View style={[styles.bottomNav, { backgroundColor: theme.card, borderColor: theme.border, shadowColor: theme.ink }]}>
-      <NavButton label="Home" active={screen === "home"} theme={theme} onPress={() => onChange("home")} />
-      <NavButton label="Games" active={gamesActive} theme={theme} onPress={() => onChange("games")} />
+      <NavButton compact={compact} label={t("ui.home")} active={screen === "home"} theme={theme} onPress={() => onChange("home")} />
+      <NavButton compact={compact} label={t("ui.games")} active={gamesActive} theme={theme} onPress={() => onChange("games")} />
       {isPro ? (
-        <NavButton label="Auto" active={screen === "automation"} theme={theme} onPress={() => onChange("automation")} />
+        <NavButton compact={compact} label={t("ui.auto")} active={screen === "automation"} theme={theme} onPress={() => onChange("automation")} />
       ) : (
-        <NavButton label="Shop" active={screen === "shop"} theme={theme} onPress={() => onChange("shop")} />
+        <NavButton compact={compact} label={t("ui.shop")} active={screen === "shop"} theme={theme} onPress={() => onChange("shop")} />
       )}
-      <NavButton label="Stats" active={screen === "stats"} theme={theme} onPress={() => onChange("stats")} />
-      <NavButton label="Settings" active={screen === "settings"} theme={theme} onPress={() => onChange("settings")} />
+      <NavButton compact={compact} label={t("ui.stats")} active={screen === "stats"} theme={theme} onPress={() => onChange("stats")} />
+      <NavButton compact={compact} label={t("ui.settings")} active={screen === "settings"} theme={theme} onPress={() => onChange("settings")} />
     </View>
   );
 }
 
-
-function NavButton({ label, active, theme, onPress }: { label: string; active: boolean; theme: NativeThemePalette; onPress: () => void }) {
+function ReminderToggle({ label, value, theme, onChange }: { label: string; value: boolean; theme: NativeThemePalette; onChange: (value: boolean) => void }) {
   return (
-    <Pressable onPress={onPress} style={[styles.navButton, active && styles.navButtonActive, active && { backgroundColor: theme.primary }]}>
-      <Text style={[styles.navText, { color: theme.primary }, active && styles.navTextActive, active && { color: theme.white }]}>{label}</Text>
+    <Pressable accessibilityRole="switch" accessibilityState={{ checked: value }} onPress={() => onChange(!value)} style={styles.reminderToggleRow}>
+      <Text style={[styles.settingLabel, { color: theme.text }]}>{label}</Text>
+      <View style={[styles.reminderToggle, { backgroundColor: value ? theme.primary : theme.cardSoft }]}><View style={[styles.reminderToggleKnob, { backgroundColor: value ? "#fff" : theme.textSubtle, transform: [{ translateX: value ? 18 : 2 }] }]} /></View>
+    </Pressable>
+  );
+}
+
+
+function NavButton({ label, active, compact, theme, onPress }: { label: string; active: boolean; compact: boolean; theme: NativeThemePalette; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="tab"
+      accessibilityLabel={label}
+      accessibilityState={{ selected: active }}
+      onPress={onPress}
+      style={[styles.navButton, active && styles.navButtonActive, active && { backgroundColor: theme.primary }]}
+    >
+      <Text
+        adjustsFontSizeToFit
+        ellipsizeMode="clip"
+        maxFontSizeMultiplier={1.15}
+        minimumFontScale={compact ? 0.7 : 0.78}
+        numberOfLines={1}
+        style={[
+          styles.navText,
+          compact && styles.navTextCompact,
+          { color: theme.primary },
+          active && styles.navTextActive,
+          active && { color: theme.white },
+        ]}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -5925,10 +6221,11 @@ function MiniStat({ label, value }: { label: string; value: number }) {
 }
 
 function SettingStepper({ label, value, suffix, min, max, step, onChange }: { label: string; value: number; suffix: string; min: number; max: number; step: number; onChange: (value: number) => void }) {
+  const localizedSuffix = suffix === "cards" ? t("ui.unit-cards") : suffix === "years" ? t("ui.unit-year") : suffix;
   const displayValue =
     suffix === "years" && value < 1
-      ? `${Math.max(1, Math.round(value * 12))} ${Math.max(1, Math.round(value * 12)) === 1 ? "month" : "months"}`
-      : `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)} ${suffix}`;
+      ? `${Math.max(1, Math.round(value * 12))} ${t("ui.unit-month")}`
+      : `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)} ${localizedSuffix}`;
   return (
     <View style={styles.settingCard}>
       <View>
@@ -6445,6 +6742,22 @@ const styles = StyleSheet.create({
   dayToggleActive: { backgroundColor: "#4f7892", borderColor: "#4f7892" },
   dayToggleText: { color: "#274b61", fontSize: 12, fontWeight: "700" },
   dayToggleTextActive: { color: "#ffffff" },
+  reminderToggleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10 },
+  reminderToggle: { width: 42, height: 24, borderRadius: 14, justifyContent: "center" },
+  reminderToggleKnob: { width: 20, height: 20, borderRadius: 10 },
+  languagePickerButton: { minHeight: 50, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10 },
+  languagePickerText: { flex: 1, flexShrink: 1, fontSize: 15, fontWeight: "800" },
+  languagePickerTextCompact: { fontSize: 14 },
+  languageModal: { flex: 1, paddingHorizontal: 20 },
+  languageModalHeader: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  languageSearch: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, minHeight: 48, fontSize: 16 },
+  languageList: { paddingVertical: 10 },
+  languageRow: { minHeight: 58, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", gap: 10 },
+  languageRowCompact: { minHeight: 54, gap: 7 },
+  languageNative: { flex: 1, minWidth: 0, fontSize: 16, fontWeight: "800" },
+  languageNativeCompact: { fontSize: 15 },
+  languageEnglish: { flexShrink: 1, maxWidth: 160, fontSize: 13, textAlign: "right" },
+  languageEnglishCompact: { maxWidth: 122, fontSize: 12 },
   automationTimes: { gap: 8 },
   automationTimeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   timeAdjustButton: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: "#e5ebef" },
@@ -6557,9 +6870,10 @@ const styles = StyleSheet.create({
   secondaryButtonTextDisabled: { color: "#9ca3af" },
 
   // Nav
-  bottomNav: { position: "absolute", left: 14, right: 14, bottom: 14, flexDirection: "row", gap: 8, borderRadius: 30, backgroundColor: "rgba(255, 253, 248, 0.98)", borderWidth: 1, borderColor: colors.border, padding: 8, shadowColor: colors.ink, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.16, shadowRadius: 22, elevation: 8 },
-  navButton: { flex: 1, alignItems: "center", borderRadius: 16, paddingVertical: 11 },
+  bottomNav: { position: "absolute", left: 10, right: 10, bottom: 10, flexDirection: "row", gap: 3, borderRadius: 28, backgroundColor: "rgba(255, 253, 248, 0.98)", borderWidth: 1, borderColor: colors.border, padding: 5, shadowColor: colors.ink, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.16, shadowRadius: 22, elevation: 8 },
+  navButton: { flex: 1, minWidth: 0, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 15, paddingHorizontal: 2, paddingVertical: 7 },
   navButtonActive: { backgroundColor: colors.primary },
-  navText: { color: colors.primary, fontSize: 12, fontWeight: "700" },
+  navText: { width: "100%", minWidth: 0, color: colors.primary, fontSize: 12, lineHeight: 14, fontWeight: "700", textAlign: "center", includeFontPadding: false },
+  navTextCompact: { fontSize: 11, lineHeight: 13 },
   navTextActive: { color: "#ffffff" },
 });

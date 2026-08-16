@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View, type AccessibilityRole } from "react-native";
@@ -5,7 +6,7 @@ import { colors, radius, shadow, spacing, type } from "../constants/design";
 import type { NativePhoto } from "../lib/native-photo-source";
 
 export type DuplicateReviewPhoto = NativePhoto & {
-  /** A short, evidence-based explanation such as "Sharper face". */
+  /** A short, evidence-based explanation such as t("ui.sharper-face"). */
   suggestionReasons?: string[];
   /** A calibrated 0-1 signal. It is presented as a confidence band, not a fact. */
   suggestionConfidence?: number;
@@ -33,14 +34,16 @@ export type DuplicateClusterReviewProps = {
 type Filter = "all" | "keep" | "remove";
 
 function formatMB(value: number): string {
-  return value >= 1024 ? `${(value / 1024).toFixed(2)} GB` : `${value.toFixed(1)} MB`;
+  return value >= 1024
+    ? t("ui.storage-gb", { value: (value / 1024).toFixed(2) })
+    : t("ui.storage-mb", { value: value.toFixed(1) });
 }
 
 function confidenceLabel(confidence?: number): string | null {
   if (confidence == null) return null;
-  if (confidence >= 0.82) return "Strong suggestion";
-  if (confidence >= 0.62) return "Likely suggestion";
-  return "Possible suggestion";
+  if (confidence >= 0.82) return t("ui.strong-suggestion");
+  if (confidence >= 0.62) return t("ui.likely-suggestion");
+  return t("ui.possible-suggestion");
 }
 
 /**
@@ -52,7 +55,7 @@ export function DuplicateClusterReview({
   onSelectionChange,
   onPreviewPhoto,
   onConfirmRemovals,
-  confirmLabel = "Review selected removals",
+  confirmLabel = t("ui.review-selected-removals"),
 }: DuplicateClusterReviewProps) {
   const [filter, setFilter] = useState<Filter>("all");
   const [keeperId, setKeeperId] = useState(cluster.suggestedKeeperId);
@@ -115,12 +118,12 @@ export function DuplicateClusterReview({
     <View
       style={styles.card}
       accessible
-      accessibilityLabel={`Similar photo group with ${cluster.photos.length} photos`}
+      accessibilityLabel={t("ui.similar-photo-group-with-count", { count: cluster.photos.length })}
     >
       <View style={styles.header}>
         <View style={styles.headerText}>
-          <Text style={styles.eyebrow}>Similar photos</Text>
-          <Text style={styles.title}>{cluster.photos.length} photos to compare</Text>
+          <Text style={styles.eyebrow}>{t("ui.similar-photos")}</Text>
+          <Text style={styles.title}>{t("ui.photos-to-compare", { count: cluster.photos.length })}</Text>
           {cluster.similarityLabel ? (
             <Text style={styles.description}>{cluster.similarityLabel}</Text>
           ) : null}
@@ -128,7 +131,7 @@ export function DuplicateClusterReview({
         <View style={styles.savings}>
           <Ionicons name="archive-outline" size={15} color={colors.sageDeep} />
           <Text style={styles.savingsValue}>{formatMB(selectedSavings)}</Text>
-          <Text style={styles.savingsLabel}>selected</Text>
+          <Text style={styles.savingsLabel}>{t("ui.selected")}</Text>
         </View>
       </View>
 
@@ -137,19 +140,19 @@ export function DuplicateClusterReview({
         <View style={styles.suggestionText}>
           <View style={styles.suggestionTitleRow}>
             <Ionicons name="sparkles-outline" size={16} color={colors.sageDeep} />
-            <Text style={styles.suggestionTitle}>Suggested to keep</Text>
+            <Text style={styles.suggestionTitle}>{t("ui.suggested-to-keep")}</Text>
           </View>
           <Text style={styles.photoTitle} numberOfLines={1}>
-            {keeper.title || "Best available copy"}
+            {keeper.title || t("ui.best-available-copy")}
           </Text>
           <Text style={styles.reason} numberOfLines={2}>
             {keeper.suggestionReasons?.length
-              ? keeper.suggestionReasons.join(" · ")
-              : "Based on available image-quality signals"}
+              ? keeper.suggestionReasons.join(t("ui.list-separator"))
+              : t("ui.based-on-available-image-quality-signals")}
           </Text>
           {confidenceLabel(keeper.suggestionConfidence) ? (
             <Text style={styles.confidence}>
-              {confidenceLabel(keeper.suggestionConfidence)} — please compare before removing.
+              {t("ui.confidence-compare-before-removing", { confidence: confidenceLabel(keeper.suggestionConfidence) })}
             </Text>
           ) : null}
         </View>
@@ -157,17 +160,17 @@ export function DuplicateClusterReview({
 
       <View style={styles.filterRow} accessibilityRole="tablist">
         <FilterButton
-          label={`All ${cluster.photos.length}`}
+          label={t("ui.all-count", { count: cluster.photos.length })}
           selected={filter === "all"}
           onPress={() => setFilter("all")}
         />
         <FilterButton
-          label="Suggested keep"
+          label={t("ui.suggested-keep")}
           selected={filter === "keep"}
           onPress={() => setFilter("keep")}
         />
         <FilterButton
-          label={`Suggested remove ${removalIds.length}`}
+          label={t("ui.suggested-remove-count", { count: removalIds.length })}
           selected={filter === "remove"}
           onPress={() => setFilter("remove")}
         />
@@ -181,7 +184,14 @@ export function DuplicateClusterReview({
             <View key={photo.id} style={styles.photoCell}>
               <Pressable
                 accessibilityRole={"imagebutton" as AccessibilityRole}
-                accessibilityLabel={`${photo.title || "Photo"}, ${isKeeper ? "suggested to keep" : isSelectedForRemoval ? "selected for removal" : "not selected for removal"}. Long press for preview.`}
+                accessibilityLabel={t("ui.photo-preview-accessibility", {
+                  title: photo.title || t("ui.photo"),
+                  status: isKeeper
+                    ? t("ui.suggested-to-keep")
+                    : isSelectedForRemoval
+                      ? t("ui.selected-for-removal")
+                      : t("ui.not-selected-for-removal"),
+                })}
                 onLongPress={() => onPreviewPhoto?.(photo)}
                 delayLongPress={350}
                 onPress={() => onPreviewPhoto?.(photo)}
@@ -196,7 +206,7 @@ export function DuplicateClusterReview({
                 <Text style={styles.sizeLabel}>{formatMB(photo.sizeMB)}</Text>
                 {isKeeper ? (
                   <View style={styles.keepBadge}>
-                    <Text style={styles.keepBadgeText}>KEEP</Text>
+                    <Text style={styles.keepBadgeText}>{t("ui.keep")}</Text>
                   </View>
                 ) : null}
                 {isSelectedForRemoval ? (
@@ -209,10 +219,10 @@ export function DuplicateClusterReview({
                 accessibilityRole="button"
                 accessibilityLabel={
                   isKeeper
-                    ? "Choose a different photo to keep"
+                    ? t("ui.choose-a-different-photo-to-keep")
                     : isSelectedForRemoval
-                      ? `Keep ${photo.title || "this photo"}`
-                      : `Select ${photo.title || "this photo"} for removal`
+                      ? t("ui.keep-photo", { title: photo.title || t("ui.this-photo") })
+                      : t("ui.select-photo-for-removal", { title: photo.title || t("ui.this-photo") })
                 }
                 onPress={() => toggleRemoval(photo)}
                 disabled={isKeeper}
@@ -228,17 +238,17 @@ export function DuplicateClusterReview({
                     isSelectedForRemoval && styles.selectionButtonTextRemove,
                   ]}
                 >
-                  {isKeeper ? "Keeper" : isSelectedForRemoval ? "Remove" : "Keep"}
+                  {isKeeper ? t("ui.keeper") : isSelectedForRemoval ? t("ui.remove") : t("ui.keep")}
                 </Text>
               </Pressable>
               {!isKeeper ? (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`Make ${photo.title || "this photo"} the keeper`}
+                  accessibilityLabel={t("ui.make-photo-keeper", { title: photo.title || t("ui.this-photo") })}
                   onPress={() => chooseKeeper(photo)}
                   hitSlop={8}
                 >
-                  <Text style={styles.makeKeeper}>Make keeper</Text>
+                  <Text style={styles.makeKeeper}>{t("ui.make-keeper")}</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -246,20 +256,22 @@ export function DuplicateClusterReview({
         })}
       </View>
 
-      <Text style={styles.disclaimer}>
-        Suggestions use on-device image signals and can be wrong. You choose what stays.
-      </Text>
+      <Text style={styles.disclaimer}>{t("ui.duplicate-suggestions-disclaimer")}</Text>
       {onConfirmRemovals ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`${confirmLabel}. ${removalIds.length} photos selected, about ${formatMB(selectedSavings)}.`}
+          accessibilityLabel={t("ui.confirm-removals-accessibility", {
+            label: confirmLabel,
+            count: removalIds.length,
+            value: formatMB(selectedSavings),
+          })}
           disabled={removalIds.length === 0}
           onPress={() => onConfirmRemovals({ keeperId: keeper.id, removalIds })}
           style={[styles.confirmButton, removalIds.length === 0 && styles.confirmButtonDisabled]}
         >
           <Ionicons name="trash-outline" size={18} color={colors.white} />
           <Text style={styles.confirmText}>
-            {confirmLabel} · {removalIds.length}
+            {t("ui.confirm-removals-count", { label: confirmLabel, count: removalIds.length })}
           </Text>
         </Pressable>
       ) : null}

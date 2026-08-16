@@ -27,6 +27,32 @@ export type NativeTrimKind = "metadata" | "location" | "compression" | "resize" 
 
 export type NativeTrimReviewMode = "normal" | "trimmed-only" | "all";
 
+export type SmartReminderCategory = "streak" | "storage" | "newPhotos" | "cleanup" | "weekly";
+export type AppLanguage = "en" | "zh-Hans" | "es" | "hi" | "ar" | "pt-BR" | "fr" | "de" | "ja" | "ko" | "ru" | "id" | "tr" | "it" | "vi" | "zh-Hant" | "cs" | "nl" | "fi" | "ms" | "no" | "pl" | "sv" | "th" | "uk" | "da" | "ta";
+
+export type SmartReminderPreferences = {
+  enabled: boolean;
+  streak: boolean;
+  storage: boolean;
+  newPhotos: boolean;
+  cleanup: boolean;
+  weekly: boolean;
+};
+
+export type NativeEngagementSnapshot = {
+  capturedAt: string;
+  photoCount: number;
+  totalSizeMB: number;
+  freeSpaceMB: number | null;
+  deviceCapacityMB: number | null;
+  screenshotsCount: number;
+  screenshotsMB: number;
+  similarCount: number;
+  similarMB: number;
+  trimSavingsMB: number;
+  deleteSavingsMB: number;
+};
+
 export type NativeBackgroundScanSchedule = {
   id: string;
   label: string;
@@ -39,6 +65,7 @@ export type NativeBackgroundScanSchedule = {
 };
 
 export type NativeSettings = {
+  appLanguage: AppLanguage;
   theme: NativeThemeId;
   cardsPerRound: number;
   targetMode: NativeTargetMode;
@@ -54,6 +81,7 @@ export type NativeSettings = {
   largeText: boolean;
   highContrast: boolean;
   backgroundScanSchedules: NativeBackgroundScanSchedule[];
+  smartReminders: SmartReminderPreferences;
 };
 
 export type NativeDailyStats = {
@@ -85,11 +113,15 @@ export type NativeStats = {
   onboardingComplete: boolean;
   onboardingVersion: string | null;
   shareCount: number;
+  /** Last time the user actively opened or used TrimSwipe. Only an ISO date is
+   * synced for the gentle inactivity reminder; no photo data is involved. */
+  lastActiveAt: string;
   dailyActivity: Record<string, NativeDailyStats>;
   dailyRewardClaims: Record<string, number>;
   actionLog: NativeActionLogEntry[];
   recentSeenPhotos: NativeSeenPhoto[];
   settings: NativeSettings;
+  engagementSnapshot: NativeEngagementSnapshot | null;
 };
 
 export type NativeActionLogEntry = {
@@ -120,6 +152,7 @@ const DEFAULT_BACKGROUND_SCAN_SCHEDULES: NativeBackgroundScanSchedule[] = [
 ];
 
 export const DEFAULT_NATIVE_SETTINGS: NativeSettings = {
+  appLanguage: "en",
   theme: "soft",
   cardsPerRound: 10,
   targetMode: "old-and-large",
@@ -135,6 +168,7 @@ export const DEFAULT_NATIVE_SETTINGS: NativeSettings = {
   largeText: false,
   highContrast: false,
   backgroundScanSchedules: DEFAULT_BACKGROUND_SCAN_SCHEDULES,
+  smartReminders: { enabled: false, streak: true, storage: true, newPhotos: true, cleanup: true, weekly: true },
 };
 
 export const EMPTY_DAILY_STATS: NativeDailyStats = {
@@ -161,11 +195,13 @@ export const DEFAULT_NATIVE_STATS: NativeStats = {
   onboardingComplete: false,
   onboardingVersion: null,
   shareCount: 0,
+  lastActiveAt: new Date().toISOString(),
   dailyActivity: {},
   dailyRewardClaims: {},
   actionLog: [],
   recentSeenPhotos: [],
   settings: DEFAULT_NATIVE_SETTINGS,
+  engagementSnapshot: null,
 };
 
 function statsUri(): string | null {
@@ -298,6 +334,11 @@ function normalizeTheme(value: unknown): NativeThemeId {
   return value === "pink" || value === "orange" || value === "dark" || value === "green" ? value : "soft";
 }
 
+const APP_LANGUAGE_IDS: AppLanguage[] = ["en", "zh-Hans", "es", "hi", "ar", "pt-BR", "fr", "de", "ja", "ko", "ru", "id", "tr", "it", "vi", "zh-Hant", "cs", "nl", "fi", "ms", "no", "pl", "sv", "th", "uk", "da", "ta"];
+function normalizeAppLanguage(value: unknown): AppLanguage {
+  return typeof value === "string" && APP_LANGUAGE_IDS.includes(value as AppLanguage) ? value as AppLanguage : "en";
+}
+
 function normalizeActionLog(value: unknown): NativeActionLogEntry[] {
   if (!Array.isArray(value)) return [];
 
@@ -332,6 +373,7 @@ function normalizeStats(value: unknown): NativeStats {
   const raw = value && typeof value === "object" ? (value as Partial<NativeStats>) : {};
   const rawSettings =
     raw.settings && typeof raw.settings === "object" ? raw.settings : DEFAULT_NATIVE_SETTINGS;
+  const rawSnapshot = raw.engagementSnapshot && typeof raw.engagementSnapshot === "object" ? raw.engagementSnapshot as Partial<NativeEngagementSnapshot> : null;
   const mbFreed = Math.max(0, safeNumber(raw.mbFreed));
   const inferredTrimFreed =
     raw.trimMbFreed === undefined && safeNumber(raw.trimmed) > 0 ? mbFreed * 0.35 : safeNumber(raw.trimMbFreed);
@@ -351,6 +393,9 @@ function normalizeStats(value: unknown): NativeStats {
     onboardingComplete: raw.onboardingComplete === undefined ? safeNumber(raw.reviewed) > 0 : Boolean(raw.onboardingComplete),
     onboardingVersion: typeof raw.onboardingVersion === "string" ? raw.onboardingVersion : null,
     shareCount: Math.max(0, safeNumber(raw.shareCount)),
+    lastActiveAt: typeof raw.lastActiveAt === "string" && !Number.isNaN(Date.parse(raw.lastActiveAt))
+      ? raw.lastActiveAt
+      : new Date().toISOString(),
     dailyActivity: normalizeDailyActivity(raw.dailyActivity),
     dailyRewardClaims: normalizeRewardClaims(raw.dailyRewardClaims),
     actionLog: normalizeActionLog(raw.actionLog),
@@ -358,6 +403,7 @@ function normalizeStats(value: unknown): NativeStats {
     settings: {
       ...DEFAULT_NATIVE_SETTINGS,
       ...rawSettings,
+      appLanguage: normalizeAppLanguage(rawSettings.appLanguage),
       theme: normalizeTheme(rawSettings.theme),
       targetMode: normalizeTargetMode(rawSettings.targetMode),
       sessionMode: normalizeSessionMode(rawSettings.sessionMode),
@@ -379,7 +425,30 @@ function normalizeStats(value: unknown): NativeStats {
       largeText: Boolean(rawSettings.largeText),
       highContrast: Boolean(rawSettings.highContrast),
       backgroundScanSchedules: normalizeBackgroundScanSchedules(rawSettings.backgroundScanSchedules),
+      smartReminders: {
+        ...DEFAULT_NATIVE_SETTINGS.smartReminders,
+        ...(rawSettings.smartReminders && typeof rawSettings.smartReminders === "object" ? rawSettings.smartReminders : {}),
+        enabled: Boolean((rawSettings.smartReminders as Partial<SmartReminderPreferences> | undefined)?.enabled),
+        streak: (rawSettings.smartReminders as Partial<SmartReminderPreferences> | undefined)?.streak !== false,
+        storage: (rawSettings.smartReminders as Partial<SmartReminderPreferences> | undefined)?.storage !== false,
+        newPhotos: (rawSettings.smartReminders as Partial<SmartReminderPreferences> | undefined)?.newPhotos !== false,
+        cleanup: (rawSettings.smartReminders as Partial<SmartReminderPreferences> | undefined)?.cleanup !== false,
+        weekly: (rawSettings.smartReminders as Partial<SmartReminderPreferences> | undefined)?.weekly !== false,
+      },
     },
+    engagementSnapshot: rawSnapshot && typeof rawSnapshot.capturedAt === "string" ? {
+      capturedAt: rawSnapshot.capturedAt,
+      photoCount: Math.max(0, safeNumber(rawSnapshot.photoCount)),
+      totalSizeMB: Math.max(0, safeNumber(rawSnapshot.totalSizeMB)),
+      freeSpaceMB: rawSnapshot.freeSpaceMB == null ? null : Math.max(0, safeNumber(rawSnapshot.freeSpaceMB)),
+      deviceCapacityMB: rawSnapshot.deviceCapacityMB == null ? null : Math.max(0, safeNumber(rawSnapshot.deviceCapacityMB)),
+      screenshotsCount: Math.max(0, safeNumber(rawSnapshot.screenshotsCount)),
+      screenshotsMB: Math.max(0, safeNumber(rawSnapshot.screenshotsMB)),
+      similarCount: Math.max(0, safeNumber(rawSnapshot.similarCount)),
+      similarMB: Math.max(0, safeNumber(rawSnapshot.similarMB)),
+      trimSavingsMB: Math.max(0, safeNumber(rawSnapshot.trimSavingsMB)),
+      deleteSavingsMB: Math.max(0, safeNumber(rawSnapshot.deleteSavingsMB)),
+    } : null,
   };
 }
 

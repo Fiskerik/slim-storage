@@ -10,15 +10,16 @@ TaskManager.defineTask(CLEANUP_TASK, () =>
 
 let notificationsReady = false;
 
-export async function ensureCleanupNotifications(): Promise<boolean> {
+export async function ensureCleanupNotifications(requestIfNeeded = true): Promise<boolean> {
   if (notificationsReady) return true;
   try {
     const current = await Notifications.getPermissionsAsync();
-    const finalStatus =
-      current.status === "granted"
-        ? current.status
-        : (await Notifications.requestPermissionsAsync()).status;
-    notificationsReady = finalStatus === "granted";
+    if (current.granted) {
+      notificationsReady = true;
+      return true;
+    }
+    if (!requestIfNeeded) return false;
+    notificationsReady = (await Notifications.requestPermissionsAsync()).granted;
     return notificationsReady;
   } catch (error) {
     console.log("[TrimSwipe] Notification permission unavailable", { error });
@@ -38,7 +39,7 @@ export async function registerCleanupBackgroundTask(): Promise<void> {
   try {
     const registered = await TaskManager.isTaskRegisteredAsync(CLEANUP_TASK);
     if (!registered) {
-      await BackgroundTask.registerTaskAsync(CLEANUP_TASK, { minimumInterval: 60 * 60 });
+      await BackgroundTask.registerTaskAsync(CLEANUP_TASK, { minimumInterval: 60 });
     }
   } catch (error) {
     console.log("[TrimSwipe] Background task registration skipped", { error });

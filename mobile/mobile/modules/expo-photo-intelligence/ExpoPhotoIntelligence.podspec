@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name = 'ExpoPhotoIntelligence'
-  s.version = '1.1.2'
+  s.version = '1.1.3'
   s.summary = 'On-device PhotoKit and Vision analysis for Trimswipe.'
   s.description = 'Local Vision feature-print, face-quality, and aesthetics signals.'
   s.author = 'Trimswipe'
