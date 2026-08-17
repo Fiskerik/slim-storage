@@ -105,6 +105,17 @@ export type NativeSeenPhoto = {
   lastSeenAt: string;
 };
 
+export type NativeFreeSpacePlanSummary = {
+  status: "idle" | "scanning" | "ready" | "failed";
+  startedAt: string | null;
+  completedAt: string | null;
+  estimatedSavingsMB: number;
+  estimatedTrimSavingsMB: number;
+  estimatedDeleteSavingsMB: number;
+  candidateCount: number;
+  error: string | null;
+};
+
 export type NativeStats = {
   reviewed: number;
   kept: number;
@@ -128,6 +139,7 @@ export type NativeStats = {
   settings: NativeSettings;
   engagementSnapshot: NativeEngagementSnapshot | null;
   dailyTrimReminderPromptVersion: number;
+  freeSpacePlan: NativeFreeSpacePlanSummary;
 };
 
 export type NativeActionLogEntry = {
@@ -189,6 +201,17 @@ export const EMPTY_DAILY_STATS: NativeDailyStats = {
   sessions: 0,
 };
 
+export const DEFAULT_FREE_SPACE_PLAN: NativeFreeSpacePlanSummary = {
+  status: "idle",
+  startedAt: null,
+  completedAt: null,
+  estimatedSavingsMB: 0,
+  estimatedTrimSavingsMB: 0,
+  estimatedDeleteSavingsMB: 0,
+  candidateCount: 0,
+  error: null,
+};
+
 export const DEFAULT_NATIVE_STATS: NativeStats = {
   reviewed: 0,
   kept: 0,
@@ -210,6 +233,7 @@ export const DEFAULT_NATIVE_STATS: NativeStats = {
   settings: DEFAULT_NATIVE_SETTINGS,
   engagementSnapshot: null,
   dailyTrimReminderPromptVersion: 0,
+  freeSpacePlan: DEFAULT_FREE_SPACE_PLAN,
 };
 
 function statsUri(): string | null {
@@ -377,6 +401,23 @@ function normalizeSeenPhotos(value: unknown): NativeSeenPhoto[] {
     .slice(0, 500);
 }
 
+function normalizeFreeSpacePlan(value: unknown): NativeFreeSpacePlanSummary {
+  const raw = value && typeof value === "object" ? (value as Partial<NativeFreeSpacePlanSummary>) : {};
+  const status = raw.status === "ready" || raw.status === "failed" || raw.status === "scanning" ? raw.status : "idle";
+  return {
+    // A JavaScript task may be interrupted when the app is killed. Do not
+    // leave the Home card permanently stuck in a scanning state on restart.
+    status: status === "scanning" ? "idle" : status,
+    startedAt: typeof raw.startedAt === "string" && !Number.isNaN(Date.parse(raw.startedAt)) ? raw.startedAt : null,
+    completedAt: typeof raw.completedAt === "string" && !Number.isNaN(Date.parse(raw.completedAt)) ? raw.completedAt : null,
+    estimatedSavingsMB: Math.max(0, safeNumber(raw.estimatedSavingsMB)),
+    estimatedTrimSavingsMB: Math.max(0, safeNumber(raw.estimatedTrimSavingsMB)),
+    estimatedDeleteSavingsMB: Math.max(0, safeNumber(raw.estimatedDeleteSavingsMB)),
+    candidateCount: Math.max(0, Math.floor(safeNumber(raw.candidateCount))),
+    error: typeof raw.error === "string" ? raw.error : null,
+  };
+}
+
 function normalizeStats(value: unknown): NativeStats {
   const raw = value && typeof value === "object" ? (value as Partial<NativeStats>) : {};
   const rawSettings =
@@ -463,6 +504,7 @@ function normalizeStats(value: unknown): NativeStats {
       deleteSavingsMB: Math.max(0, safeNumber(rawSnapshot.deleteSavingsMB)),
     } : null,
     dailyTrimReminderPromptVersion: Math.max(0, Math.floor(safeNumber(raw.dailyTrimReminderPromptVersion))),
+    freeSpacePlan: normalizeFreeSpacePlan(raw.freeSpacePlan),
   };
 }
 

@@ -1197,6 +1197,95 @@ export function NativeTrimSwipeApp() {
     }
   }
 
+  function reviewFreeSpacePlan() {
+    if (quickCleanupLibrary) {
+      setScreen("quick-cleanup");
+      return;
+    }
+    // The plan is intentionally persisted as a lightweight summary. If the
+    // app was restarted after the scan, rebuild the on-device review data now.
+    void openQuickCleanup(120);
+  }
+
+  async function startFreeSpacePlanScan() {
+    if (stats.freeSpacePlan.status === "scanning") return;
+    const startedAt = new Date().toISOString();
+    setQuickCleanupLibrary(null);
+    commitStats((current) => ({
+      ...current,
+      freeSpacePlan: {
+        ...current.freeSpacePlan,
+        status: "scanning",
+        startedAt,
+        completedAt: null,
+        error: null,
+      },
+    }));
+    setQuickCleanupError(null);
+    showToast(t("ui.trimswipe-scan-started"), t("ui.you-can-keep-using-trimswipe-while-the-batch-run"), "info");
+
+    try {
+      const permission = await requestPhotoPermission();
+      if (!permission.granted) {
+        setPermissionDenied(true);
+        commitStats((current) => ({
+          ...current,
+          freeSpacePlan: {
+            ...current.freeSpacePlan,
+            status: "failed",
+            completedAt: new Date().toISOString(),
+            error: "permission",
+          },
+        }));
+        showToast(t("ui.photo-access-needed"), t("ui.open-ios-settings-to-preview-cleanup-folders"), "warning");
+        return;
+      }
+      setPermissionDenied(false);
+      const library = await loadQuickCleanupLibrary(settings, {
+        budgetSeconds: 120,
+        trimBalance: tokenBalance,
+        unlimitedTrims: hasUnlimitedTrims,
+        protection: photoProtection ?? undefined,
+        reviewLedger,
+      });
+      setQuickCleanupLibrary(library);
+      const selected = library.plan.selectedItems;
+      const estimatedTrimSavingsMB = selected
+        .filter((item) => item.action === "trim")
+        .reduce((sum, item) => sum + item.estimatedSavingsMB, 0);
+      const estimatedDeleteSavingsMB = selected
+        .filter((item) => item.action === "delete")
+        .reduce((sum, item) => sum + item.estimatedSavingsMB, 0);
+      const completedAt = new Date().toISOString();
+      commitStats((current) => ({
+        ...current,
+        freeSpacePlan: {
+          status: "ready",
+          startedAt,
+          completedAt,
+          estimatedSavingsMB: library.plan.estimatedSavingsMB,
+          estimatedTrimSavingsMB,
+          estimatedDeleteSavingsMB,
+          candidateCount: library.plan.items.length,
+          error: null,
+        },
+      }));
+      showToast(t("ui.trimswipe-scan-ready"), t("ui.scan-found-to-review", { value: formatMB(library.plan.estimatedSavingsMB) }), "success");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t("ui.could-not-scan-the-photo-library");
+      commitStats((current) => ({
+        ...current,
+        freeSpacePlan: {
+          ...current.freeSpacePlan,
+          status: "failed",
+          completedAt: new Date().toISOString(),
+          error: message,
+        },
+      }));
+      showToast(t("ui.preview-failed"), message, "error");
+    }
+  }
+
   function toggleQuickProtection(item: QuickCleanupItem, protectedState: boolean) {
     setPhotoProtection((current) => {
       if (!current) return current;
@@ -2830,6 +2919,18 @@ export function NativeTrimSwipeApp() {
                 runInBackground: trimPhotosForPlan.length > 0,
                 onConfirm: async () => {
                   setQuickCleanupLibrary(null);
+                  commitStats((current) => ({
+                    ...current,
+                    freeSpacePlan: {
+                      ...current.freeSpacePlan,
+                      status: "idle",
+                      candidateCount: 0,
+                      estimatedSavingsMB: 0,
+                      estimatedTrimSavingsMB: 0,
+                      estimatedDeleteSavingsMB: 0,
+                      error: null,
+                    },
+                  }));
                   setScreen("swipe");
                   showToast(t("ui.cleanup-started"), t("ui.you-can-keep-using-trimswipe-while-the-batch-run"), "info");
                   await confirmActions(deletePhotosForPlan, trimPhotosForPlan);
@@ -2933,8 +3034,10 @@ export function NativeTrimSwipeApp() {
             isPro={isPro}
             hasUnlimitedTrims={hasUnlimitedTrims}
             adBusy={adBusy}
+            freeSpacePlan={stats.freeSpacePlan}
             onStartSwipe={() => { setScreen("swipe"); void loadRound(settings, { showFallbackToast: true }); }}
-            onOpenQuickCleanup={() => void openQuickCleanup(120)}
+            onStartFreeSpacePlan={() => void startFreeSpacePlanScan()}
+            onReviewFreeSpacePlan={reviewFreeSpacePlan}
             onOpenTrim={() => setScreen("trim")}
             onOpenGames={() => setScreen("games")}
             onOpenShop={() => setScreen("shop")}

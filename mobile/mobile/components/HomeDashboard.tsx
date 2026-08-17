@@ -31,6 +31,7 @@ import type {
 import type {
   NativeActionLogEntry,
   NativeDailyStats,
+  NativeFreeSpacePlanSummary,
   NativeSettings,
   NativeStats,
 } from "../lib/native-store";
@@ -66,9 +67,11 @@ export type HomeDashboardProps = {
   isPro: boolean;
   hasUnlimitedTrims?: boolean;
   adBusy?: boolean;
+  freeSpacePlan: NativeFreeSpacePlanSummary;
   onStartSwipe: () => void;
   onOpenTrim: () => void;
-  onOpenQuickCleanup: () => void;
+  onStartFreeSpacePlan: () => void;
+  onReviewFreeSpacePlan: () => void;
   onOpenGames: () => void;
   onOpenShop: () => void;
   onWatchAd: () => void;
@@ -111,9 +114,11 @@ export function HomeDashboard(props: HomeDashboardProps) {
     isPro,
     hasUnlimitedTrims = isPro,
     adBusy,
+    freeSpacePlan,
     onStartSwipe,
     onOpenTrim,
-    onOpenQuickCleanup,
+    onStartFreeSpacePlan,
+    onReviewFreeSpacePlan,
     onOpenGames,
     onOpenShop,
     onWatchAd,
@@ -262,13 +267,32 @@ export function HomeDashboard(props: HomeDashboardProps) {
           </Pressable>
         ) : null}
 
-        <Pressable onPress={onOpenQuickCleanup} style={styles.quickSpaceCard}>
+        <Pressable
+          onPress={freeSpacePlan.status === "ready" ? onReviewFreeSpacePlan : onStartFreeSpacePlan}
+          disabled={freeSpacePlan.status === "scanning"}
+          style={({ pressed }) => [styles.quickSpaceCard, pressed && styles.quickSpaceCardPressed, freeSpacePlan.status === "scanning" && styles.quickSpaceCardBusy]}
+        >
           <View style={styles.quickSpaceIcon}><Ionicons name="speedometer-outline" size={22} color={colors.white} /></View>
           <View style={styles.recommendedCopy}>
             <Text style={styles.recommendedTitle}>{t("ui.free-space-plan")}</Text>
-            <Text style={styles.recommendedHint}>{t("ui.finding-the-photos-that-will-make-the-biggest-de")}</Text>
+            <Text style={styles.recommendedHint}>
+              {freeSpacePlan.status === "scanning"
+                ? t("ui.home-scanning")
+                : freeSpacePlan.status === "ready"
+                  ? t("ui.scan-found-to-review", { value: formatMB(freeSpacePlan.estimatedSavingsMB) })
+                  : freeSpacePlan.status === "failed"
+                    ? t("ui.scan-again")
+                    : t("ui.finding-the-photos-that-will-make-the-biggest-de")}
+            </Text>
+            <Text style={styles.quickSpaceSaved}>
+              {t("ui.reclaimed-total")}: {formatMB(totalFreedMB)}
+            </Text>
           </View>
-          <View style={styles.reviewButton}><Text style={styles.reviewButtonText}>{t("ui.review-now")}</Text></View>
+          <View style={styles.reviewButton}>
+            <Text style={styles.reviewButtonText}>
+              {freeSpacePlan.status === "ready" ? t("ui.review-now") : freeSpacePlan.status === "scanning" ? t("ui.home-scanning") : t("ui.quick-scan")}
+            </Text>
+          </View>
         </Pressable>
 
         <SectionHeader title={t("ui.recommended-cleanup")} />
@@ -861,8 +885,12 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.primary,
     padding: spacing.md,
+    marginTop: spacing.md,
     marginBottom: spacing.md,
   },
+  quickSpaceCardPressed: { opacity: 0.86 },
+  quickSpaceCardBusy: { opacity: 0.72 },
+  quickSpaceSaved: { fontSize: 11, fontWeight: "700", color: colors.textMuted, marginTop: 2 },
   quickSpaceIcon: {
     width: 44,
     height: 44,
