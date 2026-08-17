@@ -4,8 +4,19 @@ import { t } from "./i18n";
 
 export const DAILY_TRIM_REMINDER_ID = "trimswipe-daily-trim-2030";
 export const DAILY_TRIM_REMINDER_PROMPT_VERSION = 1;
+export const DEFAULT_DAILY_TRIM_REMINDER_TIME = "20:30";
+// Kept for callers that still display the original default schedule.
 export const DAILY_TRIM_REMINDER_HOUR = 20;
 export const DAILY_TRIM_REMINDER_MINUTE = 30;
+
+function parseReminderTime(value: string | undefined): { hour: number; minute: number } {
+  const match = /^(\d{2}):(\d{2})$/.exec(value ?? DEFAULT_DAILY_TRIM_REMINDER_TIME);
+  if (!match) return { hour: 20, minute: 30 };
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return { hour: 20, minute: 30 };
+  return { hour, minute };
+}
 
 export type DailyTrimReminderPermission = {
   granted: boolean;
@@ -55,13 +66,14 @@ export async function cancelDailyTrimReminder(): Promise<void> {
   await Notifications.cancelScheduledNotificationAsync(DAILY_TRIM_REMINDER_ID).catch(() => undefined);
 }
 
-export async function scheduleDailyTrimReminder(): Promise<boolean> {
+export async function scheduleDailyTrimReminder(time = DEFAULT_DAILY_TRIM_REMINDER_TIME): Promise<boolean> {
   const permission = await getDailyTrimReminderPermission();
   if (!permission.granted) return false;
 
   try {
     await configureAndroidChannel();
     await cancelDailyTrimReminder();
+    const { hour, minute } = parseReminderTime(time);
     await Notifications.scheduleNotificationAsync({
       identifier: DAILY_TRIM_REMINDER_ID,
       content: {
@@ -72,8 +84,8 @@ export async function scheduleDailyTrimReminder(): Promise<boolean> {
       },
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes.DAILY,
-        hour: DAILY_TRIM_REMINDER_HOUR,
-        minute: DAILY_TRIM_REMINDER_MINUTE,
+        hour,
+        minute,
         channelId: Platform.OS === "android" ? "daily-trim-reminder" : undefined,
       },
     });
@@ -87,12 +99,13 @@ export async function scheduleDailyTrimReminder(): Promise<boolean> {
 export async function reconcileDailyTrimReminder(options: {
   enabled: boolean;
   promptAcknowledged: boolean;
+  time?: string;
 }): Promise<DailyTrimReminderPermission> {
   const permission = await getDailyTrimReminderPermission();
   if (!options.enabled || !options.promptAcknowledged || !permission.granted) {
     await cancelDailyTrimReminder();
     return permission;
   }
-  await scheduleDailyTrimReminder();
+  await scheduleDailyTrimReminder(options.time);
   return permission;
 }

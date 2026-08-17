@@ -41,6 +41,8 @@ export type SmartReminderPreferences = {
 
 export type DailyTrimReminderPreferences = {
   enabled: boolean;
+  /** Device-local time in HH:mm form. Defaults to 20:30. */
+  time: string;
 };
 
 export type NativeEngagementSnapshot = {
@@ -187,7 +189,7 @@ export const DEFAULT_NATIVE_SETTINGS: NativeSettings = {
   highContrast: false,
   backgroundScanSchedules: DEFAULT_BACKGROUND_SCAN_SCHEDULES,
   smartReminders: { enabled: false, streak: true, storage: true, newPhotos: true, cleanup: true, weekly: true },
-  dailyTrimReminder: { enabled: true },
+  dailyTrimReminder: { enabled: true, time: "20:30" },
 };
 
 export const EMPTY_DAILY_STATS: NativeDailyStats = {
@@ -488,6 +490,9 @@ function normalizeStats(value: unknown): NativeStats {
         ...DEFAULT_NATIVE_SETTINGS.dailyTrimReminder,
         ...(rawSettings.dailyTrimReminder && typeof rawSettings.dailyTrimReminder === "object" ? rawSettings.dailyTrimReminder : {}),
         enabled: (rawSettings.dailyTrimReminder as Partial<DailyTrimReminderPreferences> | undefined)?.enabled !== false,
+        time: /^([01]\d|2[0-3]):[0-5]\d$/.test(String((rawSettings.dailyTrimReminder as Partial<DailyTrimReminderPreferences> | undefined)?.time ?? ""))
+          ? String((rawSettings.dailyTrimReminder as Partial<DailyTrimReminderPreferences> | undefined)?.time)
+          : DEFAULT_NATIVE_SETTINGS.dailyTrimReminder.time,
       },
     },
     engagementSnapshot: rawSnapshot && typeof rawSnapshot.capturedAt === "string" ? {

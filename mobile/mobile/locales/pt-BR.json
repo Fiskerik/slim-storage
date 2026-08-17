@@ -917,8 +917,8 @@
     "ui.daily-trim-reminder-prompt-title": "Make photo cleanup a daily habit",
     "ui.daily-trim-reminder-prompt-body": "At about 8:30 PM, TrimSwipe can remind you to review today’s photos and screenshots. It suggests safe trims and verified duplicate removals; nothing changes until you confirm.",
     "ui.enable-daily-trim-reminder": "Turn on daily reminder",
-    "ui.daily-trim-reminder-setting": "Daily 8:30 PM photo reminder",
-    "ui.daily-trim-reminder-at": "Reminds you around 8:30 PM local time.",
+    "ui.daily-trim-reminder-setting": "Daily photo reminder ({{time}})",
+    "ui.daily-trim-reminder-at": "Reminds you around {{time}} local time.",
     "ui.daily-trim-reminder-system-blocked": "Notifications are blocked in system settings.",
     "ui.today-photos": "Today’s photos",
     "ui.daily-cleanup-loading": "Building today’s trim-first cleanup…",
@@ -926,6 +926,7 @@
     "ui.daily-cleanup-savings": "Suggested cleanup could save about {{value}}.",
     "ui.suggested-trim": "Suggested trim",
     "ui.suggested-delete": "Verified duplicate",
+    "ui.trim-all": "Trim all",
     "ui.yearly": "Anualmente",
     "ui.you're-all-set": "Está tudo pronto"
   }

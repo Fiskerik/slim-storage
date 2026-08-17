@@ -473,6 +473,18 @@ function formatGameAgeThreshold(years: number): string {
   return t("ui.age-years", { count: Number.isInteger(years) ? years.toFixed(0) : years.toFixed(1) });
 }
 
+const DAILY_REMINDER_TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
+  const hour = Math.floor(index / 2);
+  const minute = index % 2 === 0 ? 0 : 30;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+});
+
+function formatReminderTime(value: string): string {
+  const [hour = "20", minute = "30"] = value.split(":");
+  const date = new Date(2000, 0, 1, Number(hour), Number(minute));
+  return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
 function gameAgeYears(createdAt: number): number {
   return (Date.now() - createdAt) / (365.25 * 24 * 3600 * 1000);
 }
@@ -1028,13 +1040,14 @@ export function NativeTrimSwipeApp() {
       const permission = await reconcileDailyTrimReminder({
         enabled: settings.dailyTrimReminder.enabled,
         promptAcknowledged: stats.dailyTrimReminderPromptVersion >= DAILY_TRIM_REMINDER_PROMPT_VERSION,
+        time: settings.dailyTrimReminder.time,
       });
       if (active) setDailyReminderPermission({ granted: permission.granted, blocked: permission.blocked });
     })();
     return () => {
       active = false;
     };
-  }, [settings.appLanguage, settings.dailyTrimReminder.enabled, stats.dailyTrimReminderPromptVersion, statsLoaded, translationI18n]);
+  }, [settings.appLanguage, settings.dailyTrimReminder.enabled, settings.dailyTrimReminder.time, stats.dailyTrimReminderPromptVersion, statsLoaded, translationI18n]);
 
   useEffect(() => {
     if (!statsLoaded || onboardingDue || stats.dailyTrimReminderPromptVersion >= DAILY_TRIM_REMINDER_PROMPT_VERSION) return;
@@ -1129,10 +1142,25 @@ export function NativeTrimSwipeApp() {
     }
     setDailyReminderPermission({ granted: permission.granted, blocked: permission.blocked });
     if (permission.granted) {
-      await scheduleDailyTrimReminder();
+      await scheduleDailyTrimReminder((pendingSettingsRef.current ?? settings).dailyTrimReminder.time);
     } else {
       showToast(t("ui.notifications-are-off"), t("ui.daily-trim-reminder-system-blocked"), "warning");
     }
+  }
+
+  async function setDailyReminderTime(time: string): Promise<void> {
+    const nextSettings = {
+      ...(pendingSettingsRef.current ?? settings),
+      dailyTrimReminder: {
+        ...(pendingSettingsRef.current ?? settings).dailyTrimReminder,
+        time,
+      },
+    };
+    updateSettings({ dailyTrimReminder: nextSettings.dailyTrimReminder });
+    if (!nextSettings.dailyTrimReminder.enabled) return;
+    const permission = await getDailyTrimReminderPermission();
+    setDailyReminderPermission({ granted: permission.granted, blocked: permission.blocked });
+    if (permission.granted) await scheduleDailyTrimReminder(time);
   }
 
   function declineDailyReminderPrompt() {
@@ -1167,7 +1195,6 @@ export function NativeTrimSwipeApp() {
   }
 
   async function openQuickCleanup(budgetSeconds: CleanupTimeBudget = 120, targetMB: number | null = null) {
-    setQuickCleanupLibrary(null);
     setQuickCleanupError(null);
     setQuickCleanupBusy(true);
     setScreen("quick-cleanup");
@@ -2387,13 +2414,14 @@ export function NativeTrimSwipeApp() {
           void reconcileDailyTrimReminder({
             enabled: settings.dailyTrimReminder.enabled,
             promptAcknowledged: stats.dailyTrimReminderPromptVersion >= DAILY_TRIM_REMINDER_PROMPT_VERSION,
+            time: settings.dailyTrimReminder.time,
           }).then((permission) => setDailyReminderPermission({ granted: permission.granted, blocked: permission.blocked }));
         }
       }
     });
     return () => sub.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [backgroundScheduleSignature, isPro, settings.appLanguage, settings.dailyTrimReminder.enabled, stats.dailyTrimReminderPromptVersion, statsLoaded]);
+  }, [backgroundScheduleSignature, isPro, settings.appLanguage, settings.dailyTrimReminder.enabled, settings.dailyTrimReminder.time, stats.dailyTrimReminderPromptVersion, statsLoaded]);
 
   useEffect(() => {
     if (!isPro && screen === "automation") setScreen("home");
@@ -3061,6 +3089,7 @@ export function NativeTrimSwipeApp() {
             samplePhoto={top ?? queue[0]}
             onChange={updateSettings}
             onDailyReminderChange={setDailyReminderEnabled}
+            onDailyReminderTimeChange={setDailyReminderTime}
             dailyReminderPermission={dailyReminderPermission}
             onChangeLanguage={async (appLanguage) => {
               const rightToLeft = appLanguage === "ar";
@@ -3169,6 +3198,7 @@ export function NativeTrimSwipeApp() {
         <Toast toast={toast} />
         <DailyReminderPrompt
           visible={dailyReminderPromptVisible}
+          reminderTime={formatReminderTime(settings.dailyTrimReminder.time)}
           onEnable={() => void acceptDailyReminderPrompt()}
           onDismiss={declineDailyReminderPrompt}
         />
@@ -5409,10 +5439,12 @@ function ReportDashboardModal({
 
 function DailyReminderPrompt({
   visible,
+  reminderTime,
   onEnable,
   onDismiss,
 }: {
   visible: boolean;
+  reminderTime: string;
   onEnable: () => void;
   onDismiss: () => void;
 }) {
@@ -5424,7 +5456,7 @@ function DailyReminderPrompt({
             <Ionicons name="moon-outline" size={24} color={colors.primary} />
           </View>
           <Text style={dailyReminderPromptStyles.title}>{t("ui.daily-trim-reminder-prompt-title")}</Text>
-          <Text style={dailyReminderPromptStyles.body}>{t("ui.daily-trim-reminder-prompt-body")}</Text>
+          <Text style={dailyReminderPromptStyles.body}>{t("ui.daily-trim-reminder-prompt-body").replace("8:30 PM", reminderTime)}</Text>
           <Pressable style={dailyReminderPromptStyles.primaryButton} onPress={onEnable}>
             <Text style={dailyReminderPromptStyles.primaryText}>{t("ui.enable-daily-trim-reminder")}</Text>
           </Pressable>
@@ -6146,6 +6178,7 @@ function SettingsScreen({
   samplePhoto,
   onChange,
   onDailyReminderChange,
+  onDailyReminderTimeChange,
   dailyReminderPermission,
   onChangeLanguage,
   onReload,
@@ -6161,6 +6194,7 @@ function SettingsScreen({
   samplePhoto?: NativePhoto;
   onChange: (patch: Partial<NativeSettings>) => void;
   onDailyReminderChange: (enabled: boolean) => Promise<void> | void;
+  onDailyReminderTimeChange: (time: string) => Promise<void> | void;
   dailyReminderPermission: { granted: boolean; blocked: boolean };
   onChangeLanguage: (appLanguage: AppLanguage) => Promise<void>;
   onReload: () => Promise<void> | void;
@@ -6178,6 +6212,7 @@ function SettingsScreen({
   const [privacyOptionsMessage, setPrivacyOptionsMessage] = useState("");
   const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
   const [languageQuery, setLanguageQuery] = useState("");
+  const [reminderTimePickerOpen, setReminderTimePickerOpen] = useState(false);
   const { width: windowWidth } = useWindowDimensions();
   const compactLayout = windowWidth <= 390;
   const showsThresholds =
@@ -6315,8 +6350,17 @@ function SettingsScreen({
         </View>
       </View>
       <View style={[styles.settingCardVertical, themed.card]}>
-        <Text style={[styles.settingLabel, themed.label]}>{t("ui.daily-trim-reminder-setting")}</Text>
-        <Text style={[styles.mutedSmall, themed.muted]}>{t("ui.daily-trim-reminder-at")}</Text>
+        <Text style={[styles.settingLabel, themed.label]}>{t("ui.daily-trim-reminder-setting", { time: formatReminderTime(settings.dailyTrimReminder.time) })}</Text>
+        <Text style={[styles.mutedSmall, themed.muted]}>{t("ui.daily-trim-reminder-at", { time: formatReminderTime(settings.dailyTrimReminder.time) })}</Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setReminderTimePickerOpen(true)}
+          style={[styles.reminderTimeButton, { borderColor: theme.border, backgroundColor: theme.cardSoft }]}
+        >
+          <Ionicons name="time-outline" size={18} color={theme.primary} />
+          <Text style={[styles.reminderTimeText, { color: theme.text }]}>{formatReminderTime(settings.dailyTrimReminder.time)}</Text>
+          <Ionicons name="chevron-forward" size={17} color={theme.textMuted} />
+        </Pressable>
         <ReminderToggle
           label={t("ui.enable-daily-trim-reminder")}
           value={settings.dailyTrimReminder.enabled}
@@ -6332,6 +6376,34 @@ function SettingsScreen({
           </>
         ) : null}
       </View>
+      <Modal visible={reminderTimePickerOpen} animationType="slide" onRequestClose={() => setReminderTimePickerOpen(false)}>
+        <SafeAreaView style={[styles.languageModal, { backgroundColor: theme.background }]}>
+          <View style={styles.languageModalHeader}>
+            <Text style={[styles.settingLabel, { color: theme.text }]}>{t("ui.daily-trim-reminder-setting", { time: formatReminderTime(settings.dailyTrimReminder.time) })}</Text>
+            <Pressable onPress={() => setReminderTimePickerOpen(false)}><Text style={{ color: theme.primary, fontWeight: "800" }}>{t("ui.done")}</Text></Pressable>
+          </View>
+          <ScrollView contentContainerStyle={styles.reminderTimeList}>
+            {DAILY_REMINDER_TIME_OPTIONS.map((time) => {
+              const selected = settings.dailyTrimReminder.time === time;
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  key={time}
+                  onPress={() => {
+                    setReminderTimePickerOpen(false);
+                    void onDailyReminderTimeChange(time);
+                  }}
+                  style={[styles.reminderTimeOption, { borderColor: selected ? theme.primary : theme.border, backgroundColor: selected ? theme.cardSoft : theme.card }]}
+                >
+                  <Text style={[styles.reminderTimeOptionText, { color: selected ? theme.primary : theme.text }]}>{formatReminderTime(time)}</Text>
+                  {selected ? <Ionicons name="checkmark" size={18} color={theme.primary} /> : null}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
       <View style={[styles.settingCardVertical, themed.card]}>
         <Text style={[styles.settingLabel, themed.label]}>{t("ui.smart-reminders")}</Text>
         <Text style={[styles.mutedSmall, themed.muted]}>{t("ui.helpful-nudges-only-when-trimswipe-already-knows")}</Text>
@@ -7155,6 +7227,11 @@ const styles = StyleSheet.create({
   languageModalHeader: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   languageSearch: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, minHeight: 48, fontSize: 16 },
   languageList: { paddingVertical: 10 },
+  reminderTimeButton: { minHeight: 48, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10 },
+  reminderTimeText: { flex: 1, fontSize: 15, fontWeight: "800" },
+  reminderTimeList: { paddingVertical: 10, gap: 8, paddingBottom: 28 },
+  reminderTimeOption: { minHeight: 48, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  reminderTimeOptionText: { fontSize: 15, fontWeight: "800" },
   languageRow: { minHeight: 58, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", gap: 10 },
   languageRowCompact: { minHeight: 54, gap: 7 },
   languageNative: { flex: 1, minWidth: 0, fontSize: 16, fontWeight: "800" },
