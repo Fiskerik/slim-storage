@@ -202,8 +202,18 @@ workflows:
           echo "Set CFBundleVersion to $NEW_BUILD_NUMBER"
       - name: Initialize signing certificates
         script: |
-          app-store-connect fetch-signing-files "com.fiskerik.trimswipe" --project-type ios
-          xcode-project use-profiles
+          keychain initialize
+          # Codemagic CLI uses --type for the distribution profile; the legacy
+          # project-type option is no longer accepted by app-store-connect.
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+          keychain add-certificates
+          # Scope profile application to the generated app project. Expo
+          # dependencies (including RNDateTimePicker) contain their own
+          # .xcodeproj files which must not receive the app's signing profile.
+          xcode-project use-profiles \
+            --project "mobile/mobile/ios/TrimSwipe.xcodeproj"
 
       - name: Build iOS IPA
         script: |
