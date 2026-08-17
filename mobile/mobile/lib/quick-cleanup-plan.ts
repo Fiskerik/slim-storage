@@ -132,6 +132,24 @@ export function buildQuickCleanupPlan(
   };
 }
 
+/** Re-ranks an already scanned review without touching the photo library. */
+export function rebuildQuickCleanupPlan(
+  plan: QuickCleanupPlan,
+  options: {
+    budgetSeconds?: CleanupTimeBudget;
+    targetMB?: number | null;
+    trimBalance?: number;
+    unlimitedTrims?: boolean;
+  },
+): QuickCleanupPlan {
+  return buildQuickCleanupPlan(plan.items, {
+    ...options,
+    budgetSeconds: options.budgetSeconds ?? plan.budgetSeconds,
+    targetMB: options.targetMB === undefined ? plan.targetMB : options.targetMB,
+    protectedIds: plan.protectedIds,
+  });
+}
+
 export function monthKey(creationTime: number): string {
   const date = new Date(creationTime);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;

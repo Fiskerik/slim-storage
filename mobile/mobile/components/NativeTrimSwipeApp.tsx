@@ -34,7 +34,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { captureRef } from "react-native-view-shot";
 import {
   cleanupPreparedTrims,
@@ -60,8 +60,13 @@ import {
 } from "../lib/native-photo-source";
 import { loadDailyCleanupPlan, type DailyCleanupPlan } from "../lib/daily-photo-cleanup";
 import { loadQuickCleanupLibrary, type QuickCleanupLibrary } from "../lib/quick-cleanup-service";
+import {
+  clearQuickCleanupReviewCache,
+  loadQuickCleanupReviewCache,
+  saveQuickCleanupReviewCache,
+} from "../lib/quick-cleanup-cache";
 import { loadPhotoProtectionStore, savePhotoProtectionStore, setPhotoProtection as updatePhotoProtection, type PhotoProtectionStore } from "../lib/photo-protection";
-import type { CleanupTimeBudget, QuickCleanupItem } from "../lib/quick-cleanup-plan";
+import { rebuildQuickCleanupPlan, type CleanupTimeBudget, type QuickCleanupItem } from "../lib/quick-cleanup-plan";
 import {
   loadNativePhotoReviewLedger,
   recordNativePhotoReview,
@@ -71,6 +76,7 @@ import {
   type NativePhotoReviewLedger,
 } from "../lib/native-review-ledger";
 import {
+  DEFAULT_FREE_SPACE_PLAN,
   DEFAULT_NATIVE_STATS,
   EMPTY_DAILY_STATS,
   loadNativeStats,
@@ -122,6 +128,7 @@ import {
 import { colors, radius, spacing, type } from "../constants/design";
 import { getNativeTheme, NATIVE_THEME_OPTIONS, type NativeThemePalette } from "../constants/themes";
 import {
+  ensureCleanupNotifications,
   notifyCleanupProgress,
   registerCleanupBackgroundTask,
 } from "../lib/progress-notifications";
@@ -870,6 +877,8 @@ export function NativeTrimSwipeApp() {
   const [quickCleanupLibrary, setQuickCleanupLibrary] = useState<QuickCleanupLibrary | null>(null);
   const [quickCleanupBusy, setQuickCleanupBusy] = useState(false);
   const [quickCleanupError, setQuickCleanupError] = useState<"permission" | "error" | null>(null);
+  const [quickCleanupProgress, setQuickCleanupProgress] = useState<NativeLibraryScanProgress | null>(null);
+  const [pendingQuickCleanupOpen, setPendingQuickCleanupOpen] = useState(false);
   const [photoProtection, setPhotoProtection] = useState<PhotoProtectionStore | null>(null);
   const [dailyCleanupPlan, setDailyCleanupPlan] = useState<DailyCleanupPlan | null>(null);
   const [dailyCleanupBusy, setDailyCleanupBusy] = useState(false);
@@ -902,6 +911,7 @@ export function NativeTrimSwipeApp() {
   const settingsDirtyRef = useRef(false);
   const pendingSettingsRef = useRef<NativeSettings | null>(null);
   const scheduledScanBusyRef = useRef(false);
+  const freeSpaceScanBusyRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
   const reportCardRef = useRef<View>(null);
 
@@ -995,11 +1005,41 @@ export function NativeTrimSwipeApp() {
     let cancelled = false;
     loadNativeStats().then(async (loaded) => {
       if (cancelled) return;
-      const [ledger, protection] = await Promise.all([loadNativePhotoReviewLedger(loaded), loadPhotoProtectionStore()]);
+      const [ledger, protection, cachedQuickCleanup] = await Promise.all([
+        loadNativePhotoReviewLedger(loaded),
+        loadPhotoProtectionStore(),
+        loadQuickCleanupReviewCache(),
+      ]);
       if (cancelled) return;
-      const activeStats = { ...loaded, lastActiveAt: new Date().toISOString() };
+      const shouldRestoreQuickCleanup = Boolean(
+        cachedQuickCleanup &&
+          (loaded.freeSpacePlan.status === "ready" || loaded.freeSpacePlan.status === "scanning"),
+      );
+      const activeStats = {
+        ...loaded,
+        lastActiveAt: new Date().toISOString(),
+        freeSpacePlan: shouldRestoreQuickCleanup && cachedQuickCleanup
+          ? {
+              status: "ready" as const,
+              startedAt: loaded.freeSpacePlan.startedAt,
+              completedAt: loaded.freeSpacePlan.completedAt ?? new Date().toISOString(),
+              estimatedSavingsMB: cachedQuickCleanup.plan.estimatedSavingsMB,
+              estimatedTrimSavingsMB: cachedQuickCleanup.plan.selectedItems
+                .filter((item) => item.action === "trim")
+                .reduce((sum, item) => sum + item.estimatedSavingsMB, 0),
+              estimatedDeleteSavingsMB: cachedQuickCleanup.plan.selectedItems
+                .filter((item) => item.action === "delete")
+                .reduce((sum, item) => sum + item.estimatedSavingsMB, 0),
+              candidateCount: cachedQuickCleanup.plan.items.length,
+              error: null,
+            }
+          : loaded.freeSpacePlan.status === "ready"
+            ? DEFAULT_FREE_SPACE_PLAN
+            : loaded.freeSpacePlan,
+      };
       void saveNativeStats(activeStats);
       setStats(activeStats);
+      if (shouldRestoreQuickCleanup) setQuickCleanupLibrary(cachedQuickCleanup);
       setReviewLedger(ledger);
       setPhotoProtection(protection);
       setStatsLoaded(true);
@@ -1032,12 +1072,47 @@ export function NativeTrimSwipeApp() {
   useEffect(
     () => subscribeToReminderResponses((destination) => {
       if (destination === "daily-cleanup") void openDailyCleanupReview();
+      else if (destination === "quick-cleanup") setPendingQuickCleanupOpen(true);
       else setScreen(isProRef.current ? "automation" : "games");
     }),
     // The listener is intentionally installed once; the callback reads current entitlement via refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
+
+  useEffect(() => {
+    if (!pendingQuickCleanupOpen || !statsLoaded) return;
+    let active = true;
+    if (quickCleanupLibrary) {
+      setScreen("quick-cleanup");
+      setPendingQuickCleanupOpen(false);
+      return;
+    }
+    void loadQuickCleanupReviewCache().then((cached) => {
+      if (!active) return;
+      setPendingQuickCleanupOpen(false);
+      if (cached) {
+        setQuickCleanupLibrary(cached);
+        setScreen("quick-cleanup");
+        return;
+      }
+      setScreen("home");
+      void startFreeSpacePlanScan();
+    });
+    return () => { active = false; };
+    // The scan starter is a component command; state dependencies above
+    // ensure this effect always runs with current settings and permissions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingQuickCleanupOpen, quickCleanupLibrary, statsLoaded]);
+
+  useEffect(() => {
+    if (!statsLoaded || stats.freeSpacePlan.status !== "scanning" || freeSpaceScanBusyRef.current) return;
+    const notificationPermission = ensureCleanupNotifications(true);
+    void runFreeSpacePlanScan(stats.freeSpacePlan.startedAt ?? new Date().toISOString(), notificationPermission);
+    // Resume an interrupted user-requested scan when the app next becomes
+    // active. The runner has its own single-flight guard.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stats.freeSpacePlan.startedAt, stats.freeSpacePlan.status, statsLoaded]);
 
   useEffect(() => {
     if (!statsLoaded) return;
@@ -1202,67 +1277,50 @@ export function NativeTrimSwipeApp() {
     }
   }
 
-  async function openQuickCleanup(budgetSeconds: CleanupTimeBudget = 120, targetMB: number | null = null) {
-    setQuickCleanupError(null);
+  function updateQuickCleanupReview(budgetSeconds: CleanupTimeBudget, targetMB: number | null) {
+    setQuickCleanupLibrary((current) => {
+      if (!current) return current;
+      const next = {
+        ...current,
+        plan: rebuildQuickCleanupPlan(current.plan, {
+          budgetSeconds,
+          targetMB,
+          trimBalance: tokenBalance,
+          unlimitedTrims: hasUnlimitedTrims,
+        }),
+      };
+      void saveQuickCleanupReviewCache(next);
+      return next;
+    });
+  }
+
+  async function reviewFreeSpacePlan() {
+    if (quickCleanupLibrary) {
+      setScreen("quick-cleanup");
+      return;
+    }
+    const cached = await loadQuickCleanupReviewCache();
+    if (cached) {
+      setQuickCleanupLibrary(cached);
+      setScreen("quick-cleanup");
+      return;
+    }
+    // A ready summary without its review cache is not actionable. Keep the
+    // user on Home, rebuild once, and notify when the actual preview is ready.
+    commitStats((current) => ({ ...current, freeSpacePlan: DEFAULT_FREE_SPACE_PLAN }));
+    await startFreeSpacePlanScan();
+  }
+
+  async function runFreeSpacePlanScan(startedAt: string, notificationPermission?: Promise<boolean>) {
+    if (freeSpaceScanBusyRef.current) return;
+    freeSpaceScanBusyRef.current = true;
     setQuickCleanupBusy(true);
-    setScreen("quick-cleanup");
+    setQuickCleanupProgress({ scanned: 0, phase: "indexing" });
     try {
       const permission = await requestPhotoPermission();
       if (!permission.granted) {
         setPermissionDenied(true);
         setQuickCleanupError("permission");
-        return;
-      }
-      setPermissionDenied(false);
-      const library = await loadQuickCleanupLibrary(settings, {
-        budgetSeconds,
-        targetMB,
-        trimBalance: tokenBalance,
-        unlimitedTrims: hasUnlimitedTrims,
-        protection: photoProtection ?? undefined,
-        reviewLedger,
-      });
-      setQuickCleanupLibrary(library);
-    } catch (error) {
-      console.log("[TrimSwipe] Quick cleanup failed", { error });
-      setQuickCleanupError("error");
-      showToast(t("ui.preview-failed"), error instanceof Error ? error.message : t("ui.could-not-build-this-cleanup-folder"), "error");
-    } finally {
-      setQuickCleanupBusy(false);
-    }
-  }
-
-  function reviewFreeSpacePlan() {
-    if (quickCleanupLibrary) {
-      setScreen("quick-cleanup");
-      return;
-    }
-    // The plan is intentionally persisted as a lightweight summary. If the
-    // app was restarted after the scan, rebuild the on-device review data now.
-    void openQuickCleanup(120);
-  }
-
-  async function startFreeSpacePlanScan() {
-    if (stats.freeSpacePlan.status === "scanning") return;
-    const startedAt = new Date().toISOString();
-    setQuickCleanupLibrary(null);
-    commitStats((current) => ({
-      ...current,
-      freeSpacePlan: {
-        ...current.freeSpacePlan,
-        status: "scanning",
-        startedAt,
-        completedAt: null,
-        error: null,
-      },
-    }));
-    setQuickCleanupError(null);
-    showToast(t("ui.trimswipe-scan-started"), t("ui.you-can-keep-using-trimswipe-while-the-batch-run"), "info");
-
-    try {
-      const permission = await requestPhotoPermission();
-      if (!permission.granted) {
-        setPermissionDenied(true);
         commitStats((current) => ({
           ...current,
           freeSpacePlan: {
@@ -1282,7 +1340,9 @@ export function NativeTrimSwipeApp() {
         unlimitedTrims: hasUnlimitedTrims,
         protection: photoProtection ?? undefined,
         reviewLedger,
+        onProgress: setQuickCleanupProgress,
       });
+      const cached = await saveQuickCleanupReviewCache(library);
       setQuickCleanupLibrary(library);
       const selected = library.plan.selectedItems;
       const estimatedTrimSavingsMB = selected
@@ -1306,8 +1366,17 @@ export function NativeTrimSwipeApp() {
         },
       }));
       showToast(t("ui.trimswipe-scan-ready"), t("ui.scan-found-to-review", { value: formatMB(library.plan.estimatedSavingsMB) }), "success");
+      const canNotify = cached && await (notificationPermission ?? ensureCleanupNotifications(false));
+      if (canNotify) {
+        await notifyCleanupProgress(
+          t("ui.trimswipe-scan-ready"),
+          t("ui.scan-found-to-review", { value: formatMB(library.plan.estimatedSavingsMB) }),
+          { data: { type: "quick-cleanup-ready", screen: "quick-cleanup" }, requestPermission: false },
+        );
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : t("ui.could-not-scan-the-photo-library");
+      setQuickCleanupError("error");
       commitStats((current) => ({
         ...current,
         freeSpacePlan: {
@@ -1318,7 +1387,32 @@ export function NativeTrimSwipeApp() {
         },
       }));
       showToast(t("ui.preview-failed"), message, "error");
+    } finally {
+      freeSpaceScanBusyRef.current = false;
+      setQuickCleanupBusy(false);
+      setQuickCleanupProgress(null);
     }
+  }
+
+  async function startFreeSpacePlanScan() {
+    if (freeSpaceScanBusyRef.current || stats.freeSpacePlan.status === "scanning") return;
+    const startedAt = new Date().toISOString();
+    await clearQuickCleanupReviewCache();
+    setQuickCleanupLibrary(null);
+    setQuickCleanupError(null);
+    commitStats((current) => ({
+      ...current,
+      freeSpacePlan: {
+        ...DEFAULT_FREE_SPACE_PLAN,
+        status: "scanning",
+        startedAt,
+      },
+    }));
+    showToast(t("ui.trimswipe-scan-started"), t("ui.you-can-keep-using-trimswipe-while-the-batch-run"), "info");
+    // Request notification access and scan concurrently. Even a tiny library
+    // cannot race past the permission result and silently lose its ready alert.
+    const notificationPermission = ensureCleanupNotifications(true);
+    void runFreeSpacePlanScan(startedAt, notificationPermission);
   }
 
   function toggleQuickProtection(item: QuickCleanupItem, protectedState: boolean) {
@@ -1336,18 +1430,23 @@ export function NativeTrimSwipeApp() {
       const items = current.plan.items.map((candidate) => candidate.photo.id === item.photo.id
         ? { ...candidate, selected: false }
         : candidate);
-      return {
+      const next = {
         ...current,
         plan: { ...current.plan, items, selectedItems: items.filter((candidate) => candidate.selected), protectedIds: [...protectedIds] },
       };
+      void saveQuickCleanupReviewCache(next);
+      return next;
     });
   }
 
   function decideQuickLater(item: QuickCleanupItem) {
     commitReviewLedger((current) => recordNativePhotoReview(current, item.photo.id, "skipped"));
-    setQuickCleanupLibrary((current) => current
-      ? { ...current, plan: { ...current.plan, items: current.plan.items.filter((candidate) => candidate.photo.id !== item.photo.id), selectedItems: current.plan.selectedItems.filter((candidate) => candidate.photo.id !== item.photo.id) } }
-      : current);
+    setQuickCleanupLibrary((current) => {
+      if (!current) return current;
+      const next = { ...current, plan: { ...current.plan, items: current.plan.items.filter((candidate) => candidate.photo.id !== item.photo.id), selectedItems: current.plan.selectedItems.filter((candidate) => candidate.photo.id !== item.photo.id) } };
+      void saveQuickCleanupReviewCache(next);
+      return next;
+    });
   }
 
   async function shareProgress() {
@@ -2937,11 +3036,16 @@ export function NativeTrimSwipeApp() {
             plan={quickCleanupLibrary?.plan ?? null}
             months={quickCleanupLibrary?.months ?? []}
             loading={quickCleanupBusy}
+            progress={quickCleanupProgress}
             error={quickCleanupError}
             trimsRemaining={trimCurrencyAvailable}
             onBack={() => setScreen("home")}
-            onChangeBudget={(budget) => void openQuickCleanup(budget, quickCleanupLibrary?.plan.targetMB ?? null)}
-            onChangeTarget={(targetMB) => void openQuickCleanup(quickCleanupLibrary?.plan.budgetSeconds ?? 120, targetMB)}
+            onStartScan={() => {
+              setScreen("home");
+              void startFreeSpacePlanScan();
+            }}
+            onChangeBudget={(budget) => updateQuickCleanupReview(budget, quickCleanupLibrary?.plan.targetMB ?? null)}
+            onChangeTarget={(targetMB) => updateQuickCleanupReview(quickCleanupLibrary?.plan.budgetSeconds ?? 120, targetMB)}
             onOpenSettings={() => void Linking.openSettings()}
             onProtect={toggleQuickProtection}
             onDecideLater={decideQuickLater}
@@ -2955,6 +3059,7 @@ export function NativeTrimSwipeApp() {
                 runInBackground: trimPhotosForPlan.length > 0,
                 onConfirm: async () => {
                   setQuickCleanupLibrary(null);
+                  await clearQuickCleanupReviewCache();
                   commitStats((current) => ({
                     ...current,
                     freeSpacePlan: {
@@ -3071,6 +3176,7 @@ export function NativeTrimSwipeApp() {
             hasUnlimitedTrims={hasUnlimitedTrims}
             adBusy={adBusy}
             freeSpacePlan={stats.freeSpacePlan}
+            freeSpacePlanProgress={quickCleanupProgress}
             onStartSwipe={() => { setScreen("swipe"); void loadRound(settings, { showFallbackToast: true }); }}
             onStartFreeSpacePlan={() => void startFreeSpacePlanScan()}
             onReviewFreeSpacePlan={reviewFreeSpacePlan}
@@ -6222,6 +6328,7 @@ function SettingsScreen({
   const [languageQuery, setLanguageQuery] = useState("");
   const [reminderTimePickerOpen, setReminderTimePickerOpen] = useState(false);
   const [reminderTimeDraft, setReminderTimeDraft] = useState(settings.dailyTrimReminder.time);
+  const safeAreaInsets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const compactLayout = windowWidth <= 390;
   const showsThresholds =
@@ -6411,11 +6518,14 @@ function SettingsScreen({
           </>
         ) : null}
       </View>
-      <Modal visible={reminderTimePickerOpen} animationType="slide" onRequestClose={() => closeReminderTimePicker(false)}>
-        <SafeAreaView style={[styles.languageModal, { backgroundColor: theme.background }]}>
-          <View style={styles.languageModalHeader}>
-            <Text style={[styles.settingLabel, { color: theme.text }]}>{t("ui.daily-trim-reminder-setting", { time: formatReminderTime(reminderTimeDraft) })}</Text>
-            <Pressable onPress={() => closeReminderTimePicker(true)}><Text style={{ color: theme.primary, fontWeight: "800" }}>{t("ui.done")}</Text></Pressable>
+      <Modal visible={reminderTimePickerOpen} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => closeReminderTimePicker(false)}>
+        <SafeAreaView
+          edges={["left", "right", "bottom"]}
+          style={[styles.languageModal, { backgroundColor: theme.background, paddingTop: Math.max(safeAreaInsets.top, 20) }]}
+        >
+          <View style={styles.reminderModalHeader}>
+            <Text numberOfLines={2} style={[styles.settingLabel, styles.reminderModalTitle, { color: theme.text }]}>{t("ui.daily-trim-reminder-setting", { time: formatReminderTime(reminderTimeDraft) })}</Text>
+            <Pressable accessibilityRole="button" hitSlop={10} onPress={() => closeReminderTimePicker(true)} style={styles.reminderDoneButton}><Text style={{ color: theme.primary, fontWeight: "800" }}>{t("ui.done")}</Text></Pressable>
           </View>
           <View style={styles.reminderPickerBody}>
             <DateTimePicker
@@ -6425,6 +6535,7 @@ function SettingsScreen({
               minuteInterval={30}
               onChange={handleReminderTimeChange}
               themeVariant={theme.background === colors.background ? "light" : "dark"}
+              style={styles.nativeTimePicker}
             />
             <Text style={[styles.mutedSmall, { color: theme.textMuted }]}>{t("ui.daily-trim-reminder-at", { time: formatReminderTime(reminderTimeDraft) })}</Text>
           </View>
@@ -7255,7 +7366,11 @@ const styles = StyleSheet.create({
   languageList: { paddingVertical: 10 },
   reminderTimeButton: { minHeight: 48, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10 },
   reminderTimeText: { flex: 1, fontSize: 15, fontWeight: "800" },
-  reminderPickerBody: { flex: 1, alignItems: "center", justifyContent: "flex-start", paddingTop: 34, gap: 14 },
+  reminderModalHeader: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 },
+  reminderModalTitle: { flex: 1, minWidth: 0 },
+  reminderDoneButton: { minHeight: 44, minWidth: 54, alignItems: "flex-end", justifyContent: "center" },
+  reminderPickerBody: { flex: 1, alignItems: "center", justifyContent: "center", paddingBottom: 60, gap: 24 },
+  nativeTimePicker: { width: "100%", maxWidth: 360, height: 216 },
   languageRow: { minHeight: 58, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", gap: 10 },
   languageRowCompact: { minHeight: 54, gap: 7 },
   languageNative: { flex: 1, minWidth: 0, fontSize: 16, fontWeight: "800" },

@@ -5,6 +5,7 @@ import {
   loadDuplicatePhotoGroups,
   loadPhotoLibrarySnapshot,
   type NativeDuplicateGroup,
+  type NativeLibraryScanProgress,
   type NativePhoto,
 } from "./native-photo-source";
 import { buildMonthCleanupProgress, buildQuickCleanupPlan, type CleanupTimeBudget, type MonthCleanupProgress, type QuickCleanupPlan, type QuickCleanupCandidate } from "./quick-cleanup-plan";
@@ -62,12 +63,13 @@ export async function loadQuickCleanupLibrary(
     unlimitedTrims?: boolean;
     protection?: PhotoProtectionStore;
     reviewLedger?: NativePhotoReviewLedger | null;
+    onProgress?: (progress: NativeLibraryScanProgress) => void;
   } = {},
 ): Promise<QuickCleanupLibrary> {
   // Native photo metadata may briefly contain a null item while the user is
   // changing library permissions or iCloud is hydrating an asset. Filter at
   // the service boundary so every downstream plan and UI receives safe data.
-  const photos = (await loadPhotoLibrarySnapshot()).filter(isUsablePhoto);
+  const photos = (await loadPhotoLibrarySnapshot(options.onProgress)).filter(isUsablePhoto);
   const protectedIds = options.protection ? protectedPhotoIds(options.protection) : new Set<string>();
   const reviewedIds = options.reviewLedger
     ? new Set(Object.keys(options.reviewLedger.records).filter((id) => shouldExcludeReviewedPhoto(options.reviewLedger!, id)))
@@ -118,7 +120,14 @@ export async function loadQuickCleanupLibrary(
 
   let similarGroups: NativeDuplicateGroup[] = [];
   try {
-    similarGroups = await loadDuplicatePhotoGroups(24, settings, { avoidIds: [...protectedIds] });
+    similarGroups = await loadDuplicatePhotoGroups(24, settings, {
+      avoidIds: [...protectedIds],
+      onProgress: (progress) => options.onProgress?.({
+        ...progress,
+        scanned: photos.length,
+        total: photos.length,
+      }),
+    });
     similarGroups.forEach((group) => {
       const keeperId = group.suggestedKeeperId;
       (group.photos ?? [])

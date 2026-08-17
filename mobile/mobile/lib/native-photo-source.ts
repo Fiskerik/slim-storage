@@ -1731,7 +1731,7 @@ export async function loadRelatedPhotoPairs(
 export async function loadDuplicatePhotoGroups(
   groupCount: number,
   settings: NativeSettings,
-  options: { avoidIds?: string[] } = {},
+  options: { avoidIds?: string[]; onProgress?: (progress: NativeLibraryScanProgress) => void } = {},
 ): Promise<NativeDuplicateGroup[]> {
   const avoidIds = new Set(options.avoidIds ?? []);
   const requestedGroups = Math.max(1, groupCount);
@@ -1745,7 +1745,7 @@ export async function loadDuplicatePhotoGroups(
   );
   if (assets.length < 2) return [];
 
-  const verified = await findVerifiedSimilarAssetGroups(assets);
+  const verified = await findVerifiedSimilarAssetGroups(assets, options.onProgress);
   const analysisById = verified.analysisById;
   const usedVision = verified.method === "vision";
   let groupedAssets = usedVision ? verified.groups : buildConservativeSimilarGroups(assets);

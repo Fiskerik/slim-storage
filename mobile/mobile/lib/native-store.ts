@@ -407,9 +407,9 @@ function normalizeFreeSpacePlan(value: unknown): NativeFreeSpacePlanSummary {
   const raw = value && typeof value === "object" ? (value as Partial<NativeFreeSpacePlanSummary>) : {};
   const status = raw.status === "ready" || raw.status === "failed" || raw.status === "scanning" ? raw.status : "idle";
   return {
-    // A JavaScript task may be interrupted when the app is killed. Do not
-    // leave the Home card permanently stuck in a scanning state on restart.
-    status: status === "scanning" ? "idle" : status,
+    // Preserve an interrupted scan so the app can resume it on the next
+    // foreground launch instead of leaving the user with a false ready state.
+    status,
     startedAt: typeof raw.startedAt === "string" && !Number.isNaN(Date.parse(raw.startedAt)) ? raw.startedAt : null,
     completedAt: typeof raw.completedAt === "string" && !Number.isNaN(Date.parse(raw.completedAt)) ? raw.completedAt : null,
     estimatedSavingsMB: Math.max(0, safeNumber(raw.estimatedSavingsMB)),

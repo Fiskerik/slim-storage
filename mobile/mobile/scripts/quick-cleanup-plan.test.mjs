@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildMonthCleanupProgress, buildQuickCleanupPlan } from "../lib/quick-cleanup-plan.ts";
+import { buildMonthCleanupProgress, buildQuickCleanupPlan, rebuildQuickCleanupPlan } from "../lib/quick-cleanup-plan.ts";
 
 const photo = (id, sizeMB = 10, creationTime = Date.parse("2026-01-15T12:00:00Z")) => ({
   id,
@@ -41,6 +41,24 @@ test("quick plan ignores malformed native candidates instead of crashing preview
   const valid = { photo: photo("valid", 10), action: "trim", confidence: "high", estimatedSavingsMB: 4, reviewSeconds: 5, reason: "compress", preselect: true };
   const plan = buildQuickCleanupPlan([malformed, valid], { budgetSeconds: 30, trimBalance: 1 });
   assert.deepEqual(plan.items.map((item) => item.photo.id), ["valid"]);
+});
+
+test("changing the session budget rebuilds the cached plan without replacing its photos", () => {
+  const candidates = [1, 2, 3].map((index) => ({
+    photo: photo(`cached-${index}`, 10),
+    action: "trim",
+    confidence: "high",
+    estimatedSavingsMB: 6 - index,
+    reviewSeconds: 20,
+    reason: "compress",
+    preselect: true,
+  }));
+  const original = buildQuickCleanupPlan(candidates, { budgetSeconds: 120, trimBalance: 3 });
+  const rebuilt = rebuildQuickCleanupPlan(original, { budgetSeconds: 30, trimBalance: 3 });
+
+  assert.deepEqual(rebuilt.items.map((item) => item.photo), original.items.map((item) => item.photo));
+  assert.equal(rebuilt.budgetSeconds, 30);
+  assert.equal(rebuilt.selectedItems.length, 1);
 });
 
 test("month progress is resumable and uses local calendar months", () => {

@@ -27,10 +27,14 @@ export async function ensureCleanupNotifications(requestIfNeeded = true): Promis
   }
 }
 
-export async function notifyCleanupProgress(title: string, body: string): Promise<void> {
-  if (!(await ensureCleanupNotifications())) return;
+export async function notifyCleanupProgress(
+  title: string,
+  body: string,
+  options: { data?: Record<string, string>; requestPermission?: boolean } = {},
+): Promise<void> {
+  if (!(await ensureCleanupNotifications(options.requestPermission !== false))) return;
   await Notifications.scheduleNotificationAsync({
-    content: { title, body, sound: false },
+    content: { title, body, sound: false, data: options.data },
     trigger: null,
   }).catch((error) => console.log("[TrimSwipe] Progress notification failed", { error }));
 }

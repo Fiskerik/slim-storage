@@ -14,15 +14,18 @@ import {
 } from "react-native";
 import { t } from "../lib/i18n";
 import { monthKey, type MonthCleanupProgress, type QuickCleanupAction, type QuickCleanupItem, type QuickCleanupPlan } from "../lib/quick-cleanup-plan";
+import type { NativeLibraryScanProgress } from "../lib/native-photo-source";
 import { colors, radius, spacing, type } from "../constants/design";
 
 type Props = {
   plan: QuickCleanupPlan | null;
   months: MonthCleanupProgress[];
   loading: boolean;
+  progress?: NativeLibraryScanProgress | null;
   error: "permission" | "error" | null;
   trimsRemaining: number;
   onBack: () => void;
+  onStartScan: () => void;
   onChangeBudget: (budget: 30 | 120 | 300) => void;
   onChangeTarget: (targetMB: number | null) => void;
   onOpenSettings: () => void;
@@ -55,9 +58,11 @@ export function QuickCleanupReview({
   plan,
   months,
   loading,
+  progress,
   error,
   trimsRemaining,
   onBack,
+  onStartScan,
   onChangeBudget,
   onChangeTarget,
   onOpenSettings,
@@ -123,7 +128,18 @@ export function QuickCleanupReview({
     return <View style={styles.centered}><Ionicons name="warning-outline" size={44} color={colors.danger} /><Text style={styles.heroTitle}>{t("ui.preview-failed")}</Text><Text style={styles.centerText}>{t("ui.could-not-build-this-cleanup-folder")}</Text><Pressable style={styles.secondaryButton} onPress={onBack}><Text style={styles.secondaryButtonText}>{t("ui.back-home")}</Text></Pressable></View>;
   }
   if (!plan) {
-    return <View style={styles.centered}><Ionicons name="speedometer-outline" size={38} color={colors.primary} /><Text style={styles.heroTitle}>{t("ui.free-space-plan")}</Text><Text style={styles.muted}>{t("ui.finding-the-photos-that-will-make-the-biggest-de")}</Text><Pressable style={styles.secondaryButton} onPress={onBack}><Text style={styles.secondaryButtonText}>{t("ui.back-home")}</Text></Pressable></View>;
+    const progressText = progress?.phase === "similarity" && progress.analysisTotal
+      ? `${t("ui.home-scanning")} ${progress.analyzed ?? 0}/${progress.analysisTotal}`
+      : progress?.total
+        ? `${t("ui.scanning-library")} ${progress.scanned}/${progress.total}`
+        : t("ui.you-can-keep-using-trimswipe-while-the-batch-run");
+    return <View style={styles.centered}>
+      {loading ? <ActivityIndicator size="large" color={colors.primary} /> : <Ionicons name="speedometer-outline" size={38} color={colors.primary} />}
+      <Text style={styles.heroTitle}>{t("ui.free-space-plan")}</Text>
+      <Text style={styles.centerText}>{loading ? progressText : t("ui.finding-the-photos-that-will-make-the-biggest-de")}</Text>
+      {!loading ? <Pressable style={styles.primaryButton} onPress={onStartScan}><Text style={styles.primaryButtonText}>{t("ui.quick-scan")}</Text></Pressable> : null}
+      <Pressable style={styles.secondaryButton} onPress={onBack}><Text style={styles.secondaryButtonText}>{t("ui.back-home")}</Text></Pressable>
+    </View>;
   }
   if (safeItems.length === 0) {
     return <View style={styles.centered}><Ionicons name="checkmark-circle-outline" size={44} color={colors.sageDeep} /><Text style={styles.heroTitle}>{t("ui.no-saving")}</Text><Text style={styles.centerText}>{t("ui.no-local-photos-currently-have-useful-trim-savin")}</Text><Pressable style={styles.secondaryButton} onPress={onBack}><Text style={styles.secondaryButtonText}>{t("ui.back-home")}</Text></Pressable></View>;

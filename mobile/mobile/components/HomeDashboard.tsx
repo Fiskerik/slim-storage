@@ -26,6 +26,7 @@ import {
 import type {
   NativeCleanupCategory,
   NativeLibraryScan,
+  NativeLibraryScanProgress,
   NativePhoto,
 } from "../lib/native-photo-source";
 import type {
@@ -68,6 +69,7 @@ export type HomeDashboardProps = {
   hasUnlimitedTrims?: boolean;
   adBusy?: boolean;
   freeSpacePlan: NativeFreeSpacePlanSummary;
+  freeSpacePlanProgress?: NativeLibraryScanProgress | null;
   onStartSwipe: () => void;
   onOpenTrim: () => void;
   onStartFreeSpacePlan: () => void;
@@ -115,6 +117,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
     hasUnlimitedTrims = isPro,
     adBusy,
     freeSpacePlan,
+    freeSpacePlanProgress,
     onStartSwipe,
     onOpenTrim,
     onStartFreeSpacePlan,
@@ -277,7 +280,11 @@ export function HomeDashboard(props: HomeDashboardProps) {
             <Text style={styles.recommendedTitle}>{t("ui.free-space-plan")}</Text>
             <Text style={styles.recommendedHint}>
               {freeSpacePlan.status === "scanning"
-                ? t("ui.home-scanning")
+                ? freeSpacePlanProgress?.phase === "similarity" && freeSpacePlanProgress.analysisTotal
+                  ? `${t("ui.home-scanning")} ${freeSpacePlanProgress.analyzed ?? 0}/${freeSpacePlanProgress.analysisTotal}`
+                  : freeSpacePlanProgress?.total
+                    ? `${t("ui.scanning-library")} ${freeSpacePlanProgress.scanned}/${freeSpacePlanProgress.total}`
+                    : t("ui.you-can-keep-using-trimswipe-while-the-batch-run")
                 : freeSpacePlan.status === "ready"
                   ? t("ui.scan-found-to-review", { value: formatMB(freeSpacePlan.estimatedSavingsMB) })
                   : freeSpacePlan.status === "failed"
