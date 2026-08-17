@@ -52,6 +52,10 @@ function finiteMB(value: number): number {
 function uniqueByPhoto(candidates: QuickCleanupCandidate[]): QuickCleanupCandidate[] {
   const byId = new Map<string, QuickCleanupCandidate>();
   candidates.forEach((candidate) => {
+    // Cached/native scan results can contain a malformed entry after a
+    // library permission change. Never let one null photo take down the
+    // entire plan or preview.
+    if (!candidate?.photo || typeof candidate.photo.id !== "string" || candidate.photo.id.length === 0) return;
     const previous = byId.get(candidate.photo.id);
     if (!previous) {
       byId.set(candidate.photo.id, candidate);

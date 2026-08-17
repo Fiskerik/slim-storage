@@ -47,6 +47,10 @@ function actionColor(action: QuickCleanupAction): string {
   return colors.textMuted;
 }
 
+function usableItems(items: QuickCleanupItem[] | undefined): QuickCleanupItem[] {
+  return (items ?? []).filter((item): item is QuickCleanupItem => Boolean(item?.photo && typeof item.photo.id === "string" && item.photo.id.length > 0));
+}
+
 export function QuickCleanupReview({
   plan,
   months,
@@ -66,17 +70,18 @@ export function QuickCleanupReview({
   const [fullPhoto, setFullPhoto] = useState<QuickCleanupItem | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const trimLimit = Math.max(0, Math.floor(trimsRemaining));
+  const safeItems = useMemo(() => usableItems(plan?.items), [plan]);
 
   useEffect(() => {
     if (!plan) return;
-    setSelectedActions(Object.fromEntries(plan.items.map((item) => [item.photo.id, item.selected ? item.action : "keep"] as const)));
+    setSelectedActions(Object.fromEntries(safeItems.map((item) => [item.photo.id, item.selected ? item.action : "keep"] as const)));
     setProtectedIds(new Set(plan.protectedIds));
     setSelectedMonth(null);
-  }, [plan]);
+  }, [plan, safeItems]);
 
   const visibleItems = useMemo(
-    () => selectedMonth && plan ? plan.items.filter((item) => monthKey(item.photo.creationTime) === selectedMonth) : plan?.items ?? [],
-    [plan, selectedMonth],
+    () => selectedMonth && plan ? safeItems.filter((item) => monthKey(item.photo.creationTime) === selectedMonth) : safeItems,
+    [plan, safeItems, selectedMonth],
   );
 
   const chosen = useMemo(() => {
@@ -120,7 +125,7 @@ export function QuickCleanupReview({
   if (!plan) {
     return <View style={styles.centered}><Ionicons name="speedometer-outline" size={38} color={colors.primary} /><Text style={styles.heroTitle}>{t("ui.free-space-plan")}</Text><Text style={styles.muted}>{t("ui.finding-the-photos-that-will-make-the-biggest-de")}</Text><Pressable style={styles.secondaryButton} onPress={onBack}><Text style={styles.secondaryButtonText}>{t("ui.back-home")}</Text></Pressable></View>;
   }
-  if (plan.items.length === 0) {
+  if (safeItems.length === 0) {
     return <View style={styles.centered}><Ionicons name="checkmark-circle-outline" size={44} color={colors.sageDeep} /><Text style={styles.heroTitle}>{t("ui.no-saving")}</Text><Text style={styles.centerText}>{t("ui.no-local-photos-currently-have-useful-trim-savin")}</Text><Pressable style={styles.secondaryButton} onPress={onBack}><Text style={styles.secondaryButtonText}>{t("ui.back-home")}</Text></Pressable></View>;
   }
 
@@ -138,7 +143,7 @@ export function QuickCleanupReview({
       {loading ? <View style={styles.refreshing}><ActivityIndicator size="small" color={colors.primary} /><Text style={styles.refreshingText}>{t("ui.scanning")}</Text></View> : null}
       <View style={styles.budgetRow}>{([{ label: "Any", value: null }, { label: "500 MB", value: 500 }, { label: "1 GB", value: 1024 }] as const).map((target) => <Pressable key={target.label} onPress={() => onChangeTarget(target.value)} style={[styles.budgetButton, plan.targetMB === target.value && styles.budgetButtonActive]}><Text style={[styles.budgetText, plan.targetMB === target.value && styles.budgetTextActive]}>{target.label}</Text></Pressable>)}</View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.months}>
-        <Pressable onPress={() => setSelectedMonth(null)} style={[styles.monthPill, selectedMonth == null && { borderColor: colors.primary }]}><Text style={styles.monthLabel}>{t("ui.all-count", { count: plan.items.length })}</Text><Text style={styles.monthValue}>actions</Text></Pressable>
+        <Pressable onPress={() => setSelectedMonth(null)} style={[styles.monthPill, selectedMonth == null && { borderColor: colors.primary }]}><Text style={styles.monthLabel}>{t("ui.all-count", { count: safeItems.length })}</Text><Text style={styles.monthValue}>actions</Text></Pressable>
         {months.slice(0, 6).map((month) => <Pressable key={month.key} onPress={() => setSelectedMonth(month.key)} style={[styles.monthPill, selectedMonth === month.key && { borderColor: colors.primary }]}><Text style={styles.monthLabel}>{month.label}</Text><Text style={styles.monthValue}>{month.reviewedCount}/{month.photoCount} · {formatMB(month.reclaimableMB)}</Text><View style={styles.monthTrack}><View style={[styles.monthFill, { width: `${Math.round(month.progress * 100)}%` }]} /></View></Pressable>)}
       </ScrollView>
       <FlatList

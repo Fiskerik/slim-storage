@@ -964,7 +964,10 @@ async function assetToPhoto(
   asset: MediaLibrary.Asset,
   duplicateLookup: Set<string>,
 ): Promise<NativePhoto> {
-  const info = await MediaLibrary.getAssetInfoAsync(asset);
+  // PhotoKit can return no detail object while an iCloud asset is being
+  // hydrated or permissions are changing. Treat that asset as metadata-only
+  // rather than allowing `info.localUri` to abort the complete preview scan.
+  const info = (await MediaLibrary.getAssetInfoAsync(asset).catch(() => null)) ?? ({} as MediaLibrary.AssetInfo);
   const localUri = info.localUri || asset.uri || null;
   const candidateUri = localUri || asset.uri;
   let sizeMB = assetSizeMB(asset);

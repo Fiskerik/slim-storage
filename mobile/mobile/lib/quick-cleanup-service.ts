@@ -20,6 +20,16 @@ export type QuickCleanupLibrary = {
   months: MonthCleanupProgress[];
 };
 
+function isUsablePhoto(photo: NativePhoto | null | undefined): photo is NativePhoto {
+  return Boolean(
+    photo &&
+      typeof photo.id === "string" &&
+      photo.id.length > 0 &&
+      typeof photo.uri === "string" &&
+      photo.uri.length > 0,
+  );
+}
+
 function ageDays(creationTime: number): number {
   return Math.max(0, (Date.now() - creationTime) / (24 * 60 * 60 * 1000));
 }
@@ -54,7 +64,10 @@ export async function loadQuickCleanupLibrary(
     reviewLedger?: NativePhotoReviewLedger | null;
   } = {},
 ): Promise<QuickCleanupLibrary> {
-  const photos = await loadPhotoLibrarySnapshot();
+  // Native photo metadata may briefly contain a null item while the user is
+  // changing library permissions or iCloud is hydrating an asset. Filter at
+  // the service boundary so every downstream plan and UI receives safe data.
+  const photos = (await loadPhotoLibrarySnapshot()).filter(isUsablePhoto);
   const protectedIds = options.protection ? protectedPhotoIds(options.protection) : new Set<string>();
   const reviewedIds = options.reviewLedger
     ? new Set(Object.keys(options.reviewLedger.records).filter((id) => shouldExcludeReviewedPhoto(options.reviewLedger!, id)))
@@ -64,7 +77,8 @@ export async function loadQuickCleanupLibrary(
 
   exactDuplicateGroups.forEach((group) => {
     const keeperId = group.suggestedKeeperId;
-    group.photos
+    (group.photos ?? [])
+      .filter(isUsablePhoto)
       .filter((photo) => photo.id !== keeperId)
       .forEach((photo) => {
         candidates.push({
@@ -107,7 +121,8 @@ export async function loadQuickCleanupLibrary(
     similarGroups = await loadDuplicatePhotoGroups(24, settings, { avoidIds: [...protectedIds] });
     similarGroups.forEach((group) => {
       const keeperId = group.suggestedKeeperId;
-      group.photos
+      (group.photos ?? [])
+        .filter(isUsablePhoto)
         .filter((photo) => photo.id !== keeperId && !protectedIds.has(photo.id))
         .forEach((photo) => candidates.push({
           photo,

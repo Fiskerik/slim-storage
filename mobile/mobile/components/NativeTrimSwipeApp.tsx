@@ -6,6 +6,7 @@ import * as ImageManipulator from "expo-image-manipulator";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { StatusBar } from "expo-status-bar";
+import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import {
@@ -473,16 +474,23 @@ function formatGameAgeThreshold(years: number): string {
   return t("ui.age-years", { count: Number.isInteger(years) ? years.toFixed(0) : years.toFixed(1) });
 }
 
-const DAILY_REMINDER_TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
-  const hour = Math.floor(index / 2);
-  const minute = index % 2 === 0 ? 0 : 30;
-  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-});
-
 function formatReminderTime(value: string): string {
   const [hour = "20", minute = "30"] = value.split(":");
   const date = new Date(2000, 0, 1, Number(hour), Number(minute));
   return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function reminderPickerDate(value: string): Date {
+  const [hourText = "20", minuteText = "30"] = value.split(":");
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const date = new Date();
+  date.setHours(Number.isFinite(hour) ? Math.max(0, Math.min(23, hour)) : 20, Number.isFinite(minute) ? Math.max(0, Math.min(59, minute)) : 30, 0, 0);
+  return date;
+}
+
+function reminderPickerValue(date: Date): string {
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 function gameAgeYears(createdAt: number): number {
@@ -6213,6 +6221,7 @@ function SettingsScreen({
   const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
   const [languageQuery, setLanguageQuery] = useState("");
   const [reminderTimePickerOpen, setReminderTimePickerOpen] = useState(false);
+  const [reminderTimeDraft, setReminderTimeDraft] = useState(settings.dailyTrimReminder.time);
   const { width: windowWidth } = useWindowDimensions();
   const compactLayout = windowWidth <= 390;
   const showsThresholds =
@@ -6281,6 +6290,32 @@ function SettingsScreen({
   const themed = useMemo(() => createSettingsThemeStyles(theme), [theme]);
   const selectedLanguage = APP_LANGUAGES.find(([code]) => code === settings.appLanguage) ?? APP_LANGUAGES[0];
   const visibleLanguages = APP_LANGUAGES.filter(([, nativeName, englishName]) => `${nativeName} ${englishName}`.toLowerCase().includes(languageQuery.trim().toLowerCase()));
+
+  function openReminderTimePicker() {
+    setReminderTimeDraft(settings.dailyTrimReminder.time);
+    setReminderTimePickerOpen(true);
+  }
+
+  function closeReminderTimePicker(save = true) {
+    setReminderTimePickerOpen(false);
+    if (save && reminderTimeDraft !== settings.dailyTrimReminder.time) void onDailyReminderTimeChange(reminderTimeDraft);
+  }
+
+  function handleReminderTimeChange(event: DateTimePickerEvent, date?: Date) {
+    if (event.type === "dismissed") {
+      closeReminderTimePicker(false);
+      return;
+    }
+    if (!date) return;
+    const next = reminderPickerValue(date);
+    setReminderTimeDraft(next);
+    // Android presents this control as a native dialog; commit immediately
+    // when the user confirms it. iOS keeps the spinner open until Done.
+    if (Platform.OS !== "ios") {
+      setReminderTimePickerOpen(false);
+      void onDailyReminderTimeChange(next);
+    }
+  }
 
   return (
     <ScrollView style={themed.screen} contentContainerStyle={styles.content}>
@@ -6354,7 +6389,7 @@ function SettingsScreen({
         <Text style={[styles.mutedSmall, themed.muted]}>{t("ui.daily-trim-reminder-at", { time: formatReminderTime(settings.dailyTrimReminder.time) })}</Text>
         <Pressable
           accessibilityRole="button"
-          onPress={() => setReminderTimePickerOpen(true)}
+          onPress={openReminderTimePicker}
           style={[styles.reminderTimeButton, { borderColor: theme.border, backgroundColor: theme.cardSoft }]}
         >
           <Ionicons name="time-outline" size={18} color={theme.primary} />
@@ -6376,32 +6411,23 @@ function SettingsScreen({
           </>
         ) : null}
       </View>
-      <Modal visible={reminderTimePickerOpen} animationType="slide" onRequestClose={() => setReminderTimePickerOpen(false)}>
+      <Modal visible={reminderTimePickerOpen} animationType="slide" onRequestClose={() => closeReminderTimePicker(false)}>
         <SafeAreaView style={[styles.languageModal, { backgroundColor: theme.background }]}>
           <View style={styles.languageModalHeader}>
-            <Text style={[styles.settingLabel, { color: theme.text }]}>{t("ui.daily-trim-reminder-setting", { time: formatReminderTime(settings.dailyTrimReminder.time) })}</Text>
-            <Pressable onPress={() => setReminderTimePickerOpen(false)}><Text style={{ color: theme.primary, fontWeight: "800" }}>{t("ui.done")}</Text></Pressable>
+            <Text style={[styles.settingLabel, { color: theme.text }]}>{t("ui.daily-trim-reminder-setting", { time: formatReminderTime(reminderTimeDraft) })}</Text>
+            <Pressable onPress={() => closeReminderTimePicker(true)}><Text style={{ color: theme.primary, fontWeight: "800" }}>{t("ui.done")}</Text></Pressable>
           </View>
-          <ScrollView contentContainerStyle={styles.reminderTimeList}>
-            {DAILY_REMINDER_TIME_OPTIONS.map((time) => {
-              const selected = settings.dailyTrimReminder.time === time;
-              return (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  key={time}
-                  onPress={() => {
-                    setReminderTimePickerOpen(false);
-                    void onDailyReminderTimeChange(time);
-                  }}
-                  style={[styles.reminderTimeOption, { borderColor: selected ? theme.primary : theme.border, backgroundColor: selected ? theme.cardSoft : theme.card }]}
-                >
-                  <Text style={[styles.reminderTimeOptionText, { color: selected ? theme.primary : theme.text }]}>{formatReminderTime(time)}</Text>
-                  {selected ? <Ionicons name="checkmark" size={18} color={theme.primary} /> : null}
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+          <View style={styles.reminderPickerBody}>
+            <DateTimePicker
+              value={reminderPickerDate(reminderTimeDraft)}
+              mode="time"
+              display={Platform.OS === "ios" ? "spinner" : "default"}
+              minuteInterval={30}
+              onChange={handleReminderTimeChange}
+              themeVariant={theme.background === colors.background ? "light" : "dark"}
+            />
+            <Text style={[styles.mutedSmall, { color: theme.textMuted }]}>{t("ui.daily-trim-reminder-at", { time: formatReminderTime(reminderTimeDraft) })}</Text>
+          </View>
         </SafeAreaView>
       </Modal>
       <View style={[styles.settingCardVertical, themed.card]}>
@@ -7229,9 +7255,7 @@ const styles = StyleSheet.create({
   languageList: { paddingVertical: 10 },
   reminderTimeButton: { minHeight: 48, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10 },
   reminderTimeText: { flex: 1, fontSize: 15, fontWeight: "800" },
-  reminderTimeList: { paddingVertical: 10, gap: 8, paddingBottom: 28 },
-  reminderTimeOption: { minHeight: 48, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  reminderTimeOptionText: { fontSize: 15, fontWeight: "800" },
+  reminderPickerBody: { flex: 1, alignItems: "center", justifyContent: "flex-start", paddingTop: 34, gap: 14 },
   languageRow: { minHeight: 58, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", gap: 10 },
   languageRowCompact: { minHeight: 54, gap: 7 },
   languageNative: { flex: 1, minWidth: 0, fontSize: 16, fontWeight: "800" },

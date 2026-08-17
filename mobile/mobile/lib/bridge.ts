@@ -770,7 +770,7 @@ async function assetToDTO(
   duplicateLookup = new Set<string>(),
 ): Promise<PhotoDTO> {
   // Get asset info for GPS, local file URI, and more metadata.
-  const info = await MediaLibrary.getAssetInfoAsync(asset);
+  const info = (await MediaLibrary.getAssetInfoAsync(asset).catch(() => null)) ?? ({} as MediaLibrary.AssetInfo);
 
   const creationDate = new Date(asset.creationTime);
   const localUri = info.localUri || asset.uri;

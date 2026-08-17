@@ -36,6 +36,13 @@ test("quick plan never exceeds free trim balance and excludes protected photos",
   assert.equal(plan.items.some((item) => item.photo.id === "p3"), false);
 });
 
+test("quick plan ignores malformed native candidates instead of crashing preview", () => {
+  const malformed = { photo: null, action: "trim", confidence: "high", estimatedSavingsMB: 10, reviewSeconds: 5, reason: "bad metadata", preselect: true };
+  const valid = { photo: photo("valid", 10), action: "trim", confidence: "high", estimatedSavingsMB: 4, reviewSeconds: 5, reason: "compress", preselect: true };
+  const plan = buildQuickCleanupPlan([malformed, valid], { budgetSeconds: 30, trimBalance: 1 });
+  assert.deepEqual(plan.items.map((item) => item.photo.id), ["valid"]);
+});
+
 test("month progress is resumable and uses local calendar months", () => {
   const photos = [photo("jan-1", 10, Date.parse("2026-01-02T12:00:00Z")), photo("jan-2", 10, Date.parse("2026-01-20T12:00:00Z")), photo("feb-1", 10, Date.parse("2026-02-02T12:00:00Z"))];
   const progress = buildMonthCleanupProgress(photos, ["jan-1"], new Map([["jan-1", 3], ["jan-2", 4], ["feb-1", 5]]), "en-US");
