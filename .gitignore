@@ -27,6 +27,7 @@ dist-ssr
 .expo/**
 .eas/
 web-build/
+output/**
 mobile/mobile/.expo/
 mobile/mobile/.expo
 mobile/mobile/.expo/**
