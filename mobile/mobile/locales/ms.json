@@ -927,6 +927,9 @@
     "ui.suggested-trim": "Suggested trim",
     "ui.suggested-delete": "Verified duplicate",
     "ui.trim-all": "Trim all",
+    "ui.protect": "Lindungi",
+    "ui.decide-later": "Tentukan kemudian",
+    "ui.quick-win": "Penjimatan pantas",
     "ui.yearly": "Setiap tahun",
     "ui.you're-all-set": "Anda sudah bersedia"
   }

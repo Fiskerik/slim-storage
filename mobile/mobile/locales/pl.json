@@ -927,6 +927,9 @@
     "ui.suggested-trim": "Suggested trim",
     "ui.suggested-delete": "Verified duplicate",
     "ui.trim-all": "Trim all",
+    "ui.protect": "Chroń",
+    "ui.decide-later": "Zdecyduj później",
+    "ui.quick-win": "Szybka oszczędność",
     "ui.yearly": "Co roku",
     "ui.you're-all-set": "Wszystko gotowe"
   }

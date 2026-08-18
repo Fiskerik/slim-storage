@@ -1,10 +1,15 @@
 import * as FileSystem from "expo-file-system/legacy";
 
-import type { QuickCleanupLibrary } from "./quick-cleanup-service";
+import type {
+  QuickCleanupLibrary,
+  QuickCleanupReviewGroup,
+  QuickCleanupTrimOption,
+} from "./quick-cleanup-service";
 import type { MonthCleanupProgress, QuickCleanupItem, QuickCleanupPlan } from "./quick-cleanup-plan";
+import type { NativePhoto } from "./native-photo-source";
 
 const CACHE_FILE = "trimswipe-quick-cleanup-review-v1.json";
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000;
 let pendingCacheMutation: Promise<void> = Promise.resolve();
 
@@ -12,6 +17,8 @@ type PersistedQuickCleanupReview = {
   version: typeof CACHE_VERSION;
   savedAt: string;
   plan: QuickCleanupPlan;
+  groups: QuickCleanupReviewGroup[];
+  trimOptions: QuickCleanupTrimOption[];
   months: MonthCleanupProgress[];
 };
 
@@ -38,6 +45,50 @@ function isUsableItem(value: unknown): value is QuickCleanupItem {
       typeof item.estimatedSavingsMB === "number" &&
       Number.isFinite(item.estimatedSavingsMB),
   );
+}
+
+function isUsablePhoto(value: unknown): value is NativePhoto {
+  if (!value || typeof value !== "object") return false;
+  const photo = value as Partial<NativePhoto>;
+  return Boolean(
+    typeof photo.id === "string" &&
+      photo.id.length > 0 &&
+      typeof photo.uri === "string" &&
+      photo.uri.length > 0,
+  );
+}
+
+function normalizeGroups(value: unknown): QuickCleanupReviewGroup[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object") return [];
+    const raw = candidate as Partial<QuickCleanupReviewGroup>;
+    const photos = Array.isArray(raw.photos) ? raw.photos.filter(isUsablePhoto) : [];
+    if (typeof raw.id !== "string" || photos.length < 2 || (raw.kind !== "exact" && raw.kind !== "similar")) return [];
+    const suggestedKeeperId = photos.some((photo) => photo.id === raw.suggestedKeeperId)
+      ? raw.suggestedKeeperId!
+      : photos[0].id;
+    return [{
+      id: raw.id,
+      kind: raw.kind,
+      photos,
+      suggestedKeeperId,
+      reason: typeof raw.reason === "string" ? raw.reason : undefined,
+    }];
+  });
+}
+
+function normalizeTrimOptions(value: unknown): QuickCleanupTrimOption[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((candidate): candidate is QuickCleanupTrimOption => Boolean(
+    candidate &&
+      typeof candidate === "object" &&
+      typeof (candidate as QuickCleanupTrimOption).photoId === "string" &&
+      typeof (candidate as QuickCleanupTrimOption).estimatedSavingsMB === "number" &&
+      Number.isFinite((candidate as QuickCleanupTrimOption).estimatedSavingsMB) &&
+      (candidate as QuickCleanupTrimOption).estimatedSavingsMB > 0 &&
+      typeof (candidate as QuickCleanupTrimOption).reason === "string",
+  ));
 }
 
 function normalizePlan(value: unknown): QuickCleanupPlan | null {
@@ -89,12 +140,16 @@ export async function loadQuickCleanupReviewCache(): Promise<QuickCleanupLibrary
       await clearQuickCleanupReviewCache();
       return null;
     }
-    const photos = [...new Map(plan.items.map((item) => [item.photo.id, item.photo])).values()];
+    const groups = normalizeGroups(raw.groups);
+    const photos = [...new Map([
+      ...plan.items.map((item) => [item.photo.id, item.photo] as const),
+      ...groups.flatMap((group) => group.photos.map((photo) => [photo.id, photo] as const)),
+    ]).values()];
     return {
       plan,
       photos,
-      exactDuplicateGroups: [],
-      similarGroups: [],
+      groups,
+      trimOptions: normalizeTrimOptions(raw.trimOptions),
       months: normalizeMonths(raw.months),
     };
   } catch (error) {
@@ -112,6 +167,8 @@ export async function saveQuickCleanupReviewCache(library: QuickCleanupLibrary):
     // selectedItems duplicates objects already present in items. Rebuild it on
     // read so large reviews do not consume twice the document storage.
     plan: { ...library.plan, selectedItems: [] },
+    groups: library.groups,
+    trimOptions: library.trimOptions,
     months: library.months,
   };
   return enqueueCacheMutation(async () => {

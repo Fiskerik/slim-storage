@@ -16,9 +16,23 @@ import type { NativeSettings } from "./native-store";
 export type QuickCleanupLibrary = {
   plan: QuickCleanupPlan;
   photos: NativePhoto[];
-  exactDuplicateGroups: Awaited<ReturnType<typeof findExactDuplicatePhotoGroups>>;
-  similarGroups: NativeDuplicateGroup[];
+  groups: QuickCleanupReviewGroup[];
+  trimOptions: QuickCleanupTrimOption[];
   months: MonthCleanupProgress[];
+};
+
+export type QuickCleanupReviewGroup = {
+  id: string;
+  kind: "exact" | "similar";
+  photos: NativePhoto[];
+  suggestedKeeperId: string;
+  reason?: string;
+};
+
+export type QuickCleanupTrimOption = {
+  photoId: string;
+  estimatedSavingsMB: number;
+  reason: string;
 };
 
 function isUsablePhoto(photo: NativePhoto | null | undefined): photo is NativePhoto {
@@ -76,12 +90,13 @@ export async function loadQuickCleanupLibrary(
     : new Set<string>();
   const exactDuplicateGroups = await findExactDuplicatePhotoGroups(photos);
   const candidates: QuickCleanupCandidate[] = [];
+  const trimOptions: QuickCleanupTrimOption[] = [];
 
   exactDuplicateGroups.forEach((group) => {
     const keeperId = group.suggestedKeeperId;
     (group.photos ?? [])
       .filter(isUsablePhoto)
-      .filter((photo) => photo.id !== keeperId)
+      .filter((photo) => photo.id !== keeperId && !protectedIds.has(photo.id) && !reviewedIds.has(photo.id))
       .forEach((photo) => {
         candidates.push({
           photo,
@@ -104,7 +119,14 @@ export async function loadQuickCleanupLibrary(
     // Screenshots stay a deliberate review surface; never silently replace a
     // unique screenshot with a trimmed copy in the quick plan.
     const trim = isScreenshot ? null : candidateForTrim(photo, settings);
-    if (trim) candidates.push(trim);
+    if (trim) {
+      candidates.push(trim);
+      trimOptions.push({
+        photoId: photo.id,
+        estimatedSavingsMB: trim.estimatedSavingsMB,
+        reason: trim.reason,
+      });
+    }
     if (isScreenshot && ageDays(photo.creationTime) >= 90) {
       candidates.push({
         photo,
@@ -121,7 +143,7 @@ export async function loadQuickCleanupLibrary(
   let similarGroups: NativeDuplicateGroup[] = [];
   try {
     similarGroups = await loadDuplicatePhotoGroups(24, settings, {
-      avoidIds: [...protectedIds],
+      avoidIds: [...new Set([...protectedIds, ...reviewedIds])],
       onProgress: (progress) => options.onProgress?.({
         ...progress,
         scanned: photos.length,
@@ -132,7 +154,7 @@ export async function loadQuickCleanupLibrary(
       const keeperId = group.suggestedKeeperId;
       (group.photos ?? [])
         .filter(isUsablePhoto)
-        .filter((photo) => photo.id !== keeperId && !protectedIds.has(photo.id))
+        .filter((photo) => photo.id !== keeperId && !protectedIds.has(photo.id) && !reviewedIds.has(photo.id))
         .forEach((photo) => candidates.push({
           photo,
           action: "delete",
@@ -156,11 +178,33 @@ export async function loadQuickCleanupLibrary(
   });
   const reclaimableById = new Map<string, number>();
   plan.items.forEach((item) => reclaimableById.set(item.photo.id, item.estimatedSavingsMB));
+  const exactReviewGroups: QuickCleanupReviewGroup[] = exactDuplicateGroups
+    .map((group) => ({
+      id: group.id,
+      kind: "exact" as const,
+      photos: (group.photos ?? [])
+        .filter(isUsablePhoto)
+        .filter((photo) => photo.id === group.suggestedKeeperId || !reviewedIds.has(photo.id)),
+      suggestedKeeperId: group.suggestedKeeperId,
+      reason: "Exact byte duplicates",
+    }))
+    .filter((group) => group.photos.length >= 2);
+  const exactPhotoIds = new Set(exactReviewGroups.flatMap((group) => group.photos.map((photo) => photo.id)));
+  const similarReviewGroups: QuickCleanupReviewGroup[] = similarGroups
+    .filter((group) => !(group.photos ?? []).some((photo) => exactPhotoIds.has(photo.id)))
+    .map((group) => ({
+      id: group.id,
+      kind: "similar" as const,
+      photos: (group.photos ?? []).filter(isUsablePhoto),
+      suggestedKeeperId: group.suggestedKeeperId,
+      reason: group.similarityLabel,
+    }))
+    .filter((group) => group.photos.length >= 2);
   return {
     plan,
     photos,
-    exactDuplicateGroups,
-    similarGroups,
+    groups: [...exactReviewGroups, ...similarReviewGroups],
+    trimOptions,
     months: buildMonthCleanupProgress(photos, reviewedIds, reclaimableById),
   };
 }

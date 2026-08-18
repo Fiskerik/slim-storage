@@ -927,6 +927,9 @@
     "ui.suggested-trim": "Suggested trim",
     "ui.suggested-delete": "Verified duplicate",
     "ui.trim-all": "Trim all",
+    "ui.protect": "Bảo vệ",
+    "ui.decide-later": "Quyết định sau",
+    "ui.quick-win": "Tiết kiệm nhanh",
     "ui.yearly": "Hàng năm",
     "ui.you're-all-set": "Bạn đã sẵn sàng"
   }

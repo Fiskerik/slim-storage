@@ -66,7 +66,6 @@ import {
   saveQuickCleanupReviewCache,
 } from "../lib/quick-cleanup-cache";
 import { loadPhotoProtectionStore, savePhotoProtectionStore, setPhotoProtection as updatePhotoProtection, type PhotoProtectionStore } from "../lib/photo-protection";
-import { rebuildQuickCleanupPlan, type CleanupTimeBudget, type QuickCleanupItem } from "../lib/quick-cleanup-plan";
 import {
   loadNativePhotoReviewLedger,
   recordNativePhotoReview,
@@ -1277,23 +1276,6 @@ export function NativeTrimSwipeApp() {
     }
   }
 
-  function updateQuickCleanupReview(budgetSeconds: CleanupTimeBudget, targetMB: number | null) {
-    setQuickCleanupLibrary((current) => {
-      if (!current) return current;
-      const next = {
-        ...current,
-        plan: rebuildQuickCleanupPlan(current.plan, {
-          budgetSeconds,
-          targetMB,
-          trimBalance: tokenBalance,
-          unlimitedTrims: hasUnlimitedTrims,
-        }),
-      };
-      void saveQuickCleanupReviewCache(next);
-      return next;
-    });
-  }
-
   async function reviewFreeSpacePlan() {
     if (quickCleanupLibrary) {
       setScreen("quick-cleanup");
@@ -1415,19 +1397,19 @@ export function NativeTrimSwipeApp() {
     void runFreeSpacePlanScan(startedAt, notificationPermission);
   }
 
-  function toggleQuickProtection(item: QuickCleanupItem, protectedState: boolean) {
+  function toggleQuickProtection(photo: NativePhoto, protectedState: boolean) {
     setPhotoProtection((current) => {
       if (!current) return current;
-      const next = updatePhotoProtection(current, item.photo.id, protectedState);
+      const next = updatePhotoProtection(current, photo.id, protectedState);
       void savePhotoProtectionStore(next);
       return next;
     });
     setQuickCleanupLibrary((current) => {
       if (!current) return current;
       const protectedIds = new Set(current.plan.protectedIds);
-      if (protectedState) protectedIds.add(item.photo.id);
-      else protectedIds.delete(item.photo.id);
-      const items = current.plan.items.map((candidate) => candidate.photo.id === item.photo.id
+      if (protectedState) protectedIds.add(photo.id);
+      else protectedIds.delete(photo.id);
+      const items = current.plan.items.map((candidate) => candidate.photo.id === photo.id
         ? { ...candidate, selected: false }
         : candidate);
       const next = {
@@ -1439,11 +1421,11 @@ export function NativeTrimSwipeApp() {
     });
   }
 
-  function decideQuickLater(item: QuickCleanupItem) {
-    commitReviewLedger((current) => recordNativePhotoReview(current, item.photo.id, "skipped"));
+  function decideQuickLater(photo: NativePhoto) {
+    commitReviewLedger((current) => recordNativePhotoReview(current, photo.id, "skipped"));
     setQuickCleanupLibrary((current) => {
       if (!current) return current;
-      const next = { ...current, plan: { ...current.plan, items: current.plan.items.filter((candidate) => candidate.photo.id !== item.photo.id), selectedItems: current.plan.selectedItems.filter((candidate) => candidate.photo.id !== item.photo.id) } };
+      const next = { ...current, plan: { ...current.plan, items: current.plan.items.filter((candidate) => candidate.photo.id !== photo.id), selectedItems: current.plan.selectedItems.filter((candidate) => candidate.photo.id !== photo.id) } };
       void saveQuickCleanupReviewCache(next);
       return next;
     });
@@ -3034,6 +3016,8 @@ export function NativeTrimSwipeApp() {
         ) : screen === "quick-cleanup" ? (
           <QuickCleanupReview
             plan={quickCleanupLibrary?.plan ?? null}
+            groups={quickCleanupLibrary?.groups ?? []}
+            trimOptions={quickCleanupLibrary?.trimOptions ?? []}
             months={quickCleanupLibrary?.months ?? []}
             loading={quickCleanupBusy}
             progress={quickCleanupProgress}
@@ -3044,14 +3028,12 @@ export function NativeTrimSwipeApp() {
               setScreen("home");
               void startFreeSpacePlanScan();
             }}
-            onChangeBudget={(budget) => updateQuickCleanupReview(budget, quickCleanupLibrary?.plan.targetMB ?? null)}
-            onChangeTarget={(targetMB) => updateQuickCleanupReview(quickCleanupLibrary?.plan.budgetSeconds ?? 120, targetMB)}
             onOpenSettings={() => void Linking.openSettings()}
             onProtect={toggleQuickProtection}
             onDecideLater={decideQuickLater}
             onConfirm={(deletes, trims) => {
-              const deletePhotosForPlan = deletes.map((item) => item.photo);
-              const trimPhotosForPlan = trims.map((item) => item.photo);
+              const deletePhotosForPlan = deletes;
+              const trimPhotosForPlan = trims;
               void requestConfirmation({
                 title: t("ui.apply-suggested-removals"),
                 detail: t("ui.delete-trim-savings", { deleted: deletePhotosForPlan.length, trimmed: trimPhotosForPlan.length, total: trimPhotosForPlan.length, value: formatMB(deletePhotosForPlan.reduce((sum, photo) => sum + photo.sizeMB, 0) + trimPhotosForPlan.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0)) }),

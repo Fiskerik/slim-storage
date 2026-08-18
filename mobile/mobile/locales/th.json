@@ -927,6 +927,9 @@
     "ui.suggested-trim": "Suggested trim",
     "ui.suggested-delete": "Verified duplicate",
     "ui.trim-all": "Trim all",
+    "ui.protect": "ปกป้อง",
+    "ui.decide-later": "ตัดสินใจภายหลัง",
+    "ui.quick-win": "ประหยัดด่วน",
     "ui.yearly": "ทุกปี",
     "ui.you're-all-set": "คุณพร้อมแล้ว"
   }

@@ -927,6 +927,9 @@
     "ui.suggested-trim": "Suggested trim",
     "ui.suggested-delete": "Verified duplicate",
     "ui.trim-all": "Trim all",
+    "ui.protect": "Chránit",
+    "ui.decide-later": "Rozhodnout později",
+    "ui.quick-win": "Rychlá úspora",
     "ui.yearly": "Ročně",
     "ui.you're-all-set": "Vše je připraveno"
   }

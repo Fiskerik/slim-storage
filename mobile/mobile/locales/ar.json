@@ -927,6 +927,9 @@
     "ui.suggested-trim": "Suggested trim",
     "ui.suggested-delete": "Verified duplicate",
     "ui.trim-all": "Trim all",
+    "ui.protect": "حماية",
+    "ui.decide-later": "قرر لاحقًا",
+    "ui.quick-win": "مكسب سريع",
     "ui.yearly": "سنويًا",
     "ui.you're-all-set": "أنت جاهز"
   }
