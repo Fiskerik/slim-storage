@@ -67,6 +67,7 @@
     "ui.delete": "Delete:",
     "ui.deleted": "Deleted",
     "ui.done": "Done",
+    "ui.apply": "Apply",
     "ui.earn-5-tokens": "Earn +5 tokens",
     "ui.every-batch-is-previewed-first": "Every batch is previewed first",
     "ui.finding-older-memories": "Finding older memories...",

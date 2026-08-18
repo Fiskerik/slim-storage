@@ -67,6 +67,7 @@
     "ui.delete": "削除:",
     "ui.deleted": "削除されました",
     "ui.done": "完了",
+    "ui.apply": "適用",
     "ui.earn-5-tokens": "+5 トークンを獲得",
     "ui.every-batch-is-previewed-first": "すべてのバッチが最初にプレビューされます",
     "ui.finding-older-memories": "古い思い出を探しています...",

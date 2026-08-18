@@ -911,6 +911,7 @@ export function NativeTrimSwipeApp() {
   const pendingSettingsRef = useRef<NativeSettings | null>(null);
   const scheduledScanBusyRef = useRef(false);
   const freeSpaceScanBusyRef = useRef(false);
+  const startupQuickCleanupAttemptedRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
   const reportCardRef = useRef<View>(null);
 
@@ -1010,10 +1011,7 @@ export function NativeTrimSwipeApp() {
         loadQuickCleanupReviewCache(),
       ]);
       if (cancelled) return;
-      const shouldRestoreQuickCleanup = Boolean(
-        cachedQuickCleanup &&
-          (loaded.freeSpacePlan.status === "ready" || loaded.freeSpacePlan.status === "scanning"),
-      );
+      const shouldRestoreQuickCleanup = Boolean(cachedQuickCleanup);
       const activeStats = {
         ...loaded,
         lastActiveAt: new Date().toISOString(),
@@ -1112,6 +1110,19 @@ export function NativeTrimSwipeApp() {
     // active. The runner has its own single-flight guard.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stats.freeSpacePlan.startedAt, stats.freeSpacePlan.status, statsLoaded]);
+
+  useEffect(() => {
+    if (!statsLoaded || onboardingDue || startupQuickCleanupAttemptedRef.current) return;
+    if (quickCleanupLibrary || stats.freeSpacePlan.status === "ready" || stats.freeSpacePlan.status === "scanning") {
+      startupQuickCleanupAttemptedRef.current = true;
+      return;
+    }
+    startupQuickCleanupAttemptedRef.current = true;
+    void startFreeSpacePlanScan({ announce: false, requestNotificationPermission: false });
+    // The startup preparation is deliberately single-shot. The scan runner
+    // owns permission handling and single-flight protection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onboardingDue, quickCleanupLibrary, stats.freeSpacePlan.status, statsLoaded]);
 
   useEffect(() => {
     if (!statsLoaded) return;
@@ -1376,8 +1387,11 @@ export function NativeTrimSwipeApp() {
     }
   }
 
-  async function startFreeSpacePlanScan() {
+  async function startFreeSpacePlanScan(
+    options: { announce?: boolean; requestNotificationPermission?: boolean } = {},
+  ) {
     if (freeSpaceScanBusyRef.current || stats.freeSpacePlan.status === "scanning") return;
+    const { announce = true, requestNotificationPermission = true } = options;
     const startedAt = new Date().toISOString();
     await clearQuickCleanupReviewCache();
     setQuickCleanupLibrary(null);
@@ -1390,10 +1404,12 @@ export function NativeTrimSwipeApp() {
         startedAt,
       },
     }));
-    showToast(t("ui.trimswipe-scan-started"), t("ui.you-can-keep-using-trimswipe-while-the-batch-run"), "info");
-    // Request notification access and scan concurrently. Even a tiny library
+    if (announce) {
+      showToast(t("ui.trimswipe-scan-started"), t("ui.you-can-keep-using-trimswipe-while-the-batch-run"), "info");
+    }
+    // Resolve notification access and scan concurrently. Even a tiny library
     // cannot race past the permission result and silently lose its ready alert.
-    const notificationPermission = ensureCleanupNotifications(true);
+    const notificationPermission = ensureCleanupNotifications(requestNotificationPermission);
     void runFreeSpacePlanScan(startedAt, notificationPermission);
   }
 

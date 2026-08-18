@@ -67,6 +67,7 @@
     "ui.delete": "Löschen:",
     "ui.deleted": "Gelöscht",
     "ui.done": "Fertig",
+    "ui.apply": "Anwenden",
     "ui.earn-5-tokens": "Verdiene +5 Token",
     "ui.every-batch-is-previewed-first": "Jeder Stapel wird zuerst in der Vorschau angezeigt",
     "ui.finding-older-memories": "Ältere Erinnerungen finden...",

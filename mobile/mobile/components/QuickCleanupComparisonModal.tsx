@@ -9,7 +9,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { colors, radius, spacing, type } from "../constants/design";
 import { t } from "../lib/i18n";
@@ -70,6 +70,7 @@ export function QuickCleanupComparisonModal({
   onClose,
   onApply,
 }: Props) {
+  const insets = useSafeAreaInsets();
   const [comparisonId, setComparisonId] = useState<string | null>(null);
   const [keptIds, setKeptIds] = useState<Set<string>>(new Set());
   const [keptAction, setKeptAction] = useState<"keep" | "trim">("keep");
@@ -140,10 +141,14 @@ export function QuickCleanupComparisonModal({
     );
   }
 
+  function applyChoice() {
+    onApply({ keptIds: [...keptIds], keptAction, unkeptAction });
+  }
+
   return (
     <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
-      <SafeAreaView style={styles.screen}>
-        <View style={styles.header}>
+      <SafeAreaView edges={["left", "right", "bottom"]} style={styles.screen}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, spacing.md) }]}>
           <Pressable accessibilityRole="button" hitSlop={10} onPress={onClose} style={styles.headerButton}>
             <Ionicons name="close" size={22} color={colors.text} />
           </Pressable>
@@ -153,14 +158,14 @@ export function QuickCleanupComparisonModal({
           </View>
           <Pressable
             accessibilityRole="button"
-            onPress={() => onApply({ keptIds: [...keptIds], keptAction, unkeptAction })}
+            onPress={applyChoice}
             style={styles.doneButton}
           >
             <Text style={styles.doneText}>{t("ui.done")}</Text>
           </Pressable>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
           <View style={styles.compareRow}>
             <View style={styles.comparePane}>
               <Text style={styles.compareLabel}>{t("ui.suggested-to-keep")}</Text>
@@ -221,6 +226,16 @@ export function QuickCleanupComparisonModal({
 
           <Text style={styles.disclaimer}>{t("ui.duplicate-suggestions-disclaimer")}</Text>
         </ScrollView>
+        <View style={styles.footer}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={applyChoice}
+            style={({ pressed }) => [styles.applyButton, pressed && styles.applyButtonPressed]}
+          >
+            <Ionicons name="checkmark-circle-outline" size={19} color={colors.white} />
+            <Text style={styles.applyButtonText}>{t("ui.apply")}</Text>
+          </Pressable>
+        </View>
       </SafeAreaView>
     </Modal>
   );
@@ -228,14 +243,15 @@ export function QuickCleanupComparisonModal({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  header: { minHeight: 64, flexDirection: "row", alignItems: "center", paddingHorizontal: spacing.md, gap: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  scroll: { flex: 1 },
+  header: { minHeight: 64, flexDirection: "row", alignItems: "center", paddingHorizontal: spacing.md, paddingBottom: spacing.sm, gap: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   headerButton: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: colors.cardSoft },
   headerCopy: { flex: 1, alignItems: "center", gap: 2 },
   eyebrow: { ...type.eyebrow, color: colors.sageDeep },
   title: { ...type.subtitle, color: colors.text, textAlign: "center" },
   doneButton: { minWidth: 52, minHeight: 42, alignItems: "flex-end", justifyContent: "center" },
   doneText: { color: colors.primary, fontSize: 14, fontWeight: "900" },
-  content: { padding: spacing.lg, paddingBottom: 48, gap: spacing.lg },
+  content: { padding: spacing.lg, gap: spacing.lg },
   compareRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
   comparePane: { flex: 1, minWidth: 0, gap: 7 },
   compareLabel: { minHeight: 30, color: colors.textMuted, fontSize: 10, lineHeight: 14, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.35 },
@@ -262,4 +278,8 @@ const styles = StyleSheet.create({
   choiceButtonText: { color: colors.textMuted, fontSize: 11, fontWeight: "900" },
   disabled: { opacity: 0.38 },
   disclaimer: { ...type.caption, color: colors.textMuted, lineHeight: 17 },
+  footer: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.md, backgroundColor: colors.background, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  applyButton: { minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, borderRadius: radius.md, backgroundColor: colors.primary },
+  applyButtonPressed: { opacity: 0.82 },
+  applyButtonText: { color: colors.white, fontSize: 14, fontWeight: "900" },
 });
