@@ -1,11 +1,14 @@
-// AdMob rewarded ads. Gracefully no-ops on web / Expo Go (no native module).
-// On real device builds, loads + shows a rewarded ad and credits Trim Tokens.
+// Unity LevelPlay (ironSource) rewarded and interstitial ads.
+// Web and Expo Go gracefully no-op because the native LevelPlay module is unavailable.
 
 import type { ComponentType, ReactElement } from "react";
 import { Platform, type ViewProps } from "react-native";
 import { addTokens, REWARDED_AD_TOKENS } from "./tokens";
 import { checkProStatus } from "./purchases";
 
+// Kept as a compatibility shape for the existing swipe-midset component. Direct
+// LevelPlay does not provide the Google native-ad renderer, so the loader below
+// intentionally returns null and the photo round fails open.
 export type SwipeMidsetNativeAd = {
   responseId: string;
   advertiser: string | null;
@@ -35,322 +38,263 @@ export type LoadedSwipeMidsetNativeAd = {
   renderer: SwipeMidsetNativeRenderer;
 };
 
-type GoogleMobileAdsModule = {
-  RewardedAd: any;
-  InterstitialAd?: any;
-  NativeAd?: {
-    createForAdRequest: (
-      adUnitId: string,
-      options?: { requestNonPersonalizedAdsOnly?: boolean; startVideoMuted?: boolean },
-    ) => Promise<SwipeMidsetNativeAd>;
-  };
-  NativeAdView?: SwipeMidsetNativeRenderer["NativeAdView"];
-  NativeMediaView?: SwipeMidsetNativeRenderer["NativeMediaView"];
-  NativeAsset?: SwipeMidsetNativeRenderer["NativeAsset"];
-  NativeAssetType?: SwipeMidsetNativeRenderer["NativeAssetType"];
-  TestIds: { REWARDED: string; INTERSTITIAL?: string; NATIVE?: string };
-  AdEventType: Record<string, string>;
-  RewardedAdEventType: Record<string, string>;
-  AdsConsent?: {
-    gatherConsent: (options?: { tagForUnderAgeOfConsent?: boolean }) => Promise<{ canRequestAds: boolean }>;
-    showPrivacyOptionsForm: () => Promise<{ canRequestAds: boolean }>;
-  };
-  MobileAds?: () => GoogleMobileAdsClient;
-  default?: () => GoogleMobileAdsClient;
+export type LevelPlayBannerAdViewMethods = {
+  loadAd: () => void | Promise<void>;
+  destroy: () => void | Promise<void>;
 };
 
-type GoogleMobileAdsClient = {
-  initialize: () => Promise<Record<string, unknown>>;
-  openAdInspector: () => Promise<void>;
+export type LevelPlayBannerAdSize = {
+  width: number;
+  height: number;
 };
 
-let mod: GoogleMobileAdsModule | null = null;
+export type LevelPlayBannerAdViewProps = {
+  ref?: unknown;
+  adUnitId: string;
+  adSize: LevelPlayBannerAdSize;
+  placementName?: string;
+  listener?: Record<string, unknown>;
+  onLayout?: () => void;
+  style?: Record<string, unknown>;
+};
+
+type LevelPlayAd = {
+  setListener: (listener: Record<string, unknown>) => void;
+  loadAd: () => Promise<void>;
+  showAd: (placementName?: string | null) => Promise<void>;
+  isAdReady: () => Promise<boolean>;
+  remove?: () => Promise<void>;
+};
+
+type LevelPlayModule = {
+  LevelPlay: {
+    init: (request: unknown, listener: Record<string, unknown>) => Promise<void>;
+    setAdaptersDebug?: (isEnabled: boolean) => Promise<void>;
+    setMetaData?: (key: string, values: string[]) => Promise<void>;
+  };
+  LevelPlayInitRequest: {
+    builder: (appKey: string) => { build: () => unknown };
+  };
+  LevelPlayRewardedAd: new (adUnitId: string) => LevelPlayAd;
+  LevelPlayInterstitialAd: new (adUnitId: string) => LevelPlayAd;
+  LevelPlayBannerAdView?: ComponentType<LevelPlayBannerAdViewProps>;
+  LevelPlayAdSize?: {
+    BANNER?: LevelPlayBannerAdSize;
+  };
+};
+
+const DEFAULT_IOS_APP_ID = "26d9fb51d";
+const DEFAULT_IOS_REWARDED_ID = "nt81b397cbikquwn";
+const DEFAULT_IOS_INTERSTITIAL_ID = "bini0fp5s7f2cuni";
+const IS_DEV = process.env.NODE_ENV !== "production";
+const ENABLE_TEST_SUITE = process.env.EXPO_PUBLIC_IRONSRC_ENABLE_TEST_SUITE === "true";
+const ENABLE_ADAPTER_DEBUG = process.env.EXPO_PUBLIC_IRONSRC_ADAPTER_DEBUG === "true" || IS_DEV;
+const IRONSRC_IOS_APP_ID = process.env.EXPO_PUBLIC_IRONSRC_IOS_APP_ID ?? DEFAULT_IOS_APP_ID;
+const IRONSRC_ANDROID_APP_ID = process.env.EXPO_PUBLIC_IRONSRC_ANDROID_APP_ID;
+const IRONSRC_IOS_REWARDED_ID =
+  process.env.EXPO_PUBLIC_IRONSRC_IOS_REWARDED_ID ?? DEFAULT_IOS_REWARDED_ID;
+const IRONSRC_ANDROID_REWARDED_ID = process.env.EXPO_PUBLIC_IRONSRC_ANDROID_REWARDED_ID;
+const IRONSRC_IOS_INTERSTITIAL_ID =
+  process.env.EXPO_PUBLIC_IRONSRC_IOS_INTERSTITIAL_ID ?? DEFAULT_IOS_INTERSTITIAL_ID;
+const IRONSRC_ANDROID_INTERSTITIAL_ID = process.env.EXPO_PUBLIC_IRONSRC_ANDROID_INTERSTITIAL_ID;
+const IRONSRC_IOS_NATIVE_ID = process.env.EXPO_PUBLIC_IRONSRC_IOS_NATIVE_ID;
+const IRONSRC_ANDROID_NATIVE_ID = process.env.EXPO_PUBLIC_IRONSRC_ANDROID_NATIVE_ID;
+const DEFAULT_BANNER_AD_SIZE = { width: 320, height: 50 } as const;
+
+let mod: LevelPlayModule | null = null;
 let modTried = false;
 let initialized = false;
-let initializationPromise: Promise<boolean> | null = null;
+let initPromise: Promise<boolean> | null = null;
 
-const IS_DEV = process.env.NODE_ENV !== "production";
-const USE_TEST_ADS = process.env.EXPO_PUBLIC_ADMOB_USE_TEST_ADS === "true";
-const ADMOB_IOS_REWARDED_ID = process.env.EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID;
-const ADMOB_ANDROID_REWARDED_ID = process.env.EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID;
-const ADMOB_IOS_INTERSTITIAL_ID = process.env.EXPO_PUBLIC_ADMOB_IOS_INTERSTITIAL_ID;
-const ADMOB_ANDROID_INTERSTITIAL_ID = process.env.EXPO_PUBLIC_ADMOB_ANDROID_INTERSTITIAL_ID;
-const ADMOB_IOS_NATIVE_MIDSET_ID = process.env.EXPO_PUBLIC_IOS_NATIVE_MIDSET_ID;
-const ADMOB_ANDROID_NATIVE_MIDSET_ID = process.env.EXPO_PUBLIC_ANDROID_NATIVE_MIDSET_ID;
-const ADMOB_AD_UNIT_ID_PATTERN = /^ca-app-pub-\d+\/\d+$/;
-const GOOGLE_TEST_REWARDED_IDS = {
-  ios: "ca-app-pub-3940256099942544/1712485313",
-  android: "ca-app-pub-3940256099942544/5224354917",
-} as const;
-const GOOGLE_TEST_INTERSTITIAL_IDS = {
-  ios: "ca-app-pub-3940256099942544/4411468910",
-  android: "ca-app-pub-3940256099942544/1033173712",
-} as const;
-const GOOGLE_TEST_NATIVE_IDS = {
-  ios: "ca-app-pub-3940256099942544/3986624511",
-  android: "ca-app-pub-3940256099942544/2247696110",
-} as const;
-
-function loadModule(): GoogleMobileAdsModule | null {
+function loadModule(): LevelPlayModule | null {
   if (modTried) return mod;
   modTried = true;
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    mod = require("react-native-google-mobile-ads") as GoogleMobileAdsModule;
+    mod = require("unity-levelplay-mediation") as LevelPlayModule;
   } catch (err) {
-    console.log("[ads] native module unavailable", err);
+    console.log("[ads] native LevelPlay module unavailable", err);
     mod = null;
   }
   return mod;
 }
 
-function validProductionUnitId(value: string | undefined, name: string): string | null {
-  if (!value) return null;
-  if (ADMOB_AD_UNIT_ID_PATTERN.test(value)) return value;
-  console.log(`[ads] ignoring invalid ${name}; expected an AdMob ad unit id like ca-app-pub-.../...`);
+function appId(): string | null {
+  if (Platform.OS === "ios") return IRONSRC_IOS_APP_ID;
+  if (Platform.OS === "android") return IRONSRC_ANDROID_APP_ID ?? null;
   return null;
 }
 
 function rewardedUnitId(): string | null {
-  const m = loadModule();
-  if (!m) return null;
-  if (Platform.OS !== "ios" && Platform.OS !== "android") return null;
-
-  const testId = m.TestIds.REWARDED ?? GOOGLE_TEST_REWARDED_IDS[Platform.OS];
-  const productionId =
-    Platform.OS === "ios"
-      ? validProductionUnitId(ADMOB_IOS_REWARDED_ID, "EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID")
-      : validProductionUnitId(ADMOB_ANDROID_REWARDED_ID, "EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID");
-
-  if (USE_TEST_ADS) return testId;
-  if (productionId) return productionId;
-  if (IS_DEV) return testId;
-  console.log("[ads] missing rewarded ad unit id");
+  if (Platform.OS === "ios") return IRONSRC_IOS_REWARDED_ID;
+  if (Platform.OS === "android") return IRONSRC_ANDROID_REWARDED_ID ?? null;
   return null;
 }
 
 function interstitialUnitId(): string | null {
-  const m = loadModule();
-  if (!m) return null;
-  if (Platform.OS !== "ios" && Platform.OS !== "android") return null;
-
-  const testId = m.TestIds.INTERSTITIAL ?? GOOGLE_TEST_INTERSTITIAL_IDS[Platform.OS];
-  const productionId =
-    Platform.OS === "ios"
-      ? validProductionUnitId(ADMOB_IOS_INTERSTITIAL_ID, "EXPO_PUBLIC_ADMOB_IOS_INTERSTITIAL_ID")
-      : validProductionUnitId(ADMOB_ANDROID_INTERSTITIAL_ID, "EXPO_PUBLIC_ADMOB_ANDROID_INTERSTITIAL_ID");
-
-  if (USE_TEST_ADS) return testId;
-  if (productionId) return productionId;
-  if (IS_DEV) return testId;
-  console.log("[ads] missing interstitial ad unit id");
+  if (Platform.OS === "ios") return IRONSRC_IOS_INTERSTITIAL_ID;
+  if (Platform.OS === "android") return IRONSRC_ANDROID_INTERSTITIAL_ID ?? null;
   return null;
 }
 
-function mobileAdsClient(m: GoogleMobileAdsModule): GoogleMobileAdsClient | null {
-  const factory = m.default ?? m.MobileAds;
-  if (typeof factory !== "function") return null;
-  return factory();
-}
-
-function nativeMidsetUnitId(): string | null {
-  const m = loadModule();
-  if (!m) return null;
-  if (Platform.OS !== "ios" && Platform.OS !== "android") return null;
-
-  const testId = m.TestIds.NATIVE ?? GOOGLE_TEST_NATIVE_IDS[Platform.OS];
-  const productionId =
-    Platform.OS === "ios"
-      ? validProductionUnitId(ADMOB_IOS_NATIVE_MIDSET_ID, "EXPO_PUBLIC_IOS_NATIVE_MIDSET_ID")
-      : validProductionUnitId(
-          ADMOB_ANDROID_NATIVE_MIDSET_ID,
-          "EXPO_PUBLIC_ANDROID_NATIVE_MIDSET_ID",
-        );
-
-  if (USE_TEST_ADS) return testId;
-  if (productionId) return productionId;
-  if (IS_DEV) return testId;
-  console.log("[ads] missing native mid-set ad unit id");
+export function bannerAdUnitId(): string | null {
+  if (Platform.OS === "ios") return IRONSRC_IOS_NATIVE_ID ?? null;
+  if (Platform.OS === "android") return IRONSRC_ANDROID_NATIVE_ID ?? null;
   return null;
 }
 
-function nativeRenderer(m: GoogleMobileAdsModule): SwipeMidsetNativeRenderer | null {
-  if (!m.NativeAdView || !m.NativeMediaView || !m.NativeAsset || !m.NativeAssetType) return null;
-  return {
-    NativeAdView: m.NativeAdView,
-    NativeMediaView: m.NativeMediaView,
-    NativeAsset: m.NativeAsset,
-    NativeAssetType: m.NativeAssetType,
-  };
+export function levelPlayBannerAdView(): ComponentType<LevelPlayBannerAdViewProps> | null {
+  return loadModule()?.LevelPlayBannerAdView ?? null;
+}
+
+export function levelPlayBannerAdSize(): LevelPlayBannerAdSize {
+  return loadModule()?.LevelPlayAdSize?.BANNER ?? DEFAULT_BANNER_AD_SIZE;
 }
 
 export function adsAvailable(): boolean {
-  return loadModule() !== null && rewardedUnitId() !== null;
+  return loadModule() !== null && appId() !== null && rewardedUnitId() !== null;
 }
 
 export async function initAds(): Promise<boolean> {
   const m = loadModule();
-  if (!m) return false;
+  const key = appId();
+  if (!m || !key) return false;
   if (initialized) return true;
-  if (initializationPromise) return initializationPromise;
+  if (initPromise) return initPromise;
 
-  initializationPromise = (async () => {
-    try {
-      const client = mobileAdsClient(m);
-      if (!client) return false;
+  initPromise = new Promise<boolean>((resolve) => {
+    let settled = false;
+    const settle = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      initialized = ok;
+      if (!ok) initPromise = null;
+      resolve(ok);
+    };
 
-      const consentInfo = await m.AdsConsent?.gatherConsent({ tagForUnderAgeOfConsent: false });
-      if (consentInfo && !consentInfo.canRequestAds) {
-        console.log("[ads] consent does not currently allow ad requests");
-        return false;
+    void (async () => {
+      try {
+        if (ENABLE_ADAPTER_DEBUG) {
+          try { await m.LevelPlay.setAdaptersDebug?.(true); } catch {}
+        }
+        if (ENABLE_TEST_SUITE) {
+          try { await m.LevelPlay.setMetaData?.("is_test_suite", ["enable"]); } catch {}
+        }
+
+        const request = m.LevelPlayInitRequest.builder(key).build();
+        await m.LevelPlay.init(request, {
+          onInitSuccess: () => settle(true),
+          onInitFailed: (error: unknown) => {
+            console.log("[ads] LevelPlay init failed", error);
+            settle(false);
+          },
+        });
+      } catch (err) {
+        console.log("[ads] LevelPlay init exception", err);
+        settle(false);
       }
+    })();
 
-      const adapterStatuses = await client.initialize();
-      if (IS_DEV) console.log("[ads] adapter initialization status", adapterStatuses);
-      initialized = true;
-      return true;
-    } catch (err) {
-      console.log("[ads] init failed", err);
-      return false;
-    } finally {
-      initializationPromise = null;
-    }
-  })();
+    setTimeout(() => settle(false), 30000);
+  });
 
-  return initializationPromise;
+  return initPromise;
 }
 
+/** LevelPlay has no equivalent of the Google ad inspector in this integration. */
 export async function openAdInspector(): Promise<boolean> {
-  const m = loadModule();
-  const client = m ? mobileAdsClient(m) : null;
-  if (!client || !(await initAds())) return false;
-
-  try {
-    await client.openAdInspector();
-    return true;
-  } catch (err) {
-    console.log("[ads] could not open Ad Inspector", err);
-    return false;
-  }
+  return false;
 }
 
+/** Privacy is handled by the LevelPlay SDK and the app's consent flow. */
 export async function openAdsPrivacyOptions(): Promise<boolean> {
-  const consent = loadModule()?.AdsConsent;
-  if (!consent) return false;
-
-  try {
-    await consent.showPrivacyOptionsForm();
-    return true;
-  } catch (err) {
-    console.log("[ads] privacy options form unavailable", err);
-    return false;
-  }
+  return false;
 }
 
-/**
- * Preload the in-deck native ad. Missing modules, IDs, Pro access, and load
- * failures all return null so a photo round is never blocked by advertising.
- */
+/** Direct LevelPlay has no native in-feed ad renderer; fail open for the photo round. */
 export async function loadSwipeMidsetNativeAd(
-  options: { freeUserVerified?: boolean } = {},
+  _options: { freeUserVerified?: boolean } = {},
 ): Promise<LoadedSwipeMidsetNativeAd | null> {
-  try {
-    if (!options.freeUserVerified && await checkProStatus().catch(() => false)) return null;
-
-    const m = loadModule();
-    const unitId = nativeMidsetUnitId();
-    const renderer = m ? nativeRenderer(m) : null;
-    if (!m?.NativeAd || !unitId || !renderer) return null;
-    if (!(await initAds())) return null;
-
-    const ad = await m.NativeAd.createForAdRequest(unitId, {
-      requestNonPersonalizedAdsOnly: true,
-      startVideoMuted: true,
-    });
-    return { ad, renderer };
-  } catch (err) {
-    console.log("[ads] native mid-set load failed", err);
-    return null;
-  }
+  return null;
 }
 
-/**
- * Show a rewarded ad. Returns the number of tokens credited (0 if dismissed / error).
- * Skips entirely when user has Lifetime Pro.
- */
 export async function showRewardedAd(): Promise<number> {
   try {
-    const isPro = await checkProStatus().catch(() => false);
-    if (isPro) {
-      // Pro = unlimited; credit some tokens anyway as goodwill, no ad shown.
+    if (await checkProStatus().catch(() => false)) {
       await addTokens(REWARDED_AD_TOKENS, "ad");
       return REWARDED_AD_TOKENS;
     }
   } catch {
-    // ignore — fall through to show ad
+    // Fall through to the ad request.
   }
 
   const m = loadModule();
   const unitId = rewardedUnitId();
   if (!m || !unitId) {
-    console.log("[ads] no ad available, granting fallback tokens in dev only");
+    console.log("[ads] no rewarded LevelPlay ad available");
     if (IS_DEV) {
       await addTokens(REWARDED_AD_TOKENS, "ad");
       return REWARDED_AD_TOKENS;
     }
     return 0;
   }
-
   if (!(await initAds())) return 0;
 
   return new Promise<number>((resolve) => {
     try {
-      const ad = m.RewardedAd.createForAdRequest(unitId, {
-        requestNonPersonalizedAdsOnly: true,
-      });
-
+      const ad = new m.LevelPlayRewardedAd(unitId);
+      let earned = false;
+      let closed = false;
       let settled = false;
-      let credited = false;
-      let rewardPending = false;
-      let loadTimeout: ReturnType<typeof setTimeout> | null = null;
-      const creditReward = async (): Promise<number> => {
-        if (credited) return REWARDED_AD_TOKENS;
-        credited = true;
-        await addTokens(REWARDED_AD_TOKENS, "ad");
-        return REWARDED_AD_TOKENS;
-      };
       const settle = (value: number) => {
         if (settled) return;
         settled = true;
-        if (loadTimeout) clearTimeout(loadTimeout);
-        try { unsubLoad?.(); } catch {}
-        try { unsubEarn?.(); } catch {}
-        try { unsubClose?.(); } catch {}
-        try { unsubErr?.(); } catch {}
+        try { void ad.remove?.(); } catch {}
         resolve(value);
       };
+      const grant = async () => {
+        try {
+          await addTokens(REWARDED_AD_TOKENS, "ad");
+          settle(REWARDED_AD_TOKENS);
+        } catch (err) {
+          console.log("[ads] reward credit failed", err);
+          settle(0);
+        }
+      };
 
-      const unsubLoad = ad.addAdEventListener(m.RewardedAdEventType.LOADED, () => {
-        if (loadTimeout) clearTimeout(loadTimeout);
-        try { ad.show(); } catch (err) { console.log("[ads] show error", err); settle(0); }
+      ad.setListener({
+        onAdLoaded: async () => {
+          try {
+            if (!(await ad.isAdReady())) return settle(0);
+            await ad.showAd();
+          } catch (err) {
+            console.log("[ads] rewarded show error", err);
+            settle(0);
+          }
+        },
+        onAdLoadFailed: (error: unknown) => {
+          console.log("[ads] rewarded load failed", error);
+          settle(0);
+        },
+        onAdDisplayFailed: (error: unknown) => {
+          console.log("[ads] rewarded display failed", error);
+          settle(0);
+        },
+        onAdRewarded: () => {
+          earned = true;
+          if (closed) void grant();
+        },
+        onAdClosed: () => {
+          closed = true;
+          setTimeout(() => (earned ? void grant() : settle(0)), 1000);
+        },
       });
-      const unsubEarn = ad.addAdEventListener(m.RewardedAdEventType.EARNED_REWARD, () => {
-        // Multi-part rewarded ads can exceed the old global timeout. The SDK's
-        // earned event is the authoritative completion signal, so credit it now.
-        rewardPending = true;
-        void creditReward().then(settle).catch(() => settle(0));
-      });
-      const unsubClose = ad.addAdEventListener(m.AdEventType.CLOSED, () => {
-        if (!rewardPending) settle(0);
-      });
-      const unsubErr = ad.addAdEventListener(m.AdEventType.ERROR, (err: unknown) => {
-        console.log("[ads] ad error", err);
+
+      void ad.loadAd().catch((err: unknown) => {
+        console.log("[ads] rewarded load exception", err);
         settle(0);
       });
-
-      // Only bound loading. Once shown, let long multi-part creatives finish.
-      loadTimeout = setTimeout(() => settle(0), 30000);
-      ad.load();
+      setTimeout(() => (earned ? void grant() : settle(0)), 45000);
     } catch (err) {
       console.log("[ads] showRewardedAd exception", err);
       resolve(0);
@@ -359,54 +303,55 @@ export async function showRewardedAd(): Promise<number> {
 }
 
 export async function showInterstitialAd(): Promise<boolean> {
-  try {
-    const isPro = await checkProStatus().catch(() => false);
-    if (isPro) return false;
-  } catch {
-    // ignore; ad loading can still decide availability
-  }
+  if (await checkProStatus().catch(() => false)) return false;
 
   const m = loadModule();
   const unitId = interstitialUnitId();
-  if (!m?.InterstitialAd || !unitId) {
-    console.log("[ads] no interstitial available");
+  if (!m || !unitId) {
+    console.log("[ads] no interstitial LevelPlay ad available");
     return false;
   }
-
   if (!(await initAds())) return false;
 
   return new Promise<boolean>((resolve) => {
     try {
-      const ad = m.InterstitialAd.createForAdRequest(unitId, {
-        requestNonPersonalizedAdsOnly: true,
-      });
-
+      const ad = new m.LevelPlayInterstitialAd(unitId);
+      let shown = false;
       let settled = false;
-      const settle = (shown: boolean) => {
+      const settle = (value: boolean) => {
         if (settled) return;
         settled = true;
-        try { unsubLoad?.(); } catch {}
-        try { unsubClose?.(); } catch {}
-        try { unsubErr?.(); } catch {}
-        resolve(shown);
+        try { void ad.remove?.(); } catch {}
+        resolve(value);
       };
 
-      const unsubLoad = ad.addAdEventListener(m.AdEventType.LOADED, () => {
-        try {
-          ad.show();
-        } catch (err) {
-          console.log("[ads] interstitial show error", err);
+      ad.setListener({
+        onAdLoaded: async () => {
+          try {
+            if (!(await ad.isAdReady())) return settle(false);
+            await ad.showAd();
+          } catch (err) {
+            console.log("[ads] interstitial show error", err);
+            settle(false);
+          }
+        },
+        onAdLoadFailed: (error: unknown) => {
+          console.log("[ads] interstitial load failed", error);
           settle(false);
-        }
-      });
-      const unsubClose = ad.addAdEventListener(m.AdEventType.CLOSED, () => settle(true));
-      const unsubErr = ad.addAdEventListener(m.AdEventType.ERROR, (err: unknown) => {
-        console.log("[ads] interstitial error", err);
-        settle(false);
+        },
+        onAdDisplayed: () => { shown = true; },
+        onAdDisplayFailed: (error: unknown) => {
+          console.log("[ads] interstitial display failed", error);
+          settle(false);
+        },
+        onAdClosed: () => settle(shown),
       });
 
-      ad.load();
-      setTimeout(() => settle(false), 30000);
+      void ad.loadAd().catch((err: unknown) => {
+        console.log("[ads] interstitial load exception", err);
+        settle(false);
+      });
+      setTimeout(() => settle(shown), 30000);
     } catch (err) {
       console.log("[ads] showInterstitialAd exception", err);
       resolve(false);

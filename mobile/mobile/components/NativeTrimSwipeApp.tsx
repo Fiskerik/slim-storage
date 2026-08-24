@@ -105,6 +105,7 @@ import { TrimScreen } from "./TrimScreen";
 import { ShopScreen } from "./ShopScreen";
 import { DuplicateClusterReview, type DuplicateCluster } from "./DuplicateClusterReview";
 import { GameFilterSlider } from "./GameFilterSlider";
+import { LevelPlayBanner } from "./LevelPlayBanner";
 import { SwipeMidsetAdCard } from "./SwipeMidsetAdCard";
 import { addTokens, subscribeTokens, spendTokens, DAILY_CLAIM_TOKENS } from "../lib/tokens";
 import {
@@ -3736,6 +3737,7 @@ function SwipeScreen({
           <ActionButton label={t("ui.delete")} tone="delete" large={largeControls} onPress={() => top && onAction(top, "delete")} />
         </View>
       ) : null}
+      <LevelPlayBanner isPro={isPro} />
       <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </View>
   );
@@ -6656,7 +6658,7 @@ function SettingsScreen({
           {privacyOptionsMessage ? <Text style={[styles.mutedSmall, themed.muted]}>{privacyOptionsMessage}</Text> : null}
         </View>
       ) : null}
-      {(__DEV__ || process.env.EXPO_PUBLIC_ADMOB_ENABLE_INSPECTOR === "true") ? (
+      {(__DEV__ || process.env.EXPO_PUBLIC_IRONSRC_ADAPTER_DEBUG === "true") ? (
         <View style={[styles.settingCardVertical, themed.card]}>
           <Text style={[styles.settingLabel, themed.label]}>{t("ui.ad-mediation-diagnostics")}</Text>
           <Text style={[styles.mutedSmall, themed.muted]}>
