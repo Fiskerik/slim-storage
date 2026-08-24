@@ -66,10 +66,15 @@ workflows:
             "${IRONSRC_IOS_INTERSTITIAL_ID:-}" \
             "${ironsrc_ios_interstitial_id:-}" \
             "bini0fp5s7f2cuni")
-          LEVELPLAY_IOS_NATIVE=$(first_value \
-            "${EXPO_PUBLIC_IRONSRC_IOS_NATIVE_ID:-}" \
-            "${IRONSRC_IOS_NATIVE_ID:-}" \
-            "${ironsrc_ios_native_id:-}")
+          LEVELPLAY_IOS_NATIVE_PLACEMENT=$(first_value \
+            "${EXPO_PUBLIC_IRONSRC_IOS_NATIVE_PLACEMENT:-}" \
+            "${IRONSRC_IOS_NATIVE_PLACEMENT:-}" \
+            "${ironsrc_ios_native_placement:-}" \
+            "DefaultNativeAd")
+          LEVELPLAY_IOS_BANNER=$(first_value \
+            "${EXPO_PUBLIC_IRONSRC_IOS_BANNER_ID:-}" \
+            "${IRONSRC_IOS_BANNER_ID:-}" \
+            "${ironsrc_ios_banner_id:-}")
           LEVELPLAY_ADAPTER_DEBUG=$(first_value \
             "${EXPO_PUBLIC_IRONSRC_ADAPTER_DEBUG:-}" \
             "${IRONSRC_ADAPTER_DEBUG:-}" \
@@ -90,8 +95,8 @@ workflows:
             echo "RevenueCat lifetime product ID is missing. Add EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID, RC_PRODUCT_ID, or rc_product_id to the Env group."
             exit 1
           fi
-          if [ -z "$LEVELPLAY_IOS_APP" ] || [ -z "$LEVELPLAY_IOS_REWARDED" ] || [ -z "$LEVELPLAY_IOS_INTERSTITIAL" ] || [ -z "$LEVELPLAY_IOS_NATIVE" ]; then
-            echo "Unity LevelPlay iOS app key, rewarded ID, interstitial ID, and banner ID are required."
+          if [ -z "$LEVELPLAY_IOS_APP" ] || [ -z "$LEVELPLAY_IOS_REWARDED" ] || [ -z "$LEVELPLAY_IOS_INTERSTITIAL" ]; then
+            echo "Unity LevelPlay iOS app key, rewarded ID, and interstitial ID are required."
             exit 1
           fi
           case "$LEVELPLAY_ADAPTER_DEBUG" in
@@ -108,7 +113,8 @@ workflows:
           printf 'EXPO_PUBLIC_IRONSRC_IOS_APP_ID=%s\n' "$LEVELPLAY_IOS_APP" >> "$CM_ENV"
           printf 'EXPO_PUBLIC_IRONSRC_IOS_REWARDED_ID=%s\n' "$LEVELPLAY_IOS_REWARDED" >> "$CM_ENV"
           printf 'EXPO_PUBLIC_IRONSRC_IOS_INTERSTITIAL_ID=%s\n' "$LEVELPLAY_IOS_INTERSTITIAL" >> "$CM_ENV"
-          printf 'EXPO_PUBLIC_IRONSRC_IOS_NATIVE_ID=%s\n' "$LEVELPLAY_IOS_NATIVE" >> "$CM_ENV"
+          printf 'EXPO_PUBLIC_IRONSRC_IOS_BANNER_ID=%s\n' "$LEVELPLAY_IOS_BANNER" >> "$CM_ENV"
+          printf 'EXPO_PUBLIC_IRONSRC_IOS_NATIVE_PLACEMENT=%s\n' "$LEVELPLAY_IOS_NATIVE_PLACEMENT" >> "$CM_ENV"
           printf 'EXPO_PUBLIC_IRONSRC_ADAPTER_DEBUG=%s\n' "$LEVELPLAY_ADAPTER_DEBUG" >> "$CM_ENV"
 
       - name: Build Root Mobile SPA Bundle

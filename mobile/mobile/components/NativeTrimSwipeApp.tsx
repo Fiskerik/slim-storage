@@ -3608,10 +3608,15 @@ function SwipeScreen({
       return () => { active = false; };
     }
 
-    void loadSwipeMidsetNativeAd({ freeUserVerified: true }).then((loaded) => {
+    void loadSwipeMidsetNativeAd({
+      freeUserVerified: true,
+      onLoadFailed: () => {
+        if (active) onMidsetAdDismissed();
+      },
+    }).then((loaded) => {
       if (!loaded) return;
       if (!active) {
-        try { loaded.ad.destroy(); } catch {}
+        try { loaded.ad.destroyAd(); } catch {}
         return;
       }
       ownedAd = loaded;
@@ -3621,10 +3626,10 @@ function SwipeScreen({
     return () => {
       active = false;
       if (ownedAd) {
-        try { ownedAd.ad.destroy(); } catch {}
+        try { ownedAd.ad.destroyAd(); } catch {}
       }
     };
-  }, [adEligibilityReady, isPro, midsetAdDismissed, roundId, roundInitialCount]);
+  }, [adEligibilityReady, isPro, midsetAdDismissed, onMidsetAdDismissed, roundId, roundInitialCount]);
 
   useEffect(() => {
     // The placement belongs exactly at the midpoint. If preloading has not

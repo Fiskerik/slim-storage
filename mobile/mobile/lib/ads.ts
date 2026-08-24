@@ -1,36 +1,48 @@
 // Unity LevelPlay (ironSource) rewarded and interstitial ads.
 // Web and Expo Go gracefully no-op because the native LevelPlay module is unavailable.
 
-import type { ComponentType, ReactElement } from "react";
+import type { ComponentType } from "react";
 import { Platform, type ViewProps } from "react-native";
 import { addTokens, REWARDED_AD_TOKENS } from "./tokens";
 import { checkProStatus } from "./purchases";
 
-// Kept as a compatibility shape for the existing swipe-midset component. Direct
-// LevelPlay does not provide the Google native-ad renderer, so the loader below
-// intentionally returns null and the photo round fails open.
-export type SwipeMidsetNativeAd = {
-  responseId: string;
+type LevelPlayNativeAdListener = {
+  onAdLoaded: (nativeAd: LevelPlayNativeAd, adInfo: unknown) => void;
+  onAdLoadFailed: (nativeAd: LevelPlayNativeAd, error: unknown) => void;
+  onAdClicked: (nativeAd: LevelPlayNativeAd, adInfo: unknown) => void;
+  onAdImpression: (nativeAd: LevelPlayNativeAd, adInfo: unknown) => void;
+};
+
+type LevelPlayNativeAd = {
+  title: string | null;
   advertiser: string | null;
-  body: string;
-  callToAction: string;
-  headline: string;
-  icon: { url: string; scale: number } | null;
-  mediaContent: { aspectRatio: number; hasVideoContent: boolean; duration: number } | null;
-  destroy: () => void;
+  body: string | null;
+  callToAction: string | null;
+  icon: { uri: string | null; imageData: string | null } | null;
+  placement?: string | null;
+  loadAd: () => void;
+  destroyAd: () => void;
+};
+
+type LevelPlayNativeAdViewProps = ViewProps & {
+  nativeAd: LevelPlayNativeAd | null;
+  templateType?: string;
+};
+
+export type SwipeMidsetNativeAd = {
+  title: string | null;
+  advertiser: string | null;
+  body: string | null;
+  callToAction: string | null;
+  icon: { uri: string | null; imageData: string | null } | null;
+  placement?: string | null;
+  loadAd: () => void;
+  destroyAd: () => void;
 };
 
 export type SwipeMidsetNativeRenderer = {
-  NativeAdView: ComponentType<ViewProps & { nativeAd: SwipeMidsetNativeAd }>;
-  NativeMediaView: ComponentType<ViewProps & { resizeMode?: "cover" | "contain" | "stretch" }>;
-  NativeAsset: ComponentType<{ assetType: string; children: ReactElement }>;
-  NativeAssetType: {
-    ADVERTISER: string;
-    BODY: string;
-    CALL_TO_ACTION: string;
-    HEADLINE: string;
-    ICON: string;
-  };
+  NativeAdView: ComponentType<LevelPlayNativeAdViewProps>;
+  templateType: string;
 };
 
 export type LoadedSwipeMidsetNativeAd = {
@@ -78,6 +90,19 @@ type LevelPlayModule = {
   LevelPlayRewardedAd: new (adUnitId: string) => LevelPlayAd;
   LevelPlayInterstitialAd: new (adUnitId: string) => LevelPlayAd;
   LevelPlayBannerAdView?: ComponentType<LevelPlayBannerAdViewProps>;
+  LevelPlayNativeAd?: {
+    builder: () => {
+      withPlacement: (placement: string) => {
+        withListener: (listener: LevelPlayNativeAdListener) => {
+          build: () => LevelPlayNativeAd;
+        };
+      };
+    };
+  };
+  LevelPlayNativeAdView?: ComponentType<LevelPlayNativeAdViewProps>;
+  LevelPlayTemplateType?: {
+    Medium?: string;
+  };
   LevelPlayAdSize?: {
     BANNER?: LevelPlayBannerAdSize;
   };
@@ -97,8 +122,12 @@ const IRONSRC_ANDROID_REWARDED_ID = process.env.EXPO_PUBLIC_IRONSRC_ANDROID_REWA
 const IRONSRC_IOS_INTERSTITIAL_ID =
   process.env.EXPO_PUBLIC_IRONSRC_IOS_INTERSTITIAL_ID ?? DEFAULT_IOS_INTERSTITIAL_ID;
 const IRONSRC_ANDROID_INTERSTITIAL_ID = process.env.EXPO_PUBLIC_IRONSRC_ANDROID_INTERSTITIAL_ID;
-const IRONSRC_IOS_NATIVE_ID = process.env.EXPO_PUBLIC_IRONSRC_IOS_NATIVE_ID;
-const IRONSRC_ANDROID_NATIVE_ID = process.env.EXPO_PUBLIC_IRONSRC_ANDROID_NATIVE_ID;
+const IRONSRC_IOS_BANNER_ID = process.env.EXPO_PUBLIC_IRONSRC_IOS_BANNER_ID;
+const IRONSRC_ANDROID_BANNER_ID = process.env.EXPO_PUBLIC_IRONSRC_ANDROID_BANNER_ID;
+const IRONSRC_IOS_NATIVE_PLACEMENT =
+  process.env.EXPO_PUBLIC_IRONSRC_IOS_NATIVE_PLACEMENT ?? "DefaultNativeAd";
+const IRONSRC_ANDROID_NATIVE_PLACEMENT =
+  process.env.EXPO_PUBLIC_IRONSRC_ANDROID_NATIVE_PLACEMENT ?? "DefaultNativeAd";
 const DEFAULT_BANNER_AD_SIZE = { width: 320, height: 50 } as const;
 
 let mod: LevelPlayModule | null = null;
@@ -138,8 +167,8 @@ function interstitialUnitId(): string | null {
 }
 
 export function bannerAdUnitId(): string | null {
-  if (Platform.OS === "ios") return IRONSRC_IOS_NATIVE_ID ?? null;
-  if (Platform.OS === "android") return IRONSRC_ANDROID_NATIVE_ID ?? null;
+  if (Platform.OS === "ios") return IRONSRC_IOS_BANNER_ID ?? null;
+  if (Platform.OS === "android") return IRONSRC_ANDROID_BANNER_ID ?? null;
   return null;
 }
 
@@ -211,11 +240,44 @@ export async function openAdsPrivacyOptions(): Promise<boolean> {
   return false;
 }
 
-/** Direct LevelPlay has no native in-feed ad renderer; fail open for the photo round. */
+/** Load a LevelPlay native ad for the in-swipe card. Native ads use a placement,
+ * not the generated native ad-unit ID used by banner/interstitial APIs. */
 export async function loadSwipeMidsetNativeAd(
-  _options: { freeUserVerified?: boolean } = {},
+  options: { freeUserVerified?: boolean; onLoadFailed?: (error: unknown) => void } = {},
 ): Promise<LoadedSwipeMidsetNativeAd | null> {
-  return null;
+  const m = loadModule();
+  const NativeAd = m?.LevelPlayNativeAd;
+  const NativeAdView = m?.LevelPlayNativeAdView;
+  const templateType = m?.LevelPlayTemplateType?.Medium;
+  if (!NativeAd || !NativeAdView || !templateType) {
+    console.log("[ads] LevelPlay native ad renderer unavailable");
+    return null;
+  }
+  if (!(await initAds())) return null;
+
+  const placement = Platform.OS === "android"
+    ? IRONSRC_ANDROID_NATIVE_PLACEMENT
+    : IRONSRC_IOS_NATIVE_PLACEMENT;
+  const ad = NativeAd.builder()
+    .withPlacement(placement)
+    .withListener({
+      onAdLoaded: () => console.log("[ads] native ad loaded", placement),
+      onAdLoadFailed: (_nativeAd, error) => {
+        console.log("[ads] native load failed", error);
+        options.onLoadFailed?.(error);
+      },
+      onAdClicked: () => console.log("[ads] native ad clicked"),
+      onAdImpression: () => console.log("[ads] native ad impression"),
+    })
+    .build();
+
+  return {
+    ad,
+    renderer: {
+      NativeAdView,
+      templateType,
+    },
+  };
 }
 
 export async function showRewardedAd(): Promise<number> {

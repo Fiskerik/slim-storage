@@ -4,7 +4,6 @@ import * as Haptics from "expo-haptics";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
-  Image,
   PanResponder,
   StyleSheet,
   Text,
@@ -23,13 +22,20 @@ export function SwipeMidsetAdCard({
   onDismiss: () => void;
 }) {
   const { ad, renderer } = loaded;
-  const { NativeAdView, NativeMediaView, NativeAsset, NativeAssetType } = renderer;
+  const { NativeAdView, templateType } = renderer;
   const holdSeconds = useRef(midsetHoldSeconds()).current;
   const unlockAt = useRef(Date.now() + holdSeconds * 1000).current;
   const [secondsRemaining, setSecondsRemaining] = useState(holdSeconds);
   const pan = useRef(new Animated.ValueXY()).current;
   const dismissingRef = useRef(false);
+  const loadRequestedRef = useRef(false);
   const unlocked = secondsRemaining <= 0;
+
+  function loadNativeAd() {
+    if (loadRequestedRef.current) return;
+    loadRequestedRef.current = true;
+    ad.loadAd();
+  }
 
   useEffect(() => {
     const update = () => {
@@ -102,37 +108,12 @@ export function SwipeMidsetAdCard({
       {...panResponder.panHandlers}
       style={[styles.card, { transform: [{ translateX: pan.x }, { rotate }] }]}
     >
-      <NativeAdView nativeAd={ad} style={styles.adView}>
-        <NativeMediaView resizeMode="cover" style={styles.media} />
-        <View pointerEvents="none" style={styles.sponsoredBadge}>
-          <Text style={styles.sponsoredText}>{t("ui.sponsored")}</Text>
-        </View>
-
-        {ad.icon ? (
-          <NativeAsset assetType={NativeAssetType.ICON}>
-            <Image source={{ uri: ad.icon.url }} style={styles.icon} />
-          </NativeAsset>
-        ) : null}
-        <NativeAsset assetType={NativeAssetType.HEADLINE}>
-          <Text style={[styles.headline, !ad.icon && styles.headlineWithoutIcon]} numberOfLines={2}>
-            {ad.headline}
-          </Text>
-        </NativeAsset>
-        {ad.advertiser ? (
-          <NativeAsset assetType={NativeAssetType.ADVERTISER}>
-            <Text style={[styles.advertiser, !ad.icon && styles.advertiserWithoutIcon]} numberOfLines={1}>
-              {ad.advertiser}
-            </Text>
-          </NativeAsset>
-        ) : null}
-        <NativeAsset assetType={NativeAssetType.BODY}>
-          <Text style={styles.body} numberOfLines={2}>{ad.body}</Text>
-        </NativeAsset>
-        <NativeAsset assetType={NativeAssetType.CALL_TO_ACTION}>
-          <Text style={styles.callToAction} numberOfLines={1}>{ad.callToAction}</Text>
-        </NativeAsset>
-
-      </NativeAdView>
+      <NativeAdView
+        nativeAd={ad}
+        templateType={templateType}
+        style={styles.adView}
+        onLayout={loadNativeAd}
+      />
 
       <View
         accessibilityRole="timer"
