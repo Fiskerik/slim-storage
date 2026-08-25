@@ -30,14 +30,14 @@ export function SwipeMidsetAdCard({
   const [secondsRemaining, setSecondsRemaining] = useState(holdSeconds);
   const pan = useRef(new Animated.ValueXY()).current;
   const dismissingRef = useRef(false);
-  const loadRequestedRef = useRef(false);
   const unlocked = adLoaded && unlockAt !== null && secondsRemaining <= 0;
 
-  function loadNativeAd() {
-    if (loadRequestedRef.current) return;
-    loadRequestedRef.current = true;
-    ad.loadAd();
-  }
+  useEffect(() => {
+    // LevelPlayNativeAdView attaches the native load callback after it mounts.
+    // Waiting until the next frame avoids losing the request to an early layout event.
+    const frame = requestAnimationFrame(() => ad.loadAd());
+    return () => cancelAnimationFrame(frame);
+  }, [ad]);
 
   useEffect(() => {
     if (!adLoaded) {
@@ -125,7 +125,6 @@ export function SwipeMidsetAdCard({
         nativeAd={ad}
         templateType={templateType}
         style={styles.adView}
-        onLayout={loadNativeAd}
       />
 
       <View

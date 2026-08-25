@@ -24,6 +24,12 @@ type LevelPlayNativeAd = {
   destroyAd: () => void;
 };
 
+type LevelPlayNativeAdBuilder = {
+  withPlacement: (placement: string | null | undefined) => LevelPlayNativeAdBuilder;
+  withListener: (listener: LevelPlayNativeAdListener) => LevelPlayNativeAdBuilder;
+  build: () => LevelPlayNativeAd;
+};
+
 type LevelPlayNativeAdViewProps = ViewProps & {
   nativeAd: LevelPlayNativeAd | null;
   templateType?: string;
@@ -91,13 +97,7 @@ type LevelPlayModule = {
   LevelPlayInterstitialAd: new (adUnitId: string) => LevelPlayAd;
   LevelPlayBannerAdView?: ComponentType<LevelPlayBannerAdViewProps>;
   LevelPlayNativeAd?: {
-    builder: () => {
-      withPlacement: (placement: string) => {
-        withListener: (listener: LevelPlayNativeAdListener) => {
-          build: () => LevelPlayNativeAd;
-        };
-      };
-    };
+    builder: () => LevelPlayNativeAdBuilder;
   };
   LevelPlayNativeAdView?: ComponentType<LevelPlayNativeAdViewProps>;
   LevelPlayTemplateType?: {
@@ -111,6 +111,8 @@ type LevelPlayModule = {
 const DEFAULT_IOS_APP_ID = "26d9fb51d";
 const DEFAULT_IOS_REWARDED_ID = "nt81b397cbikquwn";
 const DEFAULT_IOS_INTERSTITIAL_ID = "bini0fp5s7f2cuni";
+const DEFAULT_IOS_BANNER_ID = "0zimioxn3plu2mxk";
+const LEGACY_IOS_NATIVE_AD_UNIT_ID = "q8m51pm2jg2br5yf";
 const IS_DEV = process.env.NODE_ENV !== "production";
 const ENABLE_TEST_SUITE = process.env.EXPO_PUBLIC_IRONSRC_ENABLE_TEST_SUITE === "true";
 const ENABLE_ADAPTER_DEBUG = process.env.EXPO_PUBLIC_IRONSRC_ADAPTER_DEBUG === "true" || IS_DEV;
@@ -122,18 +124,36 @@ const IRONSRC_ANDROID_REWARDED_ID = process.env.EXPO_PUBLIC_IRONSRC_ANDROID_REWA
 const IRONSRC_IOS_INTERSTITIAL_ID =
   process.env.EXPO_PUBLIC_IRONSRC_IOS_INTERSTITIAL_ID ?? DEFAULT_IOS_INTERSTITIAL_ID;
 const IRONSRC_ANDROID_INTERSTITIAL_ID = process.env.EXPO_PUBLIC_IRONSRC_ANDROID_INTERSTITIAL_ID;
-const IRONSRC_IOS_BANNER_ID = process.env.EXPO_PUBLIC_IRONSRC_IOS_BANNER_ID;
+const IRONSRC_IOS_BANNER_ID = iosBannerAdUnitId(
+  process.env.EXPO_PUBLIC_IRONSRC_IOS_BANNER_ID,
+);
 const IRONSRC_ANDROID_BANNER_ID = process.env.EXPO_PUBLIC_IRONSRC_ANDROID_BANNER_ID;
-const IRONSRC_IOS_NATIVE_PLACEMENT =
-  process.env.EXPO_PUBLIC_IRONSRC_IOS_NATIVE_PLACEMENT ?? "DefaultNativeAd";
-const IRONSRC_ANDROID_NATIVE_PLACEMENT =
-  process.env.EXPO_PUBLIC_IRONSRC_ANDROID_NATIVE_PLACEMENT ?? "DefaultNativeAd";
+const IRONSRC_IOS_NATIVE_PLACEMENT = optionalNativePlacement(
+  process.env.EXPO_PUBLIC_IRONSRC_IOS_NATIVE_PLACEMENT,
+);
+const IRONSRC_ANDROID_NATIVE_PLACEMENT = optionalNativePlacement(
+  process.env.EXPO_PUBLIC_IRONSRC_ANDROID_NATIVE_PLACEMENT,
+);
 const DEFAULT_BANNER_AD_SIZE = { width: 320, height: 50 } as const;
 
 let mod: LevelPlayModule | null = null;
 let modTried = false;
 let initialized = false;
 let initPromise: Promise<boolean> | null = null;
+
+function iosBannerAdUnitId(value: string | undefined): string {
+  const adUnitId = value?.trim();
+  // This Native ad-unit ID was previously placed in the Banner environment variable.
+  if (!adUnitId || adUnitId === LEGACY_IOS_NATIVE_AD_UNIT_ID) return DEFAULT_IOS_BANNER_ID;
+  return adUnitId;
+}
+
+function optionalNativePlacement(value: string | undefined): string | null {
+  const placement = value?.trim();
+  // DefaultNativeAd was a legacy placeholder, not a placement read from LevelPlay.
+  if (!placement || placement === "DefaultNativeAd") return null;
+  return placement;
+}
 
 function loadModule(): LevelPlayModule | null {
   if (modTried) return mod;
@@ -240,8 +260,8 @@ export async function openAdsPrivacyOptions(): Promise<boolean> {
   return false;
 }
 
-/** Load a LevelPlay native ad for the in-swipe card. Native ads use a placement,
- * not the generated native ad-unit ID used by banner/interstitial APIs. */
+/** Load a LevelPlay native ad for the in-swipe card. A placement is optional and
+ * must not be confused with a Native ad-unit ID. */
 export async function loadSwipeMidsetNativeAd(
   options: {
     freeUserVerified?: boolean;
@@ -262,11 +282,11 @@ export async function loadSwipeMidsetNativeAd(
   const placement = Platform.OS === "android"
     ? IRONSRC_ANDROID_NATIVE_PLACEMENT
     : IRONSRC_IOS_NATIVE_PLACEMENT;
-  const ad = NativeAd.builder()
-    .withPlacement(placement)
-    .withListener({
+  const builder = NativeAd.builder();
+  if (placement) builder.withPlacement(placement);
+  const ad = builder.withListener({
       onAdLoaded: (_nativeAd, adInfo) => {
-        console.log("[ads] native ad loaded", { placement, adInfo });
+        console.log("[ads] native ad loaded", { placement: placement ?? "default", adInfo });
         options.onLoaded?.(adInfo);
       },
       onAdLoadFailed: (_nativeAd, error) => {

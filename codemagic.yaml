@@ -69,12 +69,12 @@ workflows:
           LEVELPLAY_IOS_NATIVE_PLACEMENT=$(first_value \
             "${EXPO_PUBLIC_IRONSRC_IOS_NATIVE_PLACEMENT:-}" \
             "${IRONSRC_IOS_NATIVE_PLACEMENT:-}" \
-            "${ironsrc_ios_native_placement:-}" \
-            "DefaultNativeAd")
+            "${ironsrc_ios_native_placement:-}")
           LEVELPLAY_IOS_BANNER=$(first_value \
             "${EXPO_PUBLIC_IRONSRC_IOS_BANNER_ID:-}" \
             "${IRONSRC_IOS_BANNER_ID:-}" \
-            "${ironsrc_ios_banner_id:-}")
+            "${ironsrc_ios_banner_id:-}" \
+            "0zimioxn3plu2mxk")
           LEVELPLAY_ADAPTER_DEBUG=$(first_value \
             "${EXPO_PUBLIC_IRONSRC_ADAPTER_DEBUG:-}" \
             "${IRONSRC_ADAPTER_DEBUG:-}" \
@@ -98,6 +98,10 @@ workflows:
           if [ -z "$LEVELPLAY_IOS_APP" ] || [ -z "$LEVELPLAY_IOS_REWARDED" ] || [ -z "$LEVELPLAY_IOS_INTERSTITIAL" ]; then
             echo "Unity LevelPlay iOS app key, rewarded ID, and interstitial ID are required."
             exit 1
+          fi
+          if [ "$LEVELPLAY_IOS_BANNER" = "q8m51pm2jg2br5yf" ]; then
+            echo "Replacing the legacy Native ad-unit ID in the Banner variable with the iOS Banner ad-unit ID."
+            LEVELPLAY_IOS_BANNER="0zimioxn3plu2mxk"
           fi
           case "$LEVELPLAY_ADAPTER_DEBUG" in
             true|false) ;;
@@ -191,6 +195,16 @@ workflows:
           if grep -Eq "GoogleMobileAds|GoogleMobileAdsMediation" Podfile.lock; then
             echo "ERROR: Google Mobile Ads pods are still present; this build must use direct Unity LevelPlay."
             grep -E "GoogleMobileAds|GoogleMobileAdsMediation" Podfile.lock || true
+            exit 1
+          fi
+          if ! grep -Fq "IronSourceFacebookAdapter (5.4.0.0)" Podfile.lock; then
+            echo "ERROR: The Unity LevelPlay Meta adapter is missing or has an unexpected version."
+            grep -E "IronSourceFacebookAdapter|FBAudienceNetwork" Podfile.lock || true
+            exit 1
+          fi
+          if ! grep -Fq "FBAudienceNetwork (6.22.0)" Podfile.lock; then
+            echo "ERROR: The Meta Audience Network SDK is missing or has an unexpected version."
+            grep -E "IronSourceFacebookAdapter|FBAudienceNetwork" Podfile.lock || true
             exit 1
           fi
           xcode-project build-ipa --workspace *.xcworkspace --scheme "TrimSwipe"

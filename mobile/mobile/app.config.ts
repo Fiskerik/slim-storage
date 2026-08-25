@@ -30,6 +30,12 @@ const config: ExpoConfig = {
         {
           SKAdNetworkIdentifier: "su67r6k2v3.skadnetwork",
         },
+        {
+          SKAdNetworkIdentifier: "v9wttpbfk9.skadnetwork",
+        },
+        {
+          SKAdNetworkIdentifier: "n38lu8286q.skadnetwork",
+        },
       ],
       UIBackgroundModes: ["processing"],
       BGTaskSchedulerPermittedIdentifiers: ["trimswipe-cleanup-maintenance"],
