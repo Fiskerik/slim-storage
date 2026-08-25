@@ -1,60 +1,11 @@
-// Unity LevelPlay (ironSource) rewarded and interstitial ads.
+// Unity LevelPlay (ironSource) rewarded, interstitial, and banner ads.
+// The in-swipe 300x250 placement is intentionally handled by direct Meta code.
 // Web and Expo Go gracefully no-op because the native LevelPlay module is unavailable.
 
 import type { ComponentType } from "react";
-import { Platform, type ViewProps } from "react-native";
+import { Platform } from "react-native";
 import { addTokens, REWARDED_AD_TOKENS } from "./tokens";
 import { checkProStatus } from "./purchases";
-
-type LevelPlayNativeAdListener = {
-  onAdLoaded: (nativeAd: LevelPlayNativeAd, adInfo: unknown) => void;
-  onAdLoadFailed: (nativeAd: LevelPlayNativeAd, error: unknown) => void;
-  onAdClicked: (nativeAd: LevelPlayNativeAd, adInfo: unknown) => void;
-  onAdImpression: (nativeAd: LevelPlayNativeAd, adInfo: unknown) => void;
-};
-
-type LevelPlayNativeAd = {
-  title: string | null;
-  advertiser: string | null;
-  body: string | null;
-  callToAction: string | null;
-  icon: { uri: string | null; imageData: string | null } | null;
-  placement?: string | null;
-  loadAd: () => void;
-  destroyAd: () => void;
-};
-
-type LevelPlayNativeAdBuilder = {
-  withPlacement: (placement: string | null | undefined) => LevelPlayNativeAdBuilder;
-  withListener: (listener: LevelPlayNativeAdListener) => LevelPlayNativeAdBuilder;
-  build: () => LevelPlayNativeAd;
-};
-
-type LevelPlayNativeAdViewProps = ViewProps & {
-  nativeAd: LevelPlayNativeAd | null;
-  templateType?: string;
-};
-
-export type SwipeMidsetNativeAd = {
-  title: string | null;
-  advertiser: string | null;
-  body: string | null;
-  callToAction: string | null;
-  icon: { uri: string | null; imageData: string | null } | null;
-  placement?: string | null;
-  loadAd: () => void;
-  destroyAd: () => void;
-};
-
-export type SwipeMidsetNativeRenderer = {
-  NativeAdView: ComponentType<LevelPlayNativeAdViewProps>;
-  templateType: string;
-};
-
-export type LoadedSwipeMidsetNativeAd = {
-  ad: SwipeMidsetNativeAd;
-  renderer: SwipeMidsetNativeRenderer;
-};
 
 export type LevelPlayBannerAdViewMethods = {
   loadAd: () => void | Promise<void>;
@@ -96,13 +47,6 @@ type LevelPlayModule = {
   LevelPlayRewardedAd: new (adUnitId: string) => LevelPlayAd;
   LevelPlayInterstitialAd: new (adUnitId: string) => LevelPlayAd;
   LevelPlayBannerAdView?: ComponentType<LevelPlayBannerAdViewProps>;
-  LevelPlayNativeAd?: {
-    builder: () => LevelPlayNativeAdBuilder;
-  };
-  LevelPlayNativeAdView?: ComponentType<LevelPlayNativeAdViewProps>;
-  LevelPlayTemplateType?: {
-    Medium?: string;
-  };
   LevelPlayAdSize?: {
     BANNER?: LevelPlayBannerAdSize;
   };
@@ -128,12 +72,6 @@ const IRONSRC_IOS_BANNER_ID = iosBannerAdUnitId(
   process.env.EXPO_PUBLIC_IRONSRC_IOS_BANNER_ID,
 );
 const IRONSRC_ANDROID_BANNER_ID = process.env.EXPO_PUBLIC_IRONSRC_ANDROID_BANNER_ID;
-const IRONSRC_IOS_NATIVE_PLACEMENT = optionalNativePlacement(
-  process.env.EXPO_PUBLIC_IRONSRC_IOS_NATIVE_PLACEMENT,
-);
-const IRONSRC_ANDROID_NATIVE_PLACEMENT = optionalNativePlacement(
-  process.env.EXPO_PUBLIC_IRONSRC_ANDROID_NATIVE_PLACEMENT,
-);
 const DEFAULT_BANNER_AD_SIZE = { width: 320, height: 50 } as const;
 
 let mod: LevelPlayModule | null = null;
@@ -146,13 +84,6 @@ function iosBannerAdUnitId(value: string | undefined): string {
   // This Native ad-unit ID was previously placed in the Banner environment variable.
   if (!adUnitId || adUnitId === LEGACY_IOS_NATIVE_AD_UNIT_ID) return DEFAULT_IOS_BANNER_ID;
   return adUnitId;
-}
-
-function optionalNativePlacement(value: string | undefined): string | null {
-  const placement = value?.trim();
-  // DefaultNativeAd was a legacy placeholder, not a placement read from LevelPlay.
-  if (!placement || placement === "DefaultNativeAd") return null;
-  return placement;
 }
 
 function loadModule(): LevelPlayModule | null {
@@ -258,53 +189,6 @@ export async function openAdInspector(): Promise<boolean> {
 /** Privacy is handled by the LevelPlay SDK and the app's consent flow. */
 export async function openAdsPrivacyOptions(): Promise<boolean> {
   return false;
-}
-
-/** Load a LevelPlay native ad for the in-swipe card. A placement is optional and
- * must not be confused with a Native ad-unit ID. */
-export async function loadSwipeMidsetNativeAd(
-  options: {
-    freeUserVerified?: boolean;
-    onLoaded?: (adInfo: unknown) => void;
-    onLoadFailed?: (error: unknown) => void;
-  } = {},
-): Promise<LoadedSwipeMidsetNativeAd | null> {
-  const m = loadModule();
-  const NativeAd = m?.LevelPlayNativeAd;
-  const NativeAdView = m?.LevelPlayNativeAdView;
-  const templateType = m?.LevelPlayTemplateType?.Medium;
-  if (!NativeAd || !NativeAdView || !templateType) {
-    console.log("[ads] LevelPlay native ad renderer unavailable");
-    return null;
-  }
-  if (!(await initAds())) return null;
-
-  const placement = Platform.OS === "android"
-    ? IRONSRC_ANDROID_NATIVE_PLACEMENT
-    : IRONSRC_IOS_NATIVE_PLACEMENT;
-  const builder = NativeAd.builder();
-  if (placement) builder.withPlacement(placement);
-  const ad = builder.withListener({
-      onAdLoaded: (_nativeAd, adInfo) => {
-        console.log("[ads] native ad loaded", { placement: placement ?? "default", adInfo });
-        options.onLoaded?.(adInfo);
-      },
-      onAdLoadFailed: (_nativeAd, error) => {
-        console.log("[ads] native load failed", error);
-        options.onLoadFailed?.(error);
-      },
-      onAdClicked: () => console.log("[ads] native ad clicked"),
-      onAdImpression: () => console.log("[ads] native ad impression"),
-    })
-    .build();
-
-  return {
-    ad,
-    renderer: {
-      NativeAdView,
-      templateType,
-    },
-  };
 }
 
 export async function showRewardedAd(): Promise<number> {

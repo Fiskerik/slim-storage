@@ -118,13 +118,12 @@ import {
 import { loadAccountSession, setAccountSignedIn } from "../lib/account-session";
 import {
   initAds,
-  loadSwipeMidsetNativeAd,
   openAdInspector,
   openAdsPrivacyOptions,
   showInterstitialAd,
   showRewardedAd,
-  type LoadedSwipeMidsetNativeAd,
 } from "../lib/ads";
+import { prepareSwipeMidsetMrecAd, type PreparedSwipeMidsetMrecAd } from "../lib/meta-mrec";
 import { colors, radius, spacing, type } from "../constants/design";
 import { getNativeTheme, NATIVE_THEME_OPTIONS, type NativeThemePalette } from "../constants/themes";
 import {
@@ -3582,7 +3581,6 @@ function SwipeScreen({
   onShare: () => void;
 }) {
   const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
-  const [midsetAd, setMidsetAd] = useState<LoadedSwipeMidsetNativeAd | null>(null);
   const [midsetAdLoaded, setMidsetAdLoaded] = useState(false);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   // Keep the photo card within the visible area on 4.7-inch and 5.4-inch
@@ -3591,6 +3589,10 @@ function SwipeScreen({
     330,
     Math.min(492, Math.round(Math.min(windowHeight * 0.52, windowWidth * 1.15))),
   );
+  const midsetAd = useMemo<PreparedSwipeMidsetMrecAd | null>(() => {
+    if (!adEligibilityReady || isPro || midsetAdDismissed || roundInitialCount < 2) return null;
+    return prepareSwipeMidsetMrecAd();
+  }, [adEligibilityReady, isPro, midsetAdDismissed, roundInitialCount]);
   const showMidsetAd = shouldPresentMidsetAd({
     initialCount: roundInitialCount,
     remainingCount: queueCount,
@@ -3602,44 +3604,12 @@ function SwipeScreen({
   const midpointReached = hasReachedMidset(roundInitialCount, queueCount);
 
   useEffect(() => {
-    let active = true;
-    let ownedAd: LoadedSwipeMidsetNativeAd | null = null;
-    setMidsetAd(null);
     setMidsetAdLoaded(false);
-
-    if (!adEligibilityReady || isPro || midsetAdDismissed || roundInitialCount < 2) {
-      return () => { active = false; };
-    }
-
-    void loadSwipeMidsetNativeAd({
-      freeUserVerified: true,
-      onLoaded: () => {
-        if (active) setMidsetAdLoaded(true);
-      },
-      onLoadFailed: () => {
-        if (active) onMidsetAdDismissed();
-      },
-    }).then((loaded) => {
-      if (!loaded) return;
-      if (!active) {
-        try { loaded.ad.destroyAd(); } catch {}
-        return;
-      }
-      ownedAd = loaded;
-      setMidsetAd(loaded);
-    });
-
-    return () => {
-      active = false;
-      if (ownedAd) {
-        try { ownedAd.ad.destroyAd(); } catch {}
-      }
-    };
-  }, [adEligibilityReady, isPro, midsetAdDismissed, onMidsetAdDismissed, roundId, roundInitialCount]);
+  }, [midsetAd?.placementId, roundId]);
 
   useEffect(() => {
-    // The placement belongs exactly at the midpoint. If preloading has not
-    // completed by then, fail open for this round instead of interrupting later.
+    // If direct Meta MREC is unavailable, fail open at the midpoint instead of
+    // interrupting the round with an empty card.
     if (adEligibilityReady && !isPro && !midsetAdDismissed && midpointReached && top && !midsetAd) {
       onMidsetAdDismissed();
     }
@@ -3718,6 +3688,11 @@ function SwipeScreen({
           <SwipeMidsetAdCard
             loaded={midsetAd}
             adLoaded={midsetAdLoaded}
+            onAdLoaded={() => setMidsetAdLoaded(true)}
+            onAdLoadFailed={(error) => {
+              console.log("[ads] direct Meta MREC exhausted retries", error);
+              onMidsetAdDismissed();
+            }}
             onDismiss={onMidsetAdDismissed}
           />
         ) : top ? (

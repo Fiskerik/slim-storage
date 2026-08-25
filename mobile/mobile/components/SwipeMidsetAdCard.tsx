@@ -1,7 +1,7 @@
 import { t } from "../lib/i18n";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   PanResponder,
@@ -9,35 +9,67 @@ import {
   Text,
   View,
 } from "react-native";
-import type { LoadedSwipeMidsetNativeAd } from "../lib/ads";
+import type { PreparedSwipeMidsetMrecAd } from "../lib/meta-mrec";
 import { midsetHoldSeconds } from "../lib/swipe-midset";
+import { MetaMrecAdView, type MetaMrecLoadError } from "./MetaMrecAdView";
 
 const DISMISS_THRESHOLD = 96;
 
 export function SwipeMidsetAdCard({
   loaded,
   adLoaded,
+  onAdLoaded,
+  onAdLoadFailed,
   onDismiss,
 }: {
-  loaded: LoadedSwipeMidsetNativeAd;
+  loaded: PreparedSwipeMidsetMrecAd;
   adLoaded: boolean;
+  onAdLoaded: () => void;
+  onAdLoadFailed: (error: MetaMrecLoadError) => void;
   onDismiss: () => void;
 }) {
-  const { ad, renderer } = loaded;
-  const { NativeAdView, templateType } = renderer;
+  const { placementId } = loaded;
   const holdSeconds = useRef(midsetHoldSeconds()).current;
   const [unlockAt, setUnlockAt] = useState<number | null>(null);
   const [secondsRemaining, setSecondsRemaining] = useState(holdSeconds);
+  const [requestAttempt, setRequestAttempt] = useState(0);
   const pan = useRef(new Animated.ValueXY()).current;
   const dismissingRef = useRef(false);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const terminalFailureRef = useRef(false);
   const unlocked = adLoaded && unlockAt !== null && secondsRemaining <= 0;
 
   useEffect(() => {
-    // LevelPlayNativeAdView attaches the native load callback after it mounts.
-    // Waiting until the next frame avoids losing the request to an early layout event.
-    const frame = requestAnimationFrame(() => ad.loadAd());
-    return () => cancelAnimationFrame(frame);
-  }, [ad]);
+    setRequestAttempt(0);
+    terminalFailureRef.current = false;
+    return () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
+  }, [placementId]);
+
+  const handleAdLoaded = useCallback(() => {
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    retryTimerRef.current = null;
+    onAdLoaded();
+  }, [onAdLoaded]);
+
+  const handleAdLoadFailed = useCallback((error: MetaMrecLoadError) => {
+    console.log("[ads] direct Meta MREC load failed", error);
+    if (adLoaded || terminalFailureRef.current) return;
+
+    if (requestAttempt === 0) {
+      if (!retryTimerRef.current) {
+        retryTimerRef.current = setTimeout(() => {
+          retryTimerRef.current = null;
+          setRequestAttempt(1);
+        }, 1500);
+      }
+      return;
+    }
+
+    terminalFailureRef.current = true;
+    onAdLoadFailed(error);
+  }, [adLoaded, onAdLoadFailed, requestAttempt]);
 
   useEffect(() => {
     if (!adLoaded) {
@@ -121,11 +153,15 @@ export function SwipeMidsetAdCard({
       {...panResponder.panHandlers}
       style={[styles.card, { transform: [{ translateX: pan.x }, { rotate }] }]}
     >
-      <NativeAdView
-        nativeAd={ad}
-        templateType={templateType}
-        style={styles.adView}
-      />
+      <View style={styles.adSlot}>
+        <MetaMrecAdView
+          key={`${placementId}:${requestAttempt}`}
+          placementId={placementId}
+          onAdLoaded={handleAdLoaded}
+          onAdFailed={handleAdLoadFailed}
+          style={styles.mrec}
+        />
+      </View>
 
       <View
         accessibilityRole="timer"
@@ -142,7 +178,7 @@ export function SwipeMidsetAdCard({
             {unlocked ? t("ui.swipe-to-continue") : adLoaded ? t("ui.continue-in-seconds", { seconds: secondsRemaining }) : "Loading ad…"}
           </Text>
           <Text style={styles.continueHint}>
-            {unlocked ? t("ui.swipe-the-card-left-or-right") : adLoaded ? t("ui.the-ad-will-unlock-automatically") : "Waiting for LevelPlay"}
+            {unlocked ? t("ui.swipe-the-card-left-or-right") : adLoaded ? t("ui.the-ad-will-unlock-automatically") : requestAttempt === 0 ? "Waiting for Meta" : "Retrying Meta ad"}
           </Text>
         </View>
       </View>
@@ -164,33 +200,16 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 6,
   },
-  adView: {
-    height: 427,
+  adSlot: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "#f7f3ea",
   },
-  media: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 262,
-    backgroundColor: "#dce5df",
-  },
-  sponsoredBadge: {
-    position: "absolute",
-    top: 14,
-    left: 14,
-    borderRadius: 9,
-    backgroundColor: "rgba(18, 33, 47, 0.78)",
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-  },
-  sponsoredText: {
-    color: "#ffffff",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
+  mrec: {
+    width: 300,
+    height: 250,
+    backgroundColor: "transparent",
   },
   continuePanel: {
     height: 65,
@@ -219,64 +238,5 @@ const styles = StyleSheet.create({
     color: "#68717d",
     fontSize: 11,
     fontWeight: "700",
-  },
-  icon: {
-    position: "absolute",
-    top: 281,
-    left: 16,
-    width: 46,
-    height: 46,
-    borderRadius: 12,
-    backgroundColor: "#e5e7eb",
-  },
-  headline: {
-    position: "absolute",
-    top: 278,
-    left: 74,
-    right: 16,
-    color: "#182536",
-    fontSize: 18,
-    lineHeight: 21,
-    fontWeight: "900",
-  },
-  headlineWithoutIcon: {
-    left: 16,
-  },
-  advertiser: {
-    position: "absolute",
-    top: 326,
-    left: 74,
-    right: 16,
-    color: "#68717d",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  advertiserWithoutIcon: {
-    left: 16,
-  },
-  body: {
-    position: "absolute",
-    top: 349,
-    left: 16,
-    right: 132,
-    color: "#55616e",
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  callToAction: {
-    position: "absolute",
-    right: 16,
-    bottom: 18,
-    minWidth: 104,
-    maxWidth: 126,
-    overflow: "hidden",
-    borderRadius: 14,
-    backgroundColor: "#315f7d",
-    color: "#ffffff",
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    textAlign: "center",
-    fontSize: 12,
-    fontWeight: "900",
   },
 });
