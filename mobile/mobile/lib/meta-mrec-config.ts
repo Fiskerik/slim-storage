@@ -7,6 +7,15 @@ export function normalizeMetaMrecPlacementId(value: string | undefined): string 
   return placementId;
 }
 
-export const META_IOS_MREC_PLACEMENT_ID = normalizeMetaMrecPlacementId(
+export function resolveMetaMrecPlacementId(...values: (string | undefined)[]): string | null {
+  for (const value of values) {
+    const placementId = normalizeMetaMrecPlacementId(value);
+    if (placementId) return placementId;
+  }
+  return null;
+}
+
+export const META_IOS_MREC_PLACEMENT_ID = resolveMetaMrecPlacementId(
   process.env.EXPO_PUBLIC_META_IOS_MREC_PLACEMENT_ID,
+  process.env.EXPO_PUBLIC_META_IOS_NATIVE_PLACEMENT_ID,
 );

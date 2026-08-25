@@ -77,8 +77,13 @@ workflows:
             "false")
           META_IOS_MREC_PLACEMENT=$(first_value \
             "${EXPO_PUBLIC_META_IOS_MREC_PLACEMENT_ID:-}" \
+            "${EXPO_PUBLIC_META_IOS_NATIVE_PLACEMENT_ID:-}" \
             "${META_IOS_MREC_PLACEMENT_ID:-}" \
+            "${META_IOS_NATIVE_PLACEMENT_ID:-}" \
             "${meta_ios_mrec_placement_id:-}")
+          # Codemagic values copied from a dashboard can contain surrounding
+          # whitespace or quotes. Normalize those without accepting a partial ID.
+          META_IOS_MREC_PLACEMENT=$(printf '%s' "$META_IOS_MREC_PLACEMENT" | xargs)
 
           case "$REVENUECAT_KEY" in
             appl_*) ;;
@@ -111,7 +116,7 @@ workflows:
               ;;
           esac
           if ! [[ "$META_IOS_MREC_PLACEMENT" =~ ^[0-9]+_[0-9]+$ ]]; then
-            echo "EXPO_PUBLIC_META_IOS_MREC_PLACEMENT_ID must be the complete numeric Meta placement ID."
+            echo "EXPO_PUBLIC_META_IOS_MREC_PLACEMENT_ID (or EXPO_PUBLIC_META_IOS_NATIVE_PLACEMENT_ID) must be the complete numeric Meta placement ID."
             exit 1
           fi
 
