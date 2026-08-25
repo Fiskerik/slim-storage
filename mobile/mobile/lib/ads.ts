@@ -243,7 +243,11 @@ export async function openAdsPrivacyOptions(): Promise<boolean> {
 /** Load a LevelPlay native ad for the in-swipe card. Native ads use a placement,
  * not the generated native ad-unit ID used by banner/interstitial APIs. */
 export async function loadSwipeMidsetNativeAd(
-  options: { freeUserVerified?: boolean; onLoadFailed?: (error: unknown) => void } = {},
+  options: {
+    freeUserVerified?: boolean;
+    onLoaded?: (adInfo: unknown) => void;
+    onLoadFailed?: (error: unknown) => void;
+  } = {},
 ): Promise<LoadedSwipeMidsetNativeAd | null> {
   const m = loadModule();
   const NativeAd = m?.LevelPlayNativeAd;
@@ -261,7 +265,10 @@ export async function loadSwipeMidsetNativeAd(
   const ad = NativeAd.builder()
     .withPlacement(placement)
     .withListener({
-      onAdLoaded: () => console.log("[ads] native ad loaded", placement),
+      onAdLoaded: (_nativeAd, adInfo) => {
+        console.log("[ads] native ad loaded", { placement, adInfo });
+        options.onLoaded?.(adInfo);
+      },
       onAdLoadFailed: (_nativeAd, error) => {
         console.log("[ads] native load failed", error);
         options.onLoadFailed?.(error);

@@ -7,7 +7,7 @@ import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { StatusBar } from "expo-status-bar";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import {
   ActivityIndicator,
@@ -853,6 +853,10 @@ export function NativeTrimSwipeApp() {
   const [swipeRoundInitialCount, setSwipeRoundInitialCount] = useState(0);
   const [midsetAdDismissed, setMidsetAdDismissed] = useState(false);
   const [midsetAdVisible, setMidsetAdVisible] = useState(false);
+  const dismissMidsetAd = useCallback(() => {
+    setMidsetAdDismissed(true);
+    setMidsetAdVisible(false);
+  }, []);
   const [loading, setLoading] = useState(true);
   const [statsLoaded, setStatsLoaded] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState(false);
@@ -2971,10 +2975,7 @@ export function NativeTrimSwipeApp() {
             onConfirmActions={confirmActions}
             onCancelPending={cancelPendingActions}
             onOpenShop={() => setScreen("shop")}
-            onMidsetAdDismissed={() => {
-              setMidsetAdDismissed(true);
-              setMidsetAdVisible(false);
-            }}
+            onMidsetAdDismissed={dismissMidsetAd}
             onMidsetAdVisibilityChange={setMidsetAdVisible}
             onShare={shareProgress}
           />
@@ -3582,6 +3583,7 @@ function SwipeScreen({
 }) {
   const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
   const [midsetAd, setMidsetAd] = useState<LoadedSwipeMidsetNativeAd | null>(null);
+  const [midsetAdLoaded, setMidsetAdLoaded] = useState(false);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   // Keep the photo card within the visible area on 4.7-inch and 5.4-inch
   // iPhones while retaining the larger card on modern Max-sized devices.
@@ -3603,6 +3605,7 @@ function SwipeScreen({
     let active = true;
     let ownedAd: LoadedSwipeMidsetNativeAd | null = null;
     setMidsetAd(null);
+    setMidsetAdLoaded(false);
 
     if (!adEligibilityReady || isPro || midsetAdDismissed || roundInitialCount < 2) {
       return () => { active = false; };
@@ -3610,6 +3613,9 @@ function SwipeScreen({
 
     void loadSwipeMidsetNativeAd({
       freeUserVerified: true,
+      onLoaded: () => {
+        if (active) setMidsetAdLoaded(true);
+      },
       onLoadFailed: () => {
         if (active) onMidsetAdDismissed();
       },
@@ -3711,6 +3717,7 @@ function SwipeScreen({
         {showMidsetAd && midsetAd ? (
           <SwipeMidsetAdCard
             loaded={midsetAd}
+            adLoaded={midsetAdLoaded}
             onDismiss={onMidsetAdDismissed}
           />
         ) : top ? (

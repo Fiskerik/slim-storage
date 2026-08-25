@@ -16,20 +16,22 @@ const DISMISS_THRESHOLD = 96;
 
 export function SwipeMidsetAdCard({
   loaded,
+  adLoaded,
   onDismiss,
 }: {
   loaded: LoadedSwipeMidsetNativeAd;
+  adLoaded: boolean;
   onDismiss: () => void;
 }) {
   const { ad, renderer } = loaded;
   const { NativeAdView, templateType } = renderer;
   const holdSeconds = useRef(midsetHoldSeconds()).current;
-  const unlockAt = useRef(Date.now() + holdSeconds * 1000).current;
+  const [unlockAt, setUnlockAt] = useState<number | null>(null);
   const [secondsRemaining, setSecondsRemaining] = useState(holdSeconds);
   const pan = useRef(new Animated.ValueXY()).current;
   const dismissingRef = useRef(false);
   const loadRequestedRef = useRef(false);
-  const unlocked = secondsRemaining <= 0;
+  const unlocked = adLoaded && unlockAt !== null && secondsRemaining <= 0;
 
   function loadNativeAd() {
     if (loadRequestedRef.current) return;
@@ -38,13 +40,24 @@ export function SwipeMidsetAdCard({
   }
 
   useEffect(() => {
+    if (!adLoaded) {
+      setUnlockAt(null);
+      setSecondsRemaining(holdSeconds);
+      return;
+    }
+
+    setUnlockAt((current) => current ?? Date.now() + holdSeconds * 1000);
+  }, [adLoaded, holdSeconds]);
+
+  useEffect(() => {
+    if (!adLoaded || unlockAt === null) return;
     const update = () => {
       setSecondsRemaining(Math.max(0, Math.ceil((unlockAt - Date.now()) / 1000)));
     };
     update();
     const timer = setInterval(update, 250);
     return () => clearInterval(timer);
-  }, [unlockAt]);
+  }, [adLoaded, unlockAt]);
 
   function dismiss(direction: -1 | 1) {
     if (!unlocked || dismissingRef.current) return;
@@ -117,16 +130,20 @@ export function SwipeMidsetAdCard({
 
       <View
         accessibilityRole="timer"
-        accessibilityLabel={unlocked ? t("ui.ad-finished-swipe-to-continue") : t("ui.continue-in-seconds", { seconds: secondsRemaining })}
-        style={[styles.continuePanel, unlocked && styles.continuePanelUnlocked]}
+        accessibilityLabel={adLoaded
+          ? unlocked
+            ? t("ui.ad-finished-swipe-to-continue")
+            : t("ui.continue-in-seconds", { seconds: secondsRemaining })
+          : "Loading ad"}
+        style={[styles.continuePanel, unlocked && styles.continuePanelUnlocked, !adLoaded && styles.continuePanelLoading]}
       >
-        <Ionicons name={unlocked ? "swap-horizontal" : "time-outline"} size={22} color="#315f7d" />
+        <Ionicons name={unlocked ? "swap-horizontal" : adLoaded ? "time-outline" : "cloud-download-outline"} size={22} color="#315f7d" />
         <View>
           <Text style={styles.continueText}>
-            {unlocked ? t("ui.swipe-to-continue") : t("ui.continue-in-seconds", { seconds: secondsRemaining })}
+            {unlocked ? t("ui.swipe-to-continue") : adLoaded ? t("ui.continue-in-seconds", { seconds: secondsRemaining }) : "Loading ad…"}
           </Text>
           <Text style={styles.continueHint}>
-            {unlocked ? t("ui.swipe-the-card-left-or-right") : t("ui.the-ad-will-unlock-automatically")}
+            {unlocked ? t("ui.swipe-the-card-left-or-right") : adLoaded ? t("ui.the-ad-will-unlock-automatically") : "Waiting for LevelPlay"}
           </Text>
         </View>
       </View>
@@ -189,6 +206,9 @@ const styles = StyleSheet.create({
   },
   continuePanelUnlocked: {
     backgroundColor: "#edf5ef",
+  },
+  continuePanelLoading: {
+    backgroundColor: "#f3f4f6",
   },
   continueText: {
     color: "#203345",
