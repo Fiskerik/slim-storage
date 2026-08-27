@@ -3553,12 +3553,8 @@ function SwipeScreen({
 }) {
   const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-  // Keep the photo card within the visible area on 4.7-inch and 5.4-inch
-  // iPhones while retaining the larger card on modern Max-sized devices.
-  const deckHeight = Math.max(
-    330,
-    Math.min(492, Math.round(Math.min(windowHeight * 0.52, windowWidth * 1.15))),
-  );
+  const compactLayout = windowHeight <= 700 || windowWidth <= 350;
+  const actionButtonSize = compactLayout ? "compact" : "swipe";
   if (loading) {
     return (
       <Centered>
@@ -3602,14 +3598,14 @@ function SwipeScreen({
     );
   }
   return (
-    <View style={styles.content}>
-      <View style={styles.swipeHeader}>
+    <View style={[styles.content, styles.swipeContent, compactLayout && styles.swipeContentCompact]}>
+      <View style={[styles.swipeHeader, compactLayout && styles.swipeHeaderCompact]}>
         <View style={styles.swipeHeaderCopy}>
           <Text style={styles.eyebrow}>{t("ui.current-focus")}</Text>
-          <Text style={[styles.swipeTitle, largeControls && styles.swipeTitleLarge]}>{targetLabel(settings)}</Text>
-          <Text style={styles.swipeSubtitle}>{t("ui.session-mode-subtitle", { mode: sessionModeLabel(settings.sessionMode) })}</Text>
+          <Text style={[styles.swipeTitle, largeControls && styles.swipeTitleLarge, compactLayout && styles.swipeTitleCompact]}>{targetLabel(settings)}</Text>
+          <Text style={[styles.swipeSubtitle, compactLayout && styles.swipeSubtitleCompact]}>{t("ui.session-mode-subtitle", { mode: sessionModeLabel(settings.sessionMode) })}</Text>
         </View>
-        <View style={styles.swipeStatusColumn}>
+        <View style={[styles.swipeStatusColumn, compactLayout && styles.swipeStatusColumnCompact]}>
           <TokenPill tokens={tokens} hasUnlimitedTrims={hasUnlimitedTrims} />
           <Text style={styles.queuePill}>{t("ui.queue-left", { count: queueCount })}</Text>
           {settings.sessionMode === "time-attack" ? <Text style={styles.timerPill}>{timeLeft}s</Text> : null}
@@ -3618,7 +3614,7 @@ function SwipeScreen({
       </View>
       {permissionLimited ? <Text style={styles.warning}>{t("ui.limited-photo-access-is-enabled-some-photos-may-")}</Text> : null}
       <LevelPlayBanner isPro={isPro || !adEligibilityReady} />
-      <View style={[styles.deck, { height: deckHeight }]}>
+      <View style={[styles.deck, compactLayout && styles.deckCompact]}>
         {next ? <PhotoCard photo={next} settings={settings} stacked /> : null}
         {top ? (
           <SwipeablePhotoCard
@@ -3629,11 +3625,12 @@ function SwipeScreen({
           />
         ) : null}
       </View>
-      <View style={styles.actions}>
-        <ActionButton label={t("ui.keep")} tone="keep" large={largeControls} onPress={() => top && onAction(top, "keep")} />
+      <View style={[styles.actions, styles.swipeActions, compactLayout && styles.swipeActionsCompact]}>
+        <ActionButton label={t("ui.keep")} tone="keep" size={actionButtonSize} large={largeControls} onPress={() => top && onAction(top, "keep")} />
         <ActionButton
           label={!top ? t("ui.trim-label") : !canAttemptTrim(top, settings) ? trimDisabledReason(top, settings) : trimsRemaining <= 0 ? t("ui.limit-hit") : t("ui.trim-label")}
           tone="trim"
+          size={actionButtonSize}
           large={largeControls}
           disabled={!top || !canAttemptTrim(top, settings)}
           onPress={() => {
@@ -3645,7 +3642,7 @@ function SwipeScreen({
             onAction(top, "trim");
           }}
         />
-        <ActionButton label={t("ui.delete")} tone="delete" large={largeControls} onPress={() => top && onAction(top, "delete")} />
+        <ActionButton label={t("ui.delete")} tone="delete" size={actionButtonSize} large={largeControls} onPress={() => top && onAction(top, "delete")} />
       </View>
       <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </View>
@@ -6696,11 +6693,34 @@ function NavButton({ label, active, compact, theme, onPress }: { label: string; 
 
 // ─── Reusable UI components ───────────────────────────────────────────────────
 
-function ActionButton({ label, tone, onPress, large, disabled }: { label: string; tone: "keep" | "trim" | "delete"; onPress: () => void; large?: boolean; disabled?: boolean }) {
+function ActionButton({ label, tone, onPress, large, size = "default", disabled }: { label: string; tone: "keep" | "trim" | "delete"; onPress: () => void; large?: boolean; size?: "default" | "swipe" | "compact"; disabled?: boolean }) {
   const toneStyle = tone === "keep" ? styles.actionKeep : tone === "trim" ? styles.actionTrim : styles.actionDelete;
   return (
-    <Pressable disabled={disabled} onPress={onPress} style={[styles.actionButton, toneStyle, large && styles.actionButtonLarge, disabled && styles.actionButtonDisabled]}>
-      <Text style={[styles.actionText, large && styles.actionTextLarge, disabled && styles.actionTextDisabled]}>{label}</Text>
+    <Pressable
+      disabled={disabled}
+      onPress={onPress}
+      style={[
+        styles.actionButton,
+        toneStyle,
+        large && styles.actionButtonLarge,
+        size === "swipe" && styles.actionButtonSwipe,
+        size === "compact" && styles.actionButtonCompact,
+        disabled && styles.actionButtonDisabled,
+      ]}
+    >
+      <Text
+        adjustsFontSizeToFit={size !== "default"}
+        minimumFontScale={0.72}
+        numberOfLines={2}
+        style={[
+          styles.actionText,
+          large && styles.actionTextLarge,
+          size === "compact" && styles.actionTextCompact,
+          disabled && styles.actionTextDisabled,
+        ]}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -6878,16 +6898,23 @@ const styles = StyleSheet.create({
   confirmActions: { marginTop: 4, gap: 10 },
 
   // Swipe
+  swipeContent: { flex: 1, paddingBottom: 142 },
+  swipeContentCompact: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 130 },
   swipeHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 14, borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 16 },
+  swipeHeaderCompact: { gap: 10, borderRadius: 18, padding: 12 },
   swipeHeaderCopy: { flex: 1 },
   swipeTitle: { marginTop: 5, color: "#1f2937", fontSize: 18, fontWeight: "700" },
   swipeTitleLarge: { fontSize: 22 },
+  swipeTitleCompact: { marginTop: 3, fontSize: 16 },
   swipeSubtitle: { marginTop: 5, color: "#64748b", fontSize: 12, lineHeight: 17 },
+  swipeSubtitleCompact: { marginTop: 3, fontSize: 11, lineHeight: 15 },
   swipeStatusColumn: { alignItems: "flex-end", gap: 8 },
+  swipeStatusColumnCompact: { gap: 5 },
   queuePill: { overflow: "hidden", borderRadius: 999, backgroundColor: "#e5ebef", color: "#315f7d", paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, fontWeight: "700" },
   timerPill: { overflow: "hidden", borderRadius: 999, backgroundColor: "#f4efe3", color: "#806226", paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, fontWeight: "700" },
   trimBadge: { overflow: "hidden", borderRadius: 999, backgroundColor: "#f3f6f8", color: "#315f7d", paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, fontWeight: "700" },
-  deck: { marginTop: 18, height: 492 },
+  deck: { flex: 1, minHeight: 0, maxHeight: 492, marginTop: 18 },
+  deckCompact: { marginTop: 12 },
   animatedCard: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 },
   photoCard: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, overflow: "hidden", borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0" },
   swipeTint: { ...StyleSheet.absoluteFillObject, borderRadius: 24 },
@@ -6907,14 +6934,19 @@ const styles = StyleSheet.create({
   reason: { overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(248, 250, 252, 0.18)", color: "#f8fafc", paddingHorizontal: 8, paddingVertical: 4, fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
   reasonTrimmed: { overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(79, 120, 146, 0.9)", color: "#f3f6f8", paddingHorizontal: 8, paddingVertical: 4, fontSize: 10, fontWeight: "700", textTransform: "uppercase" },
   actions: { marginTop: 20, flexDirection: "row", gap: 10 },
+  swipeActions: { position: "absolute", left: 20, right: 20, bottom: 76, zIndex: 10, marginTop: 0 },
+  swipeActionsCompact: { left: 12, right: 12, bottom: 72, gap: 8 },
   actionButton: { flex: 1, minHeight: 76, alignItems: "center", justifyContent: "center", borderRadius: 17, paddingVertical: 15, paddingHorizontal: 8, borderWidth: 1 },
   actionButtonLarge: { paddingVertical: 19 },
+  actionButtonSwipe: { height: 56, minHeight: 56, paddingVertical: 10 },
+  actionButtonCompact: { height: 48, minHeight: 48, borderRadius: 14, paddingVertical: 8, paddingHorizontal: 6 },
   actionButtonDisabled: { backgroundColor: "#f1f5f9", borderColor: "#cbd5e1", opacity: 0.75 },
   actionKeep: { backgroundColor: "#dcfce7", borderColor: "#22c55e" },
   actionTrim: { backgroundColor: "#e5ebef", borderColor: "#4f7892" },
   actionDelete: { backgroundColor: "#fee2e2", borderColor: "#ef4444" },
   actionText: { color: "#1f2937", fontSize: 14, lineHeight: 17, fontWeight: "700", textAlign: "center" },
   actionTextLarge: { fontSize: 17 },
+  actionTextCompact: { fontSize: 13, lineHeight: 15 },
   actionTextDisabled: { color: "#94a3b8" },
 
   // FIX 2: Delete review list - proper bottom padding so buttons aren't hidden

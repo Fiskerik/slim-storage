@@ -52,11 +52,27 @@ test("swipe screen keeps a LevelPlay banner above every free-user photo", async 
   const bannerIndex = app.indexOf(
     "<LevelPlayBanner isPro={isPro || !adEligibilityReady} />",
   );
-  const deckIndex = app.indexOf('<View style={[styles.deck, { height: deckHeight }]}>');
+  const deckIndex = app.indexOf(
+    "<View style={[styles.deck, compactLayout && styles.deckCompact]}>",
+  );
 
   assert.ok(bannerIndex >= 0, "the free-user banner must be eligibility gated");
   assert.ok(deckIndex > bannerIndex, "the banner must render above the photo deck");
   assert.doesNotMatch(app, /SwipeMidsetAdCard|showMidsetAd|midsetAdVisible/);
+});
+
+test("swipe actions stay above navigation and compact on short screens", async () => {
+  const app = await readFile(
+    new URL("../components/NativeTrimSwipeApp.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(app, /const compactLayout = windowHeight <= 700 \|\| windowWidth <= 350;/);
+  assert.match(app, /swipeContent: \{ flex: 1, paddingBottom: 142 \}/);
+  assert.match(app, /deck: \{ flex: 1, minHeight: 0, maxHeight: 492, marginTop: 18 \}/);
+  assert.match(app, /swipeActions: \{ position: "absolute", left: 20, right: 20, bottom: 76/);
+  assert.match(app, /actionButtonSwipe: \{ height: 56, minHeight: 56/);
+  assert.match(app, /actionButtonCompact: \{ height: 48, minHeight: 48/);
 });
 
 test("iOS config includes the Yandex SKAdNetwork identifier", async () => {
