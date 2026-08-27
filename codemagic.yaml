@@ -75,15 +75,6 @@ workflows:
             "${EXPO_PUBLIC_IRONSRC_ADAPTER_DEBUG:-}" \
             "${IRONSRC_ADAPTER_DEBUG:-}" \
             "false")
-          META_IOS_MREC_PLACEMENT=$(first_value \
-            "${EXPO_PUBLIC_META_IOS_MREC_PLACEMENT_ID:-}" \
-            "${EXPO_PUBLIC_META_IOS_NATIVE_PLACEMENT_ID:-}" \
-            "${META_IOS_MREC_PLACEMENT_ID:-}" \
-            "${META_IOS_NATIVE_PLACEMENT_ID:-}" \
-            "${meta_ios_mrec_placement_id:-}")
-          # Codemagic values copied from a dashboard can contain surrounding
-          # whitespace or quotes. Normalize those without accepting a partial ID.
-          META_IOS_MREC_PLACEMENT=$(printf '%s' "$META_IOS_MREC_PLACEMENT" | xargs)
 
           case "$REVENUECAT_KEY" in
             appl_*) ;;
@@ -115,11 +106,6 @@ workflows:
               exit 1
               ;;
           esac
-          if ! [[ "$META_IOS_MREC_PLACEMENT" =~ ^[0-9]+_[0-9]+$ ]]; then
-            echo "EXPO_PUBLIC_META_IOS_MREC_PLACEMENT_ID (or EXPO_PUBLIC_META_IOS_NATIVE_PLACEMENT_ID) must be the complete numeric Meta placement ID."
-            exit 1
-          fi
-
           printf 'EXPO_PUBLIC_RC_KEY=%s\n' "$REVENUECAT_KEY" >> "$CM_ENV"
           printf 'EXPO_PUBLIC_RC_ENTITLEMENT_ID=%s\n' "$REVENUECAT_ENTITLEMENT" >> "$CM_ENV"
           printf 'EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID=%s\n' "$REVENUECAT_PRODUCT" >> "$CM_ENV"
@@ -128,7 +114,6 @@ workflows:
           printf 'EXPO_PUBLIC_IRONSRC_IOS_INTERSTITIAL_ID=%s\n' "$LEVELPLAY_IOS_INTERSTITIAL" >> "$CM_ENV"
           printf 'EXPO_PUBLIC_IRONSRC_IOS_BANNER_ID=%s\n' "$LEVELPLAY_IOS_BANNER" >> "$CM_ENV"
           printf 'EXPO_PUBLIC_IRONSRC_ADAPTER_DEBUG=%s\n' "$LEVELPLAY_ADAPTER_DEBUG" >> "$CM_ENV"
-          printf 'EXPO_PUBLIC_META_IOS_MREC_PLACEMENT_ID=%s\n' "$META_IOS_MREC_PLACEMENT" >> "$CM_ENV"
 
       - name: Build Root Mobile SPA Bundle
         script: |
@@ -216,9 +201,14 @@ workflows:
             grep -E "IronSourceFacebookAdapter|FBAudienceNetwork" Podfile.lock || true
             exit 1
           fi
-          if ! grep -Fq "ExpoMetaMrec" Podfile.lock; then
-            echo "ERROR: The direct Meta MREC Expo module was not linked into the iOS build."
-            grep -E "ExpoMetaMrec|FBAudienceNetwork" Podfile.lock || true
+          if ! grep -Fq "IronSourceYandexAdapter (5.12.0.0)" Podfile.lock; then
+            echo "ERROR: The Unity LevelPlay Yandex adapter is missing or has an unexpected version."
+            grep -E "IronSourceYandexAdapter|YandexMobileAds" Podfile.lock || true
+            exit 1
+          fi
+          if ! grep -Fq "YandexMobileAds (8.3.0)" Podfile.lock; then
+            echo "ERROR: The Yandex Mobile Ads SDK is missing or has an unexpected version."
+            grep -E "IronSourceYandexAdapter|YandexMobileAds" Podfile.lock || true
             exit 1
           fi
           xcode-project build-ipa --workspace *.xcworkspace --scheme "TrimSwipe"

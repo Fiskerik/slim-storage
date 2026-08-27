@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import levelPlayPlugin from "../plugins/withLevelPlay.js";
 
 const { addIosMediationPods } = levelPlayPlugin;
 
-test("LevelPlay config adds the pinned Meta adapter inside the iOS target", () => {
+test("LevelPlay config adds the pinned Meta and Yandex adapters inside the iOS target", () => {
   const podfile = [
     "target 'TrimSwipe' do",
     "  use_expo_modules!",
@@ -16,9 +17,24 @@ test("LevelPlay config adds the pinned Meta adapter inside the iOS target", () =
 
   assert.match(
     configured,
-    /use_expo_modules!\n  pod 'IronSourceFacebookAdapter', '5\.4\.0\.0'/,
+    /use_expo_modules!\n  pod 'IronSourceFacebookAdapter', '5\.4\.0\.0'\n  pod 'IronSourceYandexAdapter', '5\.12\.0\.0'/,
   );
   assert.equal(addIosMediationPods(configured), configured);
+});
+
+test("LevelPlay config adds Yandex when Meta is already configured", () => {
+  const podfile = [
+    "target 'TrimSwipe' do",
+    "  use_expo_modules!",
+    "  pod 'IronSourceFacebookAdapter', '5.4.0.0'",
+    "end",
+    "",
+  ].join("\n");
+
+  const configured = addIosMediationPods(podfile);
+
+  assert.equal(configured.match(/IronSourceFacebookAdapter/g)?.length, 1);
+  assert.match(configured, /pod 'IronSourceYandexAdapter', '5\.12\.0\.0'/);
 });
 
 test("LevelPlay config fails when Expo generates an unexpected Podfile", () => {
@@ -26,4 +42,33 @@ test("LevelPlay config fails when Expo generates an unexpected Podfile", () => {
     () => addIosMediationPods("target 'TrimSwipe' do\nend\n"),
     /use_expo_modules! was not found/,
   );
+});
+
+test("swipe screen keeps a LevelPlay banner above every free-user photo", async () => {
+  const app = await readFile(
+    new URL("../components/NativeTrimSwipeApp.tsx", import.meta.url),
+    "utf8",
+  );
+  const bannerIndex = app.indexOf(
+    "<LevelPlayBanner isPro={isPro || !adEligibilityReady} />",
+  );
+  const deckIndex = app.indexOf('<View style={[styles.deck, { height: deckHeight }]}>');
+
+  assert.ok(bannerIndex >= 0, "the free-user banner must be eligibility gated");
+  assert.ok(deckIndex > bannerIndex, "the banner must render above the photo deck");
+  assert.doesNotMatch(app, /SwipeMidsetAdCard|showMidsetAd|midsetAdVisible/);
+});
+
+test("iOS config includes the Yandex SKAdNetwork identifier", async () => {
+  const appConfig = await readFile(new URL("../app.config.ts", import.meta.url), "utf8");
+  assert.match(appConfig, /zq492l623r\.skadnetwork/);
+});
+
+test("Codemagic verifies the pinned Yandex adapter and SDK", async () => {
+  const pipeline = await readFile(
+    new URL("../../../codemagic.yaml", import.meta.url),
+    "utf8",
+  );
+  assert.match(pipeline, /IronSourceYandexAdapter \(5\.12\.0\.0\)/);
+  assert.match(pipeline, /YandexMobileAds \(8\.3\.0\)/);
 });

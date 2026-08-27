@@ -1,7 +1,0 @@
-{
-  "platforms": ["apple"],
-  "apple": {
-    "modules": ["ExpoMetaMrecModule"],
-    "podspecPath": "ExpoMetaMrec.podspec"
-  }
-}

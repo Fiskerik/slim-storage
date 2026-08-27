@@ -7,7 +7,7 @@ import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { StatusBar } from "expo-status-bar";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import {
   ActivityIndicator,
@@ -106,7 +106,6 @@ import { ShopScreen } from "./ShopScreen";
 import { DuplicateClusterReview, type DuplicateCluster } from "./DuplicateClusterReview";
 import { GameFilterSlider } from "./GameFilterSlider";
 import { LevelPlayBanner } from "./LevelPlayBanner";
-import { SwipeMidsetAdCard } from "./SwipeMidsetAdCard";
 import { addTokens, subscribeTokens, spendTokens, DAILY_CLAIM_TOKENS } from "../lib/tokens";
 import {
   getPurchaseAccessStatus,
@@ -123,7 +122,6 @@ import {
   showInterstitialAd,
   showRewardedAd,
 } from "../lib/ads";
-import { prepareSwipeMidsetMrecAd, type PreparedSwipeMidsetMrecAd } from "../lib/meta-mrec";
 import { colors, radius, spacing, type } from "../constants/design";
 import { getNativeTheme, NATIVE_THEME_OPTIONS, type NativeThemePalette } from "../constants/themes";
 import {
@@ -143,7 +141,6 @@ import {
   scheduleDailyTrimReminder,
   cancelDailyTrimReminder,
 } from "../lib/daily-trim-reminder";
-import { hasReachedMidset, shouldPresentMidsetAd } from "../lib/swipe-midset";
 
 type Screen =
   | "home"
@@ -848,14 +845,6 @@ export function NativeTrimSwipeApp() {
   const [stats, setStats] = useState<NativeStats>(DEFAULT_NATIVE_STATS);
   const [reviewLedger, setReviewLedger] = useState<NativePhotoReviewLedger | null>(null);
   const [queue, setQueue] = useState<NativePhoto[]>([]);
-  const [swipeRoundId, setSwipeRoundId] = useState(0);
-  const [swipeRoundInitialCount, setSwipeRoundInitialCount] = useState(0);
-  const [midsetAdDismissed, setMidsetAdDismissed] = useState(false);
-  const [midsetAdVisible, setMidsetAdVisible] = useState(false);
-  const dismissMidsetAd = useCallback(() => {
-    setMidsetAdDismissed(true);
-    setMidsetAdVisible(false);
-  }, []);
   const [loading, setLoading] = useState(true);
   const [statsLoaded, setStatsLoaded] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState(false);
@@ -1671,10 +1660,6 @@ export function NativeTrimSwipeApp() {
     // FIX 1: Guard against NaN cardsPerRound before calling MediaLibrary
     const safeCount = Math.max(1, Math.round(activeSettings.cardsPerRound) || 10);
     setLoading(true);
-    setSwipeRoundId((current) => current + 1);
-    setSwipeRoundInitialCount(0);
-    setMidsetAdDismissed(false);
-    setMidsetAdVisible(false);
     setError(null);
     setRecap(null);
     setPendingDeletes([]);
@@ -1722,7 +1707,6 @@ export function NativeTrimSwipeApp() {
         });
       }
       setQueue(photos);
-      setSwipeRoundInitialCount(photos.length);
       if (fallbackNotice && options.showFallbackToast) {
         showToast(t("ui.filter-widened"), fallbackNotice, "info");
       }
@@ -1748,23 +1732,22 @@ export function NativeTrimSwipeApp() {
       settings.sessionMode !== "time-attack" ||
       loading ||
       recap ||
-      pendingDeletes.length > 0 ||
-      midsetAdVisible
+      pendingDeletes.length > 0
     ) return undefined;
     if (timeLeft <= 0) return undefined;
     const timer = setInterval(() => {
       setTimeLeft((current) => Math.max(0, current - 1));
     }, 1000);
     return () => clearInterval(timer);
-  }, [loading, midsetAdVisible, pendingDeletes.length, recap, settings.sessionMode, timeLeft]);
+  }, [loading, pendingDeletes.length, recap, settings.sessionMode, timeLeft]);
 
   useEffect(() => {
-    if (settings.sessionMode !== "time-attack" || timeLeft !== 0 || loading || recap || midsetAdVisible) return;
+    if (settings.sessionMode !== "time-attack" || timeLeft !== 0 || loading || recap) return;
     if (queue.length === 0) return;
     setQueue([]);
     finishSession();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, midsetAdVisible, queue.length, recap, settings.sessionMode, timeLeft]);
+  }, [loading, queue.length, recap, settings.sessionMode, timeLeft]);
 
   function finishSession() {
     commitStats((current) =>
@@ -2333,10 +2316,6 @@ export function NativeTrimSwipeApp() {
       if (photos.length === 0) return;
       setTrimActionPickerVisible(false);
       setQueue(photos);
-      setSwipeRoundInitialCount(photos.length);
-      setSwipeRoundId((current) => current + 1);
-      setMidsetAdDismissed(false);
-      setMidsetAdVisible(false);
       setPendingDeletes([]);
       setPendingTrims([]);
       pendingDeletesRef.current = [];
@@ -2957,9 +2936,6 @@ export function NativeTrimSwipeApp() {
             pendingTrims={pendingTrims}
             trimmingCount={trimmingCount}
             timeLeft={timeLeft}
-            roundId={swipeRoundId}
-            roundInitialCount={swipeRoundInitialCount}
-            midsetAdDismissed={midsetAdDismissed}
             largeControls={false}
             tokens={tokenBalance}
             trimsRemaining={trimCurrencyAvailable}
@@ -2974,8 +2950,6 @@ export function NativeTrimSwipeApp() {
             onConfirmActions={confirmActions}
             onCancelPending={cancelPendingActions}
             onOpenShop={() => setScreen("shop")}
-            onMidsetAdDismissed={dismissMidsetAd}
-            onMidsetAdVisibilityChange={setMidsetAdVisible}
             onShare={shareProgress}
           />
         ) : screen === "stats" ? (
@@ -3558,17 +3532,16 @@ function CleanupPlanScreen({
 function SwipeScreen({
   top, next, queueCount, loading, error, permissionDenied, permissionLimited,
   settings, recap, pendingDeletes, pendingTrims, trimmingCount, timeLeft,
-  roundId, roundInitialCount, midsetAdDismissed, largeControls, tokens,
+  largeControls, tokens,
   trimsRemaining, trimLimit, onAction, onReload, onOpenSettings,
   isPro, hasUnlimitedTrims, adEligibilityReady, onChangeSettings, onConfirmActions, onCancelPending, onOpenShop,
-  onMidsetAdDismissed, onMidsetAdVisibilityChange, onShare,
+  onShare,
 }: {
   top?: NativePhoto; next?: NativePhoto; queueCount: number; loading: boolean;
   error: string | null; permissionDenied: boolean; permissionLimited: boolean;
   settings: NativeSettings; recap: SessionRecap | null; pendingDeletes: NativePhoto[];
   pendingTrims: NativePhoto[];
-  trimmingCount: number; timeLeft: number; roundId: number; roundInitialCount: number;
-  midsetAdDismissed: boolean; largeControls: boolean; tokens: number; trimsRemaining: number;
+  trimmingCount: number; timeLeft: number; largeControls: boolean; tokens: number; trimsRemaining: number;
   trimLimit: number; onAction: (photo: NativePhoto, action: Action) => void;
   onReload: () => void; onOpenSettings: () => void;
   isPro: boolean; hasUnlimitedTrims: boolean; adEligibilityReady: boolean;
@@ -3576,12 +3549,9 @@ function SwipeScreen({
   onConfirmActions: (deletes: NativePhoto[], trims: NativePhoto[]) => Promise<void> | void;
   onCancelPending: () => void;
   onOpenShop: () => void;
-  onMidsetAdDismissed: () => void;
-  onMidsetAdVisibilityChange: (visible: boolean) => void;
   onShare: () => void;
 }) {
   const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
-  const [midsetAdLoaded, setMidsetAdLoaded] = useState(false);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   // Keep the photo card within the visible area on 4.7-inch and 5.4-inch
   // iPhones while retaining the larger card on modern Max-sized devices.
@@ -3589,39 +3559,6 @@ function SwipeScreen({
     330,
     Math.min(492, Math.round(Math.min(windowHeight * 0.52, windowWidth * 1.15))),
   );
-  const midsetAd = useMemo<PreparedSwipeMidsetMrecAd | null>(() => {
-    if (!adEligibilityReady || isPro || midsetAdDismissed || roundInitialCount < 2) return null;
-    return prepareSwipeMidsetMrecAd();
-  }, [adEligibilityReady, isPro, midsetAdDismissed, roundInitialCount]);
-  const showMidsetAd = shouldPresentMidsetAd({
-    initialCount: roundInitialCount,
-    remainingCount: queueCount,
-    isPro,
-    dismissed: midsetAdDismissed,
-    loaded: Boolean(midsetAd),
-    hasCurrentPhoto: Boolean(top),
-  });
-  const midpointReached = hasReachedMidset(roundInitialCount, queueCount);
-
-  useEffect(() => {
-    setMidsetAdLoaded(false);
-  }, [midsetAd?.placementId, roundId]);
-
-  useEffect(() => {
-    // If direct Meta MREC is unavailable, fail open at the midpoint instead of
-    // interrupting the round with an empty card.
-    if (adEligibilityReady && !isPro && !midsetAdDismissed && midpointReached && top && !midsetAd) {
-      onMidsetAdDismissed();
-    }
-  }, [adEligibilityReady, isPro, midpointReached, midsetAd, midsetAdDismissed, onMidsetAdDismissed, top]);
-
-  useEffect(() => {
-    onMidsetAdVisibilityChange(showMidsetAd);
-    return () => {
-      if (showMidsetAd) onMidsetAdVisibilityChange(false);
-    };
-  }, [onMidsetAdVisibilityChange, showMidsetAd]);
-
   if (loading) {
     return (
       <Centered>
@@ -3680,22 +3617,10 @@ function SwipeScreen({
         </View>
       </View>
       {permissionLimited ? <Text style={styles.warning}>{t("ui.limited-photo-access-is-enabled-some-photos-may-")}</Text> : null}
+      <LevelPlayBanner isPro={isPro || !adEligibilityReady} />
       <View style={[styles.deck, { height: deckHeight }]}>
-        {showMidsetAd
-          ? top ? <PhotoCard photo={top} settings={settings} stacked /> : null
-          : next ? <PhotoCard photo={next} settings={settings} stacked /> : null}
-        {showMidsetAd && midsetAd ? (
-          <SwipeMidsetAdCard
-            loaded={midsetAd}
-            adLoaded={midsetAdLoaded}
-            onAdLoaded={() => setMidsetAdLoaded(true)}
-            onAdLoadFailed={(error) => {
-              console.log("[ads] direct Meta MREC exhausted retries", error);
-              onMidsetAdDismissed();
-            }}
-            onDismiss={onMidsetAdDismissed}
-          />
-        ) : top ? (
+        {next ? <PhotoCard photo={next} settings={settings} stacked /> : null}
+        {top ? (
           <SwipeablePhotoCard
             photo={top}
             settings={settings}
@@ -3704,27 +3629,24 @@ function SwipeScreen({
           />
         ) : null}
       </View>
-      {!showMidsetAd ? (
-        <View style={styles.actions}>
-          <ActionButton label={t("ui.keep")} tone="keep" large={largeControls} onPress={() => top && onAction(top, "keep")} />
-          <ActionButton
-            label={!top ? t("ui.trim-label") : !canAttemptTrim(top, settings) ? trimDisabledReason(top, settings) : trimsRemaining <= 0 ? t("ui.limit-hit") : t("ui.trim-label")}
-            tone="trim"
-            large={largeControls}
-            disabled={!top || !canAttemptTrim(top, settings)}
-            onPress={() => {
-              if (!top) return;
-              if (trimsRemaining <= 0) {
-                onOpenShop();
-                return;
-              }
-              onAction(top, "trim");
-            }}
-          />
-          <ActionButton label={t("ui.delete")} tone="delete" large={largeControls} onPress={() => top && onAction(top, "delete")} />
-        </View>
-      ) : null}
-      <LevelPlayBanner isPro={isPro} />
+      <View style={styles.actions}>
+        <ActionButton label={t("ui.keep")} tone="keep" large={largeControls} onPress={() => top && onAction(top, "keep")} />
+        <ActionButton
+          label={!top ? t("ui.trim-label") : !canAttemptTrim(top, settings) ? trimDisabledReason(top, settings) : trimsRemaining <= 0 ? t("ui.limit-hit") : t("ui.trim-label")}
+          tone="trim"
+          large={largeControls}
+          disabled={!top || !canAttemptTrim(top, settings)}
+          onPress={() => {
+            if (!top) return;
+            if (trimsRemaining <= 0) {
+              onOpenShop();
+              return;
+            }
+            onAction(top, "trim");
+          }}
+        />
+        <ActionButton label={t("ui.delete")} tone="delete" large={largeControls} onPress={() => top && onAction(top, "delete")} />
+      </View>
       <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </View>
   );

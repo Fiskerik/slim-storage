@@ -1,5 +1,4 @@
 // Unity LevelPlay (ironSource) rewarded, interstitial, and banner ads.
-// The in-swipe 300x250 placement is intentionally handled by direct Meta code.
 // Web and Expo Go gracefully no-op because the native LevelPlay module is unavailable.
 
 import type { ComponentType } from "react";

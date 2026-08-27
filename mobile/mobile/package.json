@@ -8,7 +8,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "test:logic": "node --experimental-strip-types --test scripts/photo-similarity.test.mjs scripts/smart-reminder-policy.test.mjs scripts/daily-cleanup-policy.test.mjs scripts/daily-cleanup-calendar.test.mjs scripts/quick-cleanup-plan.test.mjs scripts/photo-protection.test.mjs scripts/levelplay-config.test.mjs scripts/meta-mrec-config.test.mjs",
+    "test:logic": "node --experimental-strip-types --test scripts/photo-similarity.test.mjs scripts/smart-reminder-policy.test.mjs scripts/daily-cleanup-policy.test.mjs scripts/daily-cleanup-calendar.test.mjs scripts/quick-cleanup-plan.test.mjs scripts/photo-protection.test.mjs scripts/levelplay-config.test.mjs",
     "validate:store": "node scripts/validate-store-metadata.mjs",
     "migrate:strings": "node scripts/migrate-jsx-strings.mjs",
     "validate:catalogs": "node scripts/validate-catalogs.mjs",

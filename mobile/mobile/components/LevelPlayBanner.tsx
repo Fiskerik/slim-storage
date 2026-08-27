@@ -27,7 +27,7 @@ export function LevelPlayBanner({ isPro }: { isPro: boolean }) {
       }
       bannerRef.current = null;
     };
-  }, [BannerAdView, adUnitId]);
+  }, [BannerAdView, adUnitId, isPro]);
 
   if (Platform.OS !== "ios" || isPro || !BannerAdView || !adUnitId) return null;
 
