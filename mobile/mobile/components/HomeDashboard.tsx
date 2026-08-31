@@ -92,7 +92,7 @@ const CAT_DEFS: Array<{
   icon: keyof typeof Ionicons.glyphMap;
   match: (p: NativePhoto, settings: NativeSettings) => boolean;
 }> = [
-  { key: "large", label: (s) => `>${formatThresholdMB(s.minSizeMB)}`, icon: "albums-outline", match: (p, s) => p.sizeMB >= s.minSizeMB },
+  { key: "large", label: (s) => formatThresholdMB(s.minSizeMB), icon: "albums-outline", match: (p, s) => p.sizeMB >= s.minSizeMB },
   { key: "old", label: (s) => `>${formatAgeThreshold(s.minAgeYears)}`, icon: "time-outline", match: (p, s) => ageYears(p.creationTime) >= s.minAgeYears },
   { key: "screenshots", label: () => t("ui.home-screens"), icon: "phone-portrait-outline", match: (p) => p.cleanupReasons.includes("Screenshot") || p.title.toLowerCase().includes("screen") },
   { key: "live", label: () => t("ui.home-live"), icon: "radio-button-on-outline", match: (p) => p.cleanupReasons.includes(t("ui.live-photo")) },

@@ -5914,25 +5914,48 @@ function TrimKindSettings({
 
 function BackgroundTrimStatus({ count, result, onOpenResult }: { count: number; result: BackgroundTrimResult | null; onOpenResult: () => void }) {
   const finished = count <= 0 && result !== null;
+  const [expanded, setExpanded] = useState(false);
+  const statusLabel = finished ? t("ui.trimming-finished-open-results") : t("ui.trimming-background-count", { count });
   return (
-    <Pressable
-      disabled={!finished}
-      accessibilityRole={finished ? "button" : "progressbar"}
-      accessibilityLabel={finished ? t("ui.trimming-finished-open-results") : t("ui.trimming-background-count", { count })}
-      onPress={onOpenResult}
-      style={({ pressed }) => [styles.backgroundTrimStatus, finished && styles.backgroundTrimFinished, pressed && styles.backgroundTrimPressed]}
-    >
-      {finished ? <Ionicons name="checkmark-circle" size={22} color="#ffffff" /> : <ActivityIndicator size="small" color="#ffffff" />}
-      <View style={styles.backgroundTrimCopy}>
-        <Text style={styles.backgroundTrimTitle}>{finished ? t("ui.trimming-finished") : t("ui.trimming-in-background")}</Text>
-        <Text style={styles.backgroundTrimDetail}>
-          {finished && result
-            ? t("ui.trim-result-tap", { count: result.trimmed, value: formatMB(result.savedMB) })
-            : t("ui.trimming-processing", { count })}
-        </Text>
-      </View>
-      {finished ? <Ionicons name="chevron-forward" size={19} color="#ffffff" /> : null}
-    </Pressable>
+    <View pointerEvents="box-none" style={styles.backgroundTrimStatusContainer}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={statusLabel}
+        accessibilityState={{ expanded }}
+        onPress={() => setExpanded((current) => !current)}
+        style={({ pressed }) => [
+          styles.backgroundTrimStatusIcon,
+          finished && styles.backgroundTrimFinished,
+          pressed && styles.backgroundTrimPressed,
+        ]}
+      >
+        {finished ? <Ionicons name="checkmark" size={21} color="#ffffff" /> : <ActivityIndicator size="small" color="#ffffff" />}
+      </Pressable>
+
+      {expanded ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={statusLabel}
+          onPress={finished ? onOpenResult : () => setExpanded(false)}
+          style={({ pressed }) => [
+            styles.backgroundTrimStatusCard,
+            finished && styles.backgroundTrimFinished,
+            pressed && styles.backgroundTrimPressed,
+          ]}
+        >
+          {finished ? <Ionicons name="checkmark-circle" size={22} color="#ffffff" /> : <ActivityIndicator size="small" color="#ffffff" />}
+          <View style={styles.backgroundTrimCopy}>
+            <Text style={styles.backgroundTrimTitle}>{finished ? t("ui.trimming-finished") : t("ui.trimming-in-background")}</Text>
+            <Text style={styles.backgroundTrimDetail}>
+              {finished && result
+                ? t("ui.trim-result-tap", { count: result.trimmed, value: formatMB(result.savedMB) })
+                : t("ui.trimming-processing", { count })}
+            </Text>
+          </View>
+          <Ionicons name={finished ? "chevron-forward" : "chevron-up"} size={19} color="#ffffff" />
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 
@@ -6853,12 +6876,30 @@ const styles = StyleSheet.create({
   toastError: { borderColor: "#fca5a5", backgroundColor: "#fef2f2" },
   toastTitle: { color: "#1f2937", fontSize: 13, fontWeight: "700" },
   toastDetail: { marginTop: 2, color: "#64748b", fontSize: 12, lineHeight: 16, fontWeight: "600" },
-  backgroundTrimStatus: {
+  backgroundTrimStatusContainer: {
     position: "absolute",
     left: 18,
     right: 18,
-    bottom: 92,
+    top: 8,
     zIndex: 900,
+    alignItems: "center",
+  },
+  backgroundTrimStatusIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#203345",
+    shadowColor: "#1f2937",
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 5,
+  },
+  backgroundTrimStatusCard: {
+    width: "100%",
+    marginTop: 8,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,

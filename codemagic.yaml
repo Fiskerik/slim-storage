@@ -15,7 +15,7 @@ workflows:
       node: 22.12.0
       vars:
         BUNDLE_ID: "com.fiskerik.trimswipe" # Fixed to match your real app bundle ID
-        APP_MARKETING_VERSION: "1.1.5"
+        APP_MARKETING_VERSION: "1.1.6"
         EXPO_NO_TYPESCRIPT_SETUP: "1"
     triggering:
       events:
@@ -145,7 +145,7 @@ workflows:
         script: |
           cd mobile/mobile/ios
           # Keep build numbers above the previously released train and unique across uploads.
-          MINIMUM_BUILD_NUMBER=72
+          MINIMUM_BUILD_NUMBER=73
           BUILD_NUMBER_OFFSET=48
           if [[ "${PROJECT_BUILD_NUMBER:-}" =~ ^[0-9]+$ ]]; then
           CI_BUILD_NUMBER=$((PROJECT_BUILD_NUMBER + BUILD_NUMBER_OFFSET))
