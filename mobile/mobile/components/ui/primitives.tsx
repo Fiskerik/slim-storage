@@ -343,8 +343,11 @@ export function DonutSplit({
       progress={trimShare}
       size={size}
       thickness={thickness}
-      trackColor={colors.danger + "55"}
-      fillColor={colors.sage}
+      // ProgressRing's track represents the progress share and its fill
+      // represents the remainder. Keep the two colors aligned with the
+      // legend: trim is green, delete is red.
+      trackColor={colors.sage}
+      fillColor={colors.danger}
     >
       <Text style={{ fontSize: 14, fontWeight: "700", color: colors.sage }}>
         {Math.round(trimShare * 100)}% {t("ui.trim-share")}

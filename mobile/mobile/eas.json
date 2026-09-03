@@ -17,8 +17,8 @@
       "autoIncrement": true,
       "node": "22.12.0",
       "env": {
-        "EXPO_PUBLIC_ADMOB_ENABLE_INSPECTOR": "true",
-        "EXPO_PUBLIC_ADMOB_USE_TEST_ADS": "true"
+        "EXPO_PUBLIC_IRONSRC_ADAPTER_DEBUG": "true",
+        "EXPO_PUBLIC_IRONSRC_ENABLE_TEST_SUITE": "true"
       }
     },
     "production": {

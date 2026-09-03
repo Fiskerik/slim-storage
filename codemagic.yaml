@@ -15,7 +15,7 @@ workflows:
       node: 22.12.0
       vars:
         BUNDLE_ID: "com.fiskerik.trimswipe" # Fixed to match your real app bundle ID
-        APP_MARKETING_VERSION: "1.1.3"
+        APP_MARKETING_VERSION: "1.1.6"
         EXPO_NO_TYPESCRIPT_SETUP: "1"
     triggering:
       events:
@@ -50,32 +50,30 @@ workflows:
             "${EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID:-}" \
             "${RC_PRODUCT_ID:-}" \
             "${rc_product_id:-}")
-          ADMOB_IOS_APP=$(first_value \
-            "${EXPO_PUBLIC_ADMOB_IOS_APP_ID:-}" \
-            "${EXPO_PUBLIC_APP_ID:-}" \
-            "${ADMOB_IOS_APP_ID:-}" \
-            "${admob_ios_app_id:-}")
-          ADMOB_IOS_REWARDED=$(first_value \
-            "${EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID:-}" \
-            "${EXPO_PUBLIC_IOS_REWARDED_ID:-}" \
-            "${ADMOB_IOS_REWARDED_ID:-}" \
-            "${admob_ios_rewarded_id:-}")
-          ADMOB_IOS_INTERSTITIAL=$(first_value \
-            "${EXPO_PUBLIC_ADMOB_IOS_INTERSTITIAL_ID:-}" \
-            "${EXPO_PUBLIC_IOS_INTERSTITIAL_ID:-}" \
-            "${ADMOB_IOS_INTERSTITIAL_ID:-}" \
-            "${admob_ios_interstitial_id:-}")
-          ADMOB_IOS_NATIVE_MIDSET=$(first_value \
-            "${EXPO_PUBLIC_IOS_NATIVE_MIDSET_ID:-}" \
-            "${ADMOB_IOS_NATIVE_MIDSET_ID:-}" \
-            "${admob_ios_native_midset_id:-}")
-          ADMOB_USE_TEST_ADS=$(first_value \
-            "${EXPO_PUBLIC_ADMOB_USE_TEST_ADS:-}" \
-            "${ADMOB_USE_TEST_ADS:-}" \
-            "false")
-          ADMOB_ENABLE_INSPECTOR=$(first_value \
-            "${EXPO_PUBLIC_ADMOB_ENABLE_INSPECTOR:-}" \
-            "${ADMOB_ENABLE_INSPECTOR:-}" \
+          LEVELPLAY_IOS_APP=$(first_value \
+            "${EXPO_PUBLIC_IRONSRC_IOS_APP_ID:-}" \
+            "${EXPO_PUBLIC_IRONSRC_IOS_APP_KEY:-}" \
+            "${IRONSRC_IOS_APP_ID:-}" \
+            "${ironsrc_ios_app_id:-}" \
+            "26d9fb51d")
+          LEVELPLAY_IOS_REWARDED=$(first_value \
+            "${EXPO_PUBLIC_IRONSRC_IOS_REWARDED_ID:-}" \
+            "${IRONSRC_IOS_REWARDED_ID:-}" \
+            "${ironsrc_ios_rewarded_id:-}" \
+            "nt81b397cbikquwn")
+          LEVELPLAY_IOS_INTERSTITIAL=$(first_value \
+            "${EXPO_PUBLIC_IRONSRC_IOS_INTERSTITIAL_ID:-}" \
+            "${IRONSRC_IOS_INTERSTITIAL_ID:-}" \
+            "${ironsrc_ios_interstitial_id:-}" \
+            "bini0fp5s7f2cuni")
+          LEVELPLAY_IOS_BANNER=$(first_value \
+            "${EXPO_PUBLIC_IRONSRC_IOS_BANNER_ID:-}" \
+            "${IRONSRC_IOS_BANNER_ID:-}" \
+            "${ironsrc_ios_banner_id:-}" \
+            "0zimioxn3plu2mxk")
+          LEVELPLAY_ADAPTER_DEBUG=$(first_value \
+            "${EXPO_PUBLIC_IRONSRC_ADAPTER_DEBUG:-}" \
+            "${IRONSRC_ADAPTER_DEBUG:-}" \
             "false")
 
           case "$REVENUECAT_KEY" in
@@ -93,60 +91,29 @@ workflows:
             echo "RevenueCat lifetime product ID is missing. Add EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID, RC_PRODUCT_ID, or rc_product_id to the Env group."
             exit 1
           fi
-          case "$ADMOB_IOS_APP" in
-            ca-app-pub-*~*) ;;
-            *)
-              echo "AdMob iOS app ID is missing or invalid. Add EXPO_PUBLIC_ADMOB_IOS_APP_ID to the Env group (format: ca-app-pub-...~...)."
-              exit 1
-              ;;
-          esac
-          case "$ADMOB_USE_TEST_ADS" in
-            true|false) ;;
-            *)
-              echo "EXPO_PUBLIC_ADMOB_USE_TEST_ADS must be true or false."
-              exit 1
-              ;;
-          esac
-          case "$ADMOB_ENABLE_INSPECTOR" in
-            true|false) ;;
-            *)
-              echo "EXPO_PUBLIC_ADMOB_ENABLE_INSPECTOR must be true or false."
-              exit 1
-              ;;
-          esac
-          if [ "$ADMOB_USE_TEST_ADS" != "true" ]; then
-            case "$ADMOB_IOS_REWARDED" in
-              ca-app-pub-*/*) ;;
-              *)
-                echo "AdMob iOS rewarded ad-unit ID is missing or invalid. Add EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID to the Env group (format: ca-app-pub-.../...)."
-                exit 1
-                ;;
-            esac
-            case "$ADMOB_IOS_INTERSTITIAL" in
-              ca-app-pub-*/*) ;;
-              *)
-                echo "AdMob iOS interstitial ad-unit ID is missing or invalid. Add EXPO_PUBLIC_ADMOB_IOS_INTERSTITIAL_ID to the Env group (format: ca-app-pub-.../...)."
-                exit 1
-                ;;
-            esac
-            case "$ADMOB_IOS_NATIVE_MIDSET" in
-              ca-app-pub-*/*) ;;
-              *)
-                echo "AdMob iOS native mid-set ad-unit ID is missing or invalid. Add EXPO_PUBLIC_IOS_NATIVE_MIDSET_ID to the Env group (format: ca-app-pub-.../...)."
-                exit 1
-                ;;
-            esac
+          if [ -z "$LEVELPLAY_IOS_APP" ] || [ -z "$LEVELPLAY_IOS_REWARDED" ] || [ -z "$LEVELPLAY_IOS_INTERSTITIAL" ]; then
+            echo "Unity LevelPlay iOS app key, rewarded ID, and interstitial ID are required."
+            exit 1
           fi
-
+          if [ "$LEVELPLAY_IOS_BANNER" = "q8m51pm2jg2br5yf" ]; then
+            echo "Replacing the legacy Native ad-unit ID in the Banner variable with the iOS Banner ad-unit ID."
+            LEVELPLAY_IOS_BANNER="0zimioxn3plu2mxk"
+          fi
+          case "$LEVELPLAY_ADAPTER_DEBUG" in
+            true|false) ;;
+            *)
+              echo "EXPO_PUBLIC_IRONSRC_ADAPTER_DEBUG must be true or false."
+              exit 1
+              ;;
+          esac
           printf 'EXPO_PUBLIC_RC_KEY=%s\n' "$REVENUECAT_KEY" >> "$CM_ENV"
           printf 'EXPO_PUBLIC_RC_ENTITLEMENT_ID=%s\n' "$REVENUECAT_ENTITLEMENT" >> "$CM_ENV"
           printf 'EXPO_PUBLIC_RC_LIFETIME_PRODUCT_ID=%s\n' "$REVENUECAT_PRODUCT" >> "$CM_ENV"
-          printf 'EXPO_PUBLIC_ADMOB_IOS_APP_ID=%s\n' "$ADMOB_IOS_APP" >> "$CM_ENV"
-          printf 'EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID=%s\n' "$ADMOB_IOS_REWARDED" >> "$CM_ENV"
-          printf 'EXPO_PUBLIC_ADMOB_IOS_INTERSTITIAL_ID=%s\n' "$ADMOB_IOS_INTERSTITIAL" >> "$CM_ENV"
-          printf 'EXPO_PUBLIC_IOS_NATIVE_MIDSET_ID=%s\n' "$ADMOB_IOS_NATIVE_MIDSET" >> "$CM_ENV"
-          printf 'EXPO_PUBLIC_ADMOB_USE_TEST_ADS=%s\n' "$ADMOB_USE_TEST_ADS" >> "$CM_ENV"
-          printf 'EXPO_PUBLIC_ADMOB_ENABLE_INSPECTOR=%s\n' "$ADMOB_ENABLE_INSPECTOR" >> "$CM_ENV"
+          printf 'EXPO_PUBLIC_IRONSRC_IOS_APP_ID=%s\n' "$LEVELPLAY_IOS_APP" >> "$CM_ENV"
+          printf 'EXPO_PUBLIC_IRONSRC_IOS_REWARDED_ID=%s\n' "$LEVELPLAY_IOS_REWARDED" >> "$CM_ENV"
+          printf 'EXPO_PUBLIC_IRONSRC_IOS_INTERSTITIAL_ID=%s\n' "$LEVELPLAY_IOS_INTERSTITIAL" >> "$CM_ENV"
+          printf 'EXPO_PUBLIC_IRONSRC_IOS_BANNER_ID=%s\n' "$LEVELPLAY_IOS_BANNER" >> "$CM_ENV"
+          printf 'EXPO_PUBLIC_IRONSRC_ADAPTER_DEBUG=%s\n' "$LEVELPLAY_ADAPTER_DEBUG" >> "$CM_ENV"
 
       - name: Build Root Mobile SPA Bundle
         script: |
@@ -178,7 +145,7 @@ workflows:
         script: |
           cd mobile/mobile/ios
           # Keep build numbers above the previously released train and unique across uploads.
-          MINIMUM_BUILD_NUMBER=68
+          MINIMUM_BUILD_NUMBER=73
           BUILD_NUMBER_OFFSET=48
           if [[ "${PROJECT_BUILD_NUMBER:-}" =~ ^[0-9]+$ ]]; then
           CI_BUILD_NUMBER=$((PROJECT_BUILD_NUMBER + BUILD_NUMBER_OFFSET))
@@ -202,16 +169,46 @@ workflows:
           echo "Set CFBundleVersion to $NEW_BUILD_NUMBER"
       - name: Initialize signing certificates
         script: |
-          app-store-connect fetch-signing-files "com.fiskerik.trimswipe" --project-type ios
-          xcode-project use-profiles
+          keychain initialize
+          # Codemagic CLI uses --type for the distribution profile; the legacy
+          # project-type option is no longer accepted by app-store-connect.
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+          keychain add-certificates
+          # Scope profile application to the generated app project. Expo
+          # dependencies (including RNDateTimePicker) contain their own
+          # .xcodeproj files which must not receive the app's signing profile.
+          xcode-project use-profiles \
+            --project "mobile/mobile/ios/TrimSwipe.xcodeproj"
 
       - name: Build iOS IPA
         script: |
           cd mobile/mobile/ios
           pod install --repo-update
-          if ! grep -q "GoogleMobileAdsMediationFacebook (6.21.1.0)" Podfile.lock || ! grep -q "GoogleMobileAdsMediationUnity (4.17.0.0)" Podfile.lock; then
-            echo "ERROR: AdMob Meta/Unity mediation adapters are missing or have unexpected versions."
-            grep -E "GoogleMobileAdsMediation(Facebook|Unity)" Podfile.lock || true
+          if grep -Eq "GoogleMobileAds|GoogleMobileAdsMediation" Podfile.lock; then
+            echo "ERROR: Google Mobile Ads pods are still present; this build must use direct Unity LevelPlay."
+            grep -E "GoogleMobileAds|GoogleMobileAdsMediation" Podfile.lock || true
+            exit 1
+          fi
+          if ! grep -Fq "IronSourceFacebookAdapter (5.4.0.0)" Podfile.lock; then
+            echo "ERROR: The Unity LevelPlay Meta adapter is missing or has an unexpected version."
+            grep -E "IronSourceFacebookAdapter|FBAudienceNetwork" Podfile.lock || true
+            exit 1
+          fi
+          if ! grep -Fq "FBAudienceNetwork (6.22.0)" Podfile.lock; then
+            echo "ERROR: The Meta Audience Network SDK is missing or has an unexpected version."
+            grep -E "IronSourceFacebookAdapter|FBAudienceNetwork" Podfile.lock || true
+            exit 1
+          fi
+          if ! grep -Fq "IronSourceYandexAdapter (5.12.0.0)" Podfile.lock; then
+            echo "ERROR: The Unity LevelPlay Yandex adapter is missing or has an unexpected version."
+            grep -E "IronSourceYandexAdapter|YandexMobileAds" Podfile.lock || true
+            exit 1
+          fi
+          if ! grep -Fq "YandexMobileAds (8.3.0)" Podfile.lock; then
+            echo "ERROR: The Yandex Mobile Ads SDK is missing or has an unexpected version."
+            grep -E "IronSourceYandexAdapter|YandexMobileAds" Podfile.lock || true
             exit 1
           fi
           xcode-project build-ipa --workspace *.xcworkspace --scheme "TrimSwipe"

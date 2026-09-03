@@ -6,6 +6,7 @@ import * as ImageManipulator from "expo-image-manipulator";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { StatusBar } from "expo-status-bar";
+import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import {
@@ -33,7 +34,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { captureRef } from "react-native-view-shot";
 import {
   cleanupPreparedTrims,
@@ -57,6 +58,14 @@ import {
   type NativePhotoPermission,
   type PreparedTrim,
 } from "../lib/native-photo-source";
+import { loadDailyCleanupPlan, type DailyCleanupPlan } from "../lib/daily-photo-cleanup";
+import { loadQuickCleanupLibrary, type QuickCleanupLibrary } from "../lib/quick-cleanup-service";
+import {
+  clearQuickCleanupReviewCache,
+  loadQuickCleanupReviewCache,
+  saveQuickCleanupReviewCache,
+} from "../lib/quick-cleanup-cache";
+import { loadPhotoProtectionStore, savePhotoProtectionStore, setPhotoProtection as updatePhotoProtection, type PhotoProtectionStore } from "../lib/photo-protection";
 import {
   loadNativePhotoReviewLedger,
   recordNativePhotoReview,
@@ -66,6 +75,7 @@ import {
   type NativePhotoReviewLedger,
 } from "../lib/native-review-ledger";
 import {
+  DEFAULT_FREE_SPACE_PLAN,
   DEFAULT_NATIVE_STATS,
   EMPTY_DAILY_STATS,
   loadNativeStats,
@@ -86,6 +96,8 @@ import {
 } from "../lib/native-store";
 import { APP_LANGUAGES, t } from "../lib/i18n";
 import { HomeDashboard } from "./HomeDashboard";
+import { DailyCleanupReview } from "./DailyCleanupReview";
+import { QuickCleanupReview } from "./QuickCleanupReview";
 import type { DailyRewardState } from "./HomeDashboard";
 import { StatsDashboard } from "./StatsDashboard";
 import { OnboardingCarousel } from "./OnboardingCarousel";
@@ -93,7 +105,7 @@ import { TrimScreen } from "./TrimScreen";
 import { ShopScreen } from "./ShopScreen";
 import { DuplicateClusterReview, type DuplicateCluster } from "./DuplicateClusterReview";
 import { GameFilterSlider } from "./GameFilterSlider";
-import { SwipeMidsetAdCard } from "./SwipeMidsetAdCard";
+import { LevelPlayBanner } from "./LevelPlayBanner";
 import { addTokens, subscribeTokens, spendTokens, DAILY_CLAIM_TOKENS } from "../lib/tokens";
 import {
   getPurchaseAccessStatus,
@@ -105,16 +117,15 @@ import {
 import { loadAccountSession, setAccountSignedIn } from "../lib/account-session";
 import {
   initAds,
-  loadSwipeMidsetNativeAd,
   openAdInspector,
   openAdsPrivacyOptions,
   showInterstitialAd,
   showRewardedAd,
-  type LoadedSwipeMidsetNativeAd,
 } from "../lib/ads";
-import { colors } from "../constants/design";
+import { colors, radius, spacing, type } from "../constants/design";
 import { getNativeTheme, NATIVE_THEME_OPTIONS, type NativeThemePalette } from "../constants/themes";
 import {
+  ensureCleanupNotifications,
   notifyCleanupProgress,
   registerCleanupBackgroundTask,
 } from "../lib/progress-notifications";
@@ -122,7 +133,14 @@ import {
   subscribeToReminderResponses,
   syncRemoteCleanupReminders,
 } from "../lib/remote-reminders";
-import { hasReachedMidset, shouldPresentMidsetAd } from "../lib/swipe-midset";
+import {
+  DAILY_TRIM_REMINDER_PROMPT_VERSION,
+  getDailyTrimReminderPermission,
+  reconcileDailyTrimReminder,
+  requestDailyTrimReminderPermission,
+  scheduleDailyTrimReminder,
+  cancelDailyTrimReminder,
+} from "../lib/daily-trim-reminder";
 
 type Screen =
   | "home"
@@ -136,6 +154,8 @@ type Screen =
   | "shop"
   | "automation"
   | "cleanup-plan"
+  | "quick-cleanup"
+  | "daily-cleanup"
   | "settings";
 
 type Action = "keep" | "trim" | "delete";
@@ -455,6 +475,25 @@ function formatGameAgeThreshold(years: number): string {
     return t("ui.age-months", { count: months });
   }
   return t("ui.age-years", { count: Number.isInteger(years) ? years.toFixed(0) : years.toFixed(1) });
+}
+
+function formatReminderTime(value: string): string {
+  const [hour = "20", minute = "30"] = value.split(":");
+  const date = new Date(2000, 0, 1, Number(hour), Number(minute));
+  return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function reminderPickerDate(value: string): Date {
+  const [hourText = "20", minuteText = "30"] = value.split(":");
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const date = new Date();
+  date.setHours(Number.isFinite(hour) ? Math.max(0, Math.min(23, hour)) : 20, Number.isFinite(minute) ? Math.max(0, Math.min(59, minute)) : 30, 0, 0);
+  return date;
+}
+
+function reminderPickerValue(date: Date): string {
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 function gameAgeYears(createdAt: number): number {
@@ -806,10 +845,6 @@ export function NativeTrimSwipeApp() {
   const [stats, setStats] = useState<NativeStats>(DEFAULT_NATIVE_STATS);
   const [reviewLedger, setReviewLedger] = useState<NativePhotoReviewLedger | null>(null);
   const [queue, setQueue] = useState<NativePhoto[]>([]);
-  const [swipeRoundId, setSwipeRoundId] = useState(0);
-  const [swipeRoundInitialCount, setSwipeRoundInitialCount] = useState(0);
-  const [midsetAdDismissed, setMidsetAdDismissed] = useState(false);
-  const [midsetAdVisible, setMidsetAdVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [statsLoaded, setStatsLoaded] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState(false);
@@ -831,6 +866,17 @@ export function NativeTrimSwipeApp() {
   const [scanError, setScanError] = useState<string | null>(null);
   const [cleanupPlan, setCleanupPlan] = useState<NativeCleanupPlan | null>(null);
   const [cleanupPlanBusy, setCleanupPlanBusy] = useState(false);
+  const [quickCleanupLibrary, setQuickCleanupLibrary] = useState<QuickCleanupLibrary | null>(null);
+  const [quickCleanupBusy, setQuickCleanupBusy] = useState(false);
+  const [quickCleanupError, setQuickCleanupError] = useState<"permission" | "error" | null>(null);
+  const [quickCleanupProgress, setQuickCleanupProgress] = useState<NativeLibraryScanProgress | null>(null);
+  const [pendingQuickCleanupOpen, setPendingQuickCleanupOpen] = useState(false);
+  const [photoProtection, setPhotoProtection] = useState<PhotoProtectionStore | null>(null);
+  const [dailyCleanupPlan, setDailyCleanupPlan] = useState<DailyCleanupPlan | null>(null);
+  const [dailyCleanupBusy, setDailyCleanupBusy] = useState(false);
+  const [dailyCleanupError, setDailyCleanupError] = useState<"permission" | "error" | null>(null);
+  const [dailyReminderPromptVisible, setDailyReminderPromptVisible] = useState(false);
+  const [dailyReminderPermission, setDailyReminderPermission] = useState<{ granted: boolean; blocked: boolean }>({ granted: false, blocked: false });
   const sessionRef = useRef<SessionRecap>({ kept: 0, trimmed: 0, deleted: 0, freed: 0 });
   const pendingDeletesRef = useRef<NativePhoto[]>([]);
   const pendingTrimsRef = useRef<NativePhoto[]>([]);
@@ -857,6 +903,8 @@ export function NativeTrimSwipeApp() {
   const settingsDirtyRef = useRef(false);
   const pendingSettingsRef = useRef<NativeSettings | null>(null);
   const scheduledScanBusyRef = useRef(false);
+  const freeSpaceScanBusyRef = useRef(false);
+  const startupQuickCleanupAttemptedRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
   const reportCardRef = useRef<View>(null);
 
@@ -871,7 +919,7 @@ export function NativeTrimSwipeApp() {
   const top = queue[0];
   const next = queue[1];
   const trimCurrencyAvailable = hasUnlimitedTrims ? Number.MAX_SAFE_INTEGER : Math.max(0, tokenBalance);
-  const onboardingDue = statsLoaded && (!stats.onboardingComplete || stats.onboardingVersion !== APP_VERSION);
+  const onboardingDue = statsLoaded && !stats.onboardingComplete;
   const backgroundScheduleSignature = settings.backgroundScanSchedules
     .map((schedule) => `${schedule.id}:${schedule.active}:${schedule.days.join(",")}:${schedule.times.join(",")}:${schedule.targetMB}:${schedule.lastRunAt ?? ""}`)
     .join("|");
@@ -950,12 +998,40 @@ export function NativeTrimSwipeApp() {
     let cancelled = false;
     loadNativeStats().then(async (loaded) => {
       if (cancelled) return;
-      const ledger = await loadNativePhotoReviewLedger(loaded);
+      const [ledger, protection, cachedQuickCleanup] = await Promise.all([
+        loadNativePhotoReviewLedger(loaded),
+        loadPhotoProtectionStore(),
+        loadQuickCleanupReviewCache(),
+      ]);
       if (cancelled) return;
-      const activeStats = { ...loaded, lastActiveAt: new Date().toISOString() };
+      const shouldRestoreQuickCleanup = Boolean(cachedQuickCleanup);
+      const activeStats = {
+        ...loaded,
+        lastActiveAt: new Date().toISOString(),
+        freeSpacePlan: shouldRestoreQuickCleanup && cachedQuickCleanup
+          ? {
+              status: "ready" as const,
+              startedAt: loaded.freeSpacePlan.startedAt,
+              completedAt: loaded.freeSpacePlan.completedAt ?? new Date().toISOString(),
+              estimatedSavingsMB: cachedQuickCleanup.plan.estimatedSavingsMB,
+              estimatedTrimSavingsMB: cachedQuickCleanup.plan.selectedItems
+                .filter((item) => item.action === "trim")
+                .reduce((sum, item) => sum + item.estimatedSavingsMB, 0),
+              estimatedDeleteSavingsMB: cachedQuickCleanup.plan.selectedItems
+                .filter((item) => item.action === "delete")
+                .reduce((sum, item) => sum + item.estimatedSavingsMB, 0),
+              candidateCount: cachedQuickCleanup.plan.items.length,
+              error: null,
+            }
+          : loaded.freeSpacePlan.status === "ready"
+            ? DEFAULT_FREE_SPACE_PLAN
+            : loaded.freeSpacePlan,
+      };
       void saveNativeStats(activeStats);
       setStats(activeStats);
+      if (shouldRestoreQuickCleanup) setQuickCleanupLibrary(cachedQuickCleanup);
       setReviewLedger(ledger);
+      setPhotoProtection(protection);
       setStatsLoaded(true);
     });
     return () => { cancelled = true; };
@@ -982,10 +1058,88 @@ export function NativeTrimSwipeApp() {
     return () => unsub();
   }, []);
 
+  // The listener is intentionally installed once; it reads current entitlement via refs.
   useEffect(
-    () => subscribeToReminderResponses(() => setScreen(isProRef.current ? "automation" : "games")),
+    () => subscribeToReminderResponses((destination) => {
+      if (destination === "daily-cleanup") void openDailyCleanupReview();
+      else if (destination === "quick-cleanup") setPendingQuickCleanupOpen(true);
+      else setScreen(isProRef.current ? "automation" : "games");
+    }),
+    // The listener is intentionally installed once; the callback reads current entitlement via refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
+
+  useEffect(() => {
+    if (!pendingQuickCleanupOpen || !statsLoaded) return;
+    let active = true;
+    if (quickCleanupLibrary) {
+      setScreen("quick-cleanup");
+      setPendingQuickCleanupOpen(false);
+      return;
+    }
+    void loadQuickCleanupReviewCache().then((cached) => {
+      if (!active) return;
+      setPendingQuickCleanupOpen(false);
+      if (cached) {
+        setQuickCleanupLibrary(cached);
+        setScreen("quick-cleanup");
+        return;
+      }
+      setScreen("home");
+      void startFreeSpacePlanScan();
+    });
+    return () => { active = false; };
+    // The scan starter is a component command; state dependencies above
+    // ensure this effect always runs with current settings and permissions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingQuickCleanupOpen, quickCleanupLibrary, statsLoaded]);
+
+  useEffect(() => {
+    if (!statsLoaded || stats.freeSpacePlan.status !== "scanning" || freeSpaceScanBusyRef.current) return;
+    const notificationPermission = ensureCleanupNotifications(true);
+    void runFreeSpacePlanScan(stats.freeSpacePlan.startedAt ?? new Date().toISOString(), notificationPermission);
+    // Resume an interrupted user-requested scan when the app next becomes
+    // active. The runner has its own single-flight guard.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stats.freeSpacePlan.startedAt, stats.freeSpacePlan.status, statsLoaded]);
+
+  useEffect(() => {
+    if (!statsLoaded || onboardingDue || startupQuickCleanupAttemptedRef.current) return;
+    if (quickCleanupLibrary || stats.freeSpacePlan.status === "ready" || stats.freeSpacePlan.status === "scanning") {
+      startupQuickCleanupAttemptedRef.current = true;
+      return;
+    }
+    startupQuickCleanupAttemptedRef.current = true;
+    void startFreeSpacePlanScan({ announce: false, requestNotificationPermission: false });
+    // The startup preparation is deliberately single-shot. The scan runner
+    // owns permission handling and single-flight protection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onboardingDue, quickCleanupLibrary, stats.freeSpacePlan.status, statsLoaded]);
+
+  useEffect(() => {
+    if (!statsLoaded) return;
+    let active = true;
+    void (async () => {
+      await translationI18n.changeLanguage(settings.appLanguage);
+      if (!active) return;
+      const permission = await reconcileDailyTrimReminder({
+        enabled: settings.dailyTrimReminder.enabled,
+        promptAcknowledged: stats.dailyTrimReminderPromptVersion >= DAILY_TRIM_REMINDER_PROMPT_VERSION,
+        time: settings.dailyTrimReminder.time,
+      });
+      if (active) setDailyReminderPermission({ granted: permission.granted, blocked: permission.blocked });
+    })();
+    return () => {
+      active = false;
+    };
+  }, [settings.appLanguage, settings.dailyTrimReminder.enabled, settings.dailyTrimReminder.time, stats.dailyTrimReminderPromptVersion, statsLoaded, translationI18n]);
+
+  useEffect(() => {
+    if (!statsLoaded || onboardingDue || stats.dailyTrimReminderPromptVersion >= DAILY_TRIM_REMINDER_PROMPT_VERSION) return;
+    const timer = setTimeout(() => setDailyReminderPromptVisible(true), 350);
+    return () => clearTimeout(timer);
+  }, [onboardingDue, stats.dailyTrimReminderPromptVersion, statsLoaded]);
 
   useEffect(() => {
     if (!statsLoaded || !purchaseAccessReady) return;
@@ -1052,6 +1206,238 @@ export function NativeTrimSwipeApp() {
 
   function completeOnboarding() {
     commitStats((current) => ({ ...current, onboardingComplete: true, onboardingVersion: APP_VERSION }));
+  }
+
+  async function setDailyReminderEnabled(enabled: boolean): Promise<void> {
+    updateSettings({
+      dailyTrimReminder: { ...(pendingSettingsRef.current ?? settings).dailyTrimReminder, enabled },
+    });
+    commitStats((current) => ({
+      ...current,
+      dailyTrimReminderPromptVersion: Math.max(current.dailyTrimReminderPromptVersion, DAILY_TRIM_REMINDER_PROMPT_VERSION),
+    }));
+    setDailyReminderPromptVisible(false);
+    if (!enabled) {
+      await cancelDailyTrimReminder();
+      return;
+    }
+
+    let permission = await getDailyTrimReminderPermission();
+    if (!permission.granted && permission.canAskAgain) {
+      permission = await requestDailyTrimReminderPermission();
+    }
+    setDailyReminderPermission({ granted: permission.granted, blocked: permission.blocked });
+    if (permission.granted) {
+      await scheduleDailyTrimReminder((pendingSettingsRef.current ?? settings).dailyTrimReminder.time);
+    } else {
+      showToast(t("ui.notifications-are-off"), t("ui.daily-trim-reminder-system-blocked"), "warning");
+    }
+  }
+
+  async function setDailyReminderTime(time: string): Promise<void> {
+    const nextSettings = {
+      ...(pendingSettingsRef.current ?? settings),
+      dailyTrimReminder: {
+        ...(pendingSettingsRef.current ?? settings).dailyTrimReminder,
+        time,
+      },
+    };
+    updateSettings({ dailyTrimReminder: nextSettings.dailyTrimReminder });
+    if (!nextSettings.dailyTrimReminder.enabled) return;
+    const permission = await getDailyTrimReminderPermission();
+    setDailyReminderPermission({ granted: permission.granted, blocked: permission.blocked });
+    if (permission.granted) await scheduleDailyTrimReminder(time);
+  }
+
+  function declineDailyReminderPrompt() {
+    void setDailyReminderEnabled(false);
+  }
+
+  async function acceptDailyReminderPrompt() {
+    await setDailyReminderEnabled(true);
+  }
+
+  async function openDailyCleanupReview() {
+    setDailyCleanupPlan(null);
+    setDailyCleanupError(null);
+    setDailyCleanupBusy(true);
+    setScreen("daily-cleanup");
+    try {
+      const permission = await requestPhotoPermission();
+      if (!permission.granted) {
+        setPermissionDenied(true);
+        showToast(t("ui.photo-access-needed"), t("ui.open-ios-settings-to-preview-cleanup-folders"), "warning");
+        setDailyCleanupError("permission");
+        return;
+      }
+      setPermissionDenied(false);
+      setDailyCleanupPlan(await loadDailyCleanupPlan(settings));
+    } catch (error) {
+      showToast(t("ui.preview-failed"), error instanceof Error ? error.message : t("ui.could-not-build-this-cleanup-folder"), "error");
+      setDailyCleanupError("error");
+    } finally {
+      setDailyCleanupBusy(false);
+    }
+  }
+
+  async function reviewFreeSpacePlan() {
+    if (quickCleanupLibrary) {
+      setScreen("quick-cleanup");
+      return;
+    }
+    const cached = await loadQuickCleanupReviewCache();
+    if (cached) {
+      setQuickCleanupLibrary(cached);
+      setScreen("quick-cleanup");
+      return;
+    }
+    // A ready summary without its review cache is not actionable. Keep the
+    // user on Home, rebuild once, and notify when the actual preview is ready.
+    commitStats((current) => ({ ...current, freeSpacePlan: DEFAULT_FREE_SPACE_PLAN }));
+    await startFreeSpacePlanScan();
+  }
+
+  async function runFreeSpacePlanScan(startedAt: string, notificationPermission?: Promise<boolean>) {
+    if (freeSpaceScanBusyRef.current) return;
+    freeSpaceScanBusyRef.current = true;
+    setQuickCleanupBusy(true);
+    setQuickCleanupProgress({ scanned: 0, phase: "indexing" });
+    try {
+      const permission = await requestPhotoPermission();
+      if (!permission.granted) {
+        setPermissionDenied(true);
+        setQuickCleanupError("permission");
+        commitStats((current) => ({
+          ...current,
+          freeSpacePlan: {
+            ...current.freeSpacePlan,
+            status: "failed",
+            completedAt: new Date().toISOString(),
+            error: "permission",
+          },
+        }));
+        showToast(t("ui.photo-access-needed"), t("ui.open-ios-settings-to-preview-cleanup-folders"), "warning");
+        return;
+      }
+      setPermissionDenied(false);
+      const library = await loadQuickCleanupLibrary(settings, {
+        budgetSeconds: 120,
+        trimBalance: tokenBalance,
+        unlimitedTrims: hasUnlimitedTrims,
+        protection: photoProtection ?? undefined,
+        reviewLedger,
+        onProgress: setQuickCleanupProgress,
+      });
+      const cached = await saveQuickCleanupReviewCache(library);
+      setQuickCleanupLibrary(library);
+      const selected = library.plan.selectedItems;
+      const estimatedTrimSavingsMB = selected
+        .filter((item) => item.action === "trim")
+        .reduce((sum, item) => sum + item.estimatedSavingsMB, 0);
+      const estimatedDeleteSavingsMB = selected
+        .filter((item) => item.action === "delete")
+        .reduce((sum, item) => sum + item.estimatedSavingsMB, 0);
+      const completedAt = new Date().toISOString();
+      commitStats((current) => ({
+        ...current,
+        freeSpacePlan: {
+          status: "ready",
+          startedAt,
+          completedAt,
+          estimatedSavingsMB: library.plan.estimatedSavingsMB,
+          estimatedTrimSavingsMB,
+          estimatedDeleteSavingsMB,
+          candidateCount: library.plan.items.length,
+          error: null,
+        },
+      }));
+      showToast(t("ui.trimswipe-scan-ready"), t("ui.scan-found-to-review", { value: formatMB(library.plan.estimatedSavingsMB) }), "success");
+      const canNotify = cached && await (notificationPermission ?? ensureCleanupNotifications(false));
+      if (canNotify) {
+        await notifyCleanupProgress(
+          t("ui.trimswipe-scan-ready"),
+          t("ui.scan-found-to-review", { value: formatMB(library.plan.estimatedSavingsMB) }),
+          { data: { type: "quick-cleanup-ready", screen: "quick-cleanup" }, requestPermission: false },
+        );
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t("ui.could-not-scan-the-photo-library");
+      setQuickCleanupError("error");
+      commitStats((current) => ({
+        ...current,
+        freeSpacePlan: {
+          ...current.freeSpacePlan,
+          status: "failed",
+          completedAt: new Date().toISOString(),
+          error: message,
+        },
+      }));
+      showToast(t("ui.preview-failed"), message, "error");
+    } finally {
+      freeSpaceScanBusyRef.current = false;
+      setQuickCleanupBusy(false);
+      setQuickCleanupProgress(null);
+    }
+  }
+
+  async function startFreeSpacePlanScan(
+    options: { announce?: boolean; requestNotificationPermission?: boolean } = {},
+  ) {
+    if (freeSpaceScanBusyRef.current || stats.freeSpacePlan.status === "scanning") return;
+    const { announce = true, requestNotificationPermission = true } = options;
+    const startedAt = new Date().toISOString();
+    await clearQuickCleanupReviewCache();
+    setQuickCleanupLibrary(null);
+    setQuickCleanupError(null);
+    commitStats((current) => ({
+      ...current,
+      freeSpacePlan: {
+        ...DEFAULT_FREE_SPACE_PLAN,
+        status: "scanning",
+        startedAt,
+      },
+    }));
+    if (announce) {
+      showToast(t("ui.trimswipe-scan-started"), t("ui.you-can-keep-using-trimswipe-while-the-batch-run"), "info");
+    }
+    // Resolve notification access and scan concurrently. Even a tiny library
+    // cannot race past the permission result and silently lose its ready alert.
+    const notificationPermission = ensureCleanupNotifications(requestNotificationPermission);
+    void runFreeSpacePlanScan(startedAt, notificationPermission);
+  }
+
+  function toggleQuickProtection(photo: NativePhoto, protectedState: boolean) {
+    setPhotoProtection((current) => {
+      if (!current) return current;
+      const next = updatePhotoProtection(current, photo.id, protectedState);
+      void savePhotoProtectionStore(next);
+      return next;
+    });
+    setQuickCleanupLibrary((current) => {
+      if (!current) return current;
+      const protectedIds = new Set(current.plan.protectedIds);
+      if (protectedState) protectedIds.add(photo.id);
+      else protectedIds.delete(photo.id);
+      const items = current.plan.items.map((candidate) => candidate.photo.id === photo.id
+        ? { ...candidate, selected: false }
+        : candidate);
+      const next = {
+        ...current,
+        plan: { ...current.plan, items, selectedItems: items.filter((candidate) => candidate.selected), protectedIds: [...protectedIds] },
+      };
+      void saveQuickCleanupReviewCache(next);
+      return next;
+    });
+  }
+
+  function decideQuickLater(photo: NativePhoto) {
+    commitReviewLedger((current) => recordNativePhotoReview(current, photo.id, "skipped"));
+    setQuickCleanupLibrary((current) => {
+      if (!current) return current;
+      const next = { ...current, plan: { ...current.plan, items: current.plan.items.filter((candidate) => candidate.photo.id !== photo.id), selectedItems: current.plan.selectedItems.filter((candidate) => candidate.photo.id !== photo.id) } };
+      void saveQuickCleanupReviewCache(next);
+      return next;
+    });
   }
 
   async function shareProgress() {
@@ -1274,10 +1660,6 @@ export function NativeTrimSwipeApp() {
     // FIX 1: Guard against NaN cardsPerRound before calling MediaLibrary
     const safeCount = Math.max(1, Math.round(activeSettings.cardsPerRound) || 10);
     setLoading(true);
-    setSwipeRoundId((current) => current + 1);
-    setSwipeRoundInitialCount(0);
-    setMidsetAdDismissed(false);
-    setMidsetAdVisible(false);
     setError(null);
     setRecap(null);
     setPendingDeletes([]);
@@ -1325,7 +1707,6 @@ export function NativeTrimSwipeApp() {
         });
       }
       setQueue(photos);
-      setSwipeRoundInitialCount(photos.length);
       if (fallbackNotice && options.showFallbackToast) {
         showToast(t("ui.filter-widened"), fallbackNotice, "info");
       }
@@ -1351,23 +1732,22 @@ export function NativeTrimSwipeApp() {
       settings.sessionMode !== "time-attack" ||
       loading ||
       recap ||
-      pendingDeletes.length > 0 ||
-      midsetAdVisible
+      pendingDeletes.length > 0
     ) return undefined;
     if (timeLeft <= 0) return undefined;
     const timer = setInterval(() => {
       setTimeLeft((current) => Math.max(0, current - 1));
     }, 1000);
     return () => clearInterval(timer);
-  }, [loading, midsetAdVisible, pendingDeletes.length, recap, settings.sessionMode, timeLeft]);
+  }, [loading, pendingDeletes.length, recap, settings.sessionMode, timeLeft]);
 
   useEffect(() => {
-    if (settings.sessionMode !== "time-attack" || timeLeft !== 0 || loading || recap || midsetAdVisible) return;
+    if (settings.sessionMode !== "time-attack" || timeLeft !== 0 || loading || recap) return;
     if (queue.length === 0) return;
     setQueue([]);
     finishSession();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, midsetAdVisible, queue.length, recap, settings.sessionMode, timeLeft]);
+  }, [loading, queue.length, recap, settings.sessionMode, timeLeft]);
 
   function finishSession() {
     commitStats((current) =>
@@ -1936,10 +2316,6 @@ export function NativeTrimSwipeApp() {
       if (photos.length === 0) return;
       setTrimActionPickerVisible(false);
       setQueue(photos);
-      setSwipeRoundInitialCount(photos.length);
-      setSwipeRoundId((current) => current + 1);
-      setMidsetAdDismissed(false);
-      setMidsetAdVisible(false);
       setPendingDeletes([]);
       setPendingTrims([]);
       pendingDeletesRef.current = [];
@@ -2122,11 +2498,18 @@ export function NativeTrimSwipeApp() {
       if ((previousState === "background" || previousState === "inactive") && nextState === "active") {
         commitStats((current) => ({ ...current, lastActiveAt: new Date().toISOString() }));
         if (isPro) void runDueBackgroundScans();
+        if (statsLoaded) {
+          void reconcileDailyTrimReminder({
+            enabled: settings.dailyTrimReminder.enabled,
+            promptAcknowledged: stats.dailyTrimReminderPromptVersion >= DAILY_TRIM_REMINDER_PROMPT_VERSION,
+            time: settings.dailyTrimReminder.time,
+          }).then((permission) => setDailyReminderPermission({ granted: permission.granted, blocked: permission.blocked }));
+        }
       }
     });
     return () => sub.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPro, backgroundScheduleSignature]);
+  }, [backgroundScheduleSignature, isPro, settings.appLanguage, settings.dailyTrimReminder.enabled, settings.dailyTrimReminder.time, stats.dailyTrimReminderPromptVersion, statsLoaded]);
 
   useEffect(() => {
     if (!isPro && screen === "automation") setScreen("home");
@@ -2553,9 +2936,6 @@ export function NativeTrimSwipeApp() {
             pendingTrims={pendingTrims}
             trimmingCount={trimmingCount}
             timeLeft={timeLeft}
-            roundId={swipeRoundId}
-            roundInitialCount={swipeRoundInitialCount}
-            midsetAdDismissed={midsetAdDismissed}
             largeControls={false}
             tokens={tokenBalance}
             trimsRemaining={trimCurrencyAvailable}
@@ -2570,11 +2950,6 @@ export function NativeTrimSwipeApp() {
             onConfirmActions={confirmActions}
             onCancelPending={cancelPendingActions}
             onOpenShop={() => setScreen("shop")}
-            onMidsetAdDismissed={() => {
-              setMidsetAdDismissed(true);
-              setMidsetAdVisible(false);
-            }}
-            onMidsetAdVisibilityChange={setMidsetAdVisible}
             onShare={shareProgress}
           />
         ) : screen === "stats" ? (
@@ -2628,6 +3003,72 @@ export function NativeTrimSwipeApp() {
             isPro={isPro}
             onBack={() => setScreen("games")}
             onTrimmed={handleSingleTrimComplete}
+          />
+        ) : screen === "quick-cleanup" ? (
+          <QuickCleanupReview
+            plan={quickCleanupLibrary?.plan ?? null}
+            groups={quickCleanupLibrary?.groups ?? []}
+            trimOptions={quickCleanupLibrary?.trimOptions ?? []}
+            months={quickCleanupLibrary?.months ?? []}
+            loading={quickCleanupBusy}
+            progress={quickCleanupProgress}
+            error={quickCleanupError}
+            trimsRemaining={trimCurrencyAvailable}
+            onBack={() => setScreen("home")}
+            onStartScan={() => {
+              setScreen("home");
+              void startFreeSpacePlanScan();
+            }}
+            onOpenSettings={() => void Linking.openSettings()}
+            onProtect={toggleQuickProtection}
+            onDecideLater={decideQuickLater}
+            onConfirm={(deletes, trims) => {
+              const deletePhotosForPlan = deletes;
+              const trimPhotosForPlan = trims;
+              void requestConfirmation({
+                title: t("ui.apply-suggested-removals"),
+                detail: t("ui.delete-trim-savings", { deleted: deletePhotosForPlan.length, trimmed: trimPhotosForPlan.length, total: trimPhotosForPlan.length, value: formatMB(deletePhotosForPlan.reduce((sum, photo) => sum + photo.sizeMB, 0) + trimPhotosForPlan.reduce((sum, photo) => sum + estimateTrimSavingsForSettings(photo, settings), 0)) }),
+                danger: deletePhotosForPlan.length > 0,
+                runInBackground: trimPhotosForPlan.length > 0,
+                onConfirm: async () => {
+                  setQuickCleanupLibrary(null);
+                  await clearQuickCleanupReviewCache();
+                  commitStats((current) => ({
+                    ...current,
+                    freeSpacePlan: {
+                      ...current.freeSpacePlan,
+                      status: "idle",
+                      candidateCount: 0,
+                      estimatedSavingsMB: 0,
+                      estimatedTrimSavingsMB: 0,
+                      estimatedDeleteSavingsMB: 0,
+                      error: null,
+                    },
+                  }));
+                  setScreen("swipe");
+                  showToast(t("ui.cleanup-started"), t("ui.you-can-keep-using-trimswipe-while-the-batch-run"), "info");
+                  await confirmActions(deletePhotosForPlan, trimPhotosForPlan);
+                  return deletePhotosForPlan.length + trimPhotosForPlan.length;
+                },
+              }).catch((err) => showToast(t("ui.cleanup-failed"), err instanceof Error ? err.message : t("ui.please-try-again"), "error"));
+            }}
+          />
+        ) : screen === "daily-cleanup" ? (
+          <DailyCleanupReview
+            plan={dailyCleanupPlan}
+            loading={dailyCleanupBusy}
+            error={dailyCleanupError}
+            trimsRemaining={trimCurrencyAvailable}
+            onBack={() => setScreen("home")}
+            onOpenSettings={() => void Linking.openSettings()}
+            onConfirm={(deletes, trims) => {
+              setDailyCleanupPlan(null);
+              setScreen("swipe");
+              showToast(t("ui.cleanup-started"), t("ui.you-can-keep-using-trimswipe-while-the-batch-run"), "info");
+              void confirmActions(deletes.map((item) => item.photo), trims.map((item) => item.photo)).catch((err) => {
+                showToast(t("ui.cleanup-failed"), err instanceof Error ? err.message : t("ui.please-try-again"), "error");
+              });
+            }}
           />
         ) : screen === "cleanup-plan" ? (
           <CleanupPlanScreen
@@ -2707,7 +3148,11 @@ export function NativeTrimSwipeApp() {
             isPro={isPro}
             hasUnlimitedTrims={hasUnlimitedTrims}
             adBusy={adBusy}
+            freeSpacePlan={stats.freeSpacePlan}
+            freeSpacePlanProgress={quickCleanupProgress}
             onStartSwipe={() => { setScreen("swipe"); void loadRound(settings, { showFallbackToast: true }); }}
+            onStartFreeSpacePlan={() => void startFreeSpacePlanScan()}
+            onReviewFreeSpacePlan={reviewFreeSpacePlan}
             onOpenTrim={() => setScreen("trim")}
             onOpenGames={() => setScreen("games")}
             onOpenShop={() => setScreen("shop")}
@@ -2730,6 +3175,9 @@ export function NativeTrimSwipeApp() {
             activeProductId={activeProductId}
             samplePhoto={top ?? queue[0]}
             onChange={updateSettings}
+            onDailyReminderChange={setDailyReminderEnabled}
+            onDailyReminderTimeChange={setDailyReminderTime}
+            dailyReminderPermission={dailyReminderPermission}
             onChangeLanguage={async (appLanguage) => {
               const rightToLeft = appLanguage === "ar";
               const directionChanged = rightToLeft !== I18nManager.isRTL;
@@ -2799,7 +3247,7 @@ export function NativeTrimSwipeApp() {
           />
         )}
 
-        {statsLoaded && !onboardingDue ? <BottomNav screen={screen} isPro={isPro} theme={activeTheme} onChange={changeScreen} /> : null}
+        {statsLoaded && !onboardingDue && screen !== "daily-cleanup" ? <BottomNav screen={screen} isPro={isPro} theme={activeTheme} onChange={changeScreen} /> : null}
         {statsLoaded && (trimmingCount > 0 || backgroundTrimResult) ? (
           <BackgroundTrimStatus
             count={trimmingCount}
@@ -2835,6 +3283,12 @@ export function NativeTrimSwipeApp() {
         />
         <ConfirmSheet request={confirmRequest} busy={confirmBusy} />
         <Toast toast={toast} />
+        <DailyReminderPrompt
+          visible={dailyReminderPromptVisible}
+          reminderTime={formatReminderTime(settings.dailyTrimReminder.time)}
+          onEnable={() => void acceptDailyReminderPrompt()}
+          onDismiss={declineDailyReminderPrompt}
+        />
       </View>
     </SafeAreaView>
   );
@@ -3078,17 +3532,16 @@ function CleanupPlanScreen({
 function SwipeScreen({
   top, next, queueCount, loading, error, permissionDenied, permissionLimited,
   settings, recap, pendingDeletes, pendingTrims, trimmingCount, timeLeft,
-  roundId, roundInitialCount, midsetAdDismissed, largeControls, tokens,
+  largeControls, tokens,
   trimsRemaining, trimLimit, onAction, onReload, onOpenSettings,
   isPro, hasUnlimitedTrims, adEligibilityReady, onChangeSettings, onConfirmActions, onCancelPending, onOpenShop,
-  onMidsetAdDismissed, onMidsetAdVisibilityChange, onShare,
+  onShare,
 }: {
   top?: NativePhoto; next?: NativePhoto; queueCount: number; loading: boolean;
   error: string | null; permissionDenied: boolean; permissionLimited: boolean;
   settings: NativeSettings; recap: SessionRecap | null; pendingDeletes: NativePhoto[];
   pendingTrims: NativePhoto[];
-  trimmingCount: number; timeLeft: number; roundId: number; roundInitialCount: number;
-  midsetAdDismissed: boolean; largeControls: boolean; tokens: number; trimsRemaining: number;
+  trimmingCount: number; timeLeft: number; largeControls: boolean; tokens: number; trimsRemaining: number;
   trimLimit: number; onAction: (photo: NativePhoto, action: Action) => void;
   onReload: () => void; onOpenSettings: () => void;
   isPro: boolean; hasUnlimitedTrims: boolean; adEligibilityReady: boolean;
@@ -3096,71 +3549,12 @@ function SwipeScreen({
   onConfirmActions: (deletes: NativePhoto[], trims: NativePhoto[]) => Promise<void> | void;
   onCancelPending: () => void;
   onOpenShop: () => void;
-  onMidsetAdDismissed: () => void;
-  onMidsetAdVisibilityChange: (visible: boolean) => void;
   onShare: () => void;
 }) {
   const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
-  const [midsetAd, setMidsetAd] = useState<LoadedSwipeMidsetNativeAd | null>(null);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-  // Keep the photo card within the visible area on 4.7-inch and 5.4-inch
-  // iPhones while retaining the larger card on modern Max-sized devices.
-  const deckHeight = Math.max(
-    330,
-    Math.min(492, Math.round(Math.min(windowHeight * 0.52, windowWidth * 1.15))),
-  );
-  const showMidsetAd = shouldPresentMidsetAd({
-    initialCount: roundInitialCount,
-    remainingCount: queueCount,
-    isPro,
-    dismissed: midsetAdDismissed,
-    loaded: Boolean(midsetAd),
-    hasCurrentPhoto: Boolean(top),
-  });
-  const midpointReached = hasReachedMidset(roundInitialCount, queueCount);
-
-  useEffect(() => {
-    let active = true;
-    let ownedAd: LoadedSwipeMidsetNativeAd | null = null;
-    setMidsetAd(null);
-
-    if (!adEligibilityReady || isPro || midsetAdDismissed || roundInitialCount < 2) {
-      return () => { active = false; };
-    }
-
-    void loadSwipeMidsetNativeAd({ freeUserVerified: true }).then((loaded) => {
-      if (!loaded) return;
-      if (!active) {
-        try { loaded.ad.destroy(); } catch {}
-        return;
-      }
-      ownedAd = loaded;
-      setMidsetAd(loaded);
-    });
-
-    return () => {
-      active = false;
-      if (ownedAd) {
-        try { ownedAd.ad.destroy(); } catch {}
-      }
-    };
-  }, [adEligibilityReady, isPro, midsetAdDismissed, roundId, roundInitialCount]);
-
-  useEffect(() => {
-    // The placement belongs exactly at the midpoint. If preloading has not
-    // completed by then, fail open for this round instead of interrupting later.
-    if (adEligibilityReady && !isPro && !midsetAdDismissed && midpointReached && top && !midsetAd) {
-      onMidsetAdDismissed();
-    }
-  }, [adEligibilityReady, isPro, midpointReached, midsetAd, midsetAdDismissed, onMidsetAdDismissed, top]);
-
-  useEffect(() => {
-    onMidsetAdVisibilityChange(showMidsetAd);
-    return () => {
-      if (showMidsetAd) onMidsetAdVisibilityChange(false);
-    };
-  }, [onMidsetAdVisibilityChange, showMidsetAd]);
-
+  const compactLayout = windowHeight <= 700 || windowWidth <= 350;
+  const actionButtonSize = compactLayout ? "compact" : "swipe";
   if (loading) {
     return (
       <Centered>
@@ -3204,14 +3598,14 @@ function SwipeScreen({
     );
   }
   return (
-    <View style={styles.content}>
-      <View style={styles.swipeHeader}>
+    <View style={[styles.content, styles.swipeContent, compactLayout && styles.swipeContentCompact]}>
+      <View style={[styles.swipeHeader, compactLayout && styles.swipeHeaderCompact]}>
         <View style={styles.swipeHeaderCopy}>
           <Text style={styles.eyebrow}>{t("ui.current-focus")}</Text>
-          <Text style={[styles.swipeTitle, largeControls && styles.swipeTitleLarge]}>{targetLabel(settings)}</Text>
-          <Text style={styles.swipeSubtitle}>{t("ui.session-mode-subtitle", { mode: sessionModeLabel(settings.sessionMode) })}</Text>
+          <Text style={[styles.swipeTitle, largeControls && styles.swipeTitleLarge, compactLayout && styles.swipeTitleCompact]}>{targetLabel(settings)}</Text>
+          <Text style={[styles.swipeSubtitle, compactLayout && styles.swipeSubtitleCompact]}>{t("ui.session-mode-subtitle", { mode: sessionModeLabel(settings.sessionMode) })}</Text>
         </View>
-        <View style={styles.swipeStatusColumn}>
+        <View style={[styles.swipeStatusColumn, compactLayout && styles.swipeStatusColumnCompact]}>
           <TokenPill tokens={tokens} hasUnlimitedTrims={hasUnlimitedTrims} />
           <Text style={styles.queuePill}>{t("ui.queue-left", { count: queueCount })}</Text>
           {settings.sessionMode === "time-attack" ? <Text style={styles.timerPill}>{timeLeft}s</Text> : null}
@@ -3219,16 +3613,10 @@ function SwipeScreen({
         </View>
       </View>
       {permissionLimited ? <Text style={styles.warning}>{t("ui.limited-photo-access-is-enabled-some-photos-may-")}</Text> : null}
-      <View style={[styles.deck, { height: deckHeight }]}>
-        {showMidsetAd
-          ? top ? <PhotoCard photo={top} settings={settings} stacked /> : null
-          : next ? <PhotoCard photo={next} settings={settings} stacked /> : null}
-        {showMidsetAd && midsetAd ? (
-          <SwipeMidsetAdCard
-            loaded={midsetAd}
-            onDismiss={onMidsetAdDismissed}
-          />
-        ) : top ? (
+      <LevelPlayBanner isPro={isPro || !adEligibilityReady} />
+      <View style={[styles.deck, compactLayout && styles.deckCompact]}>
+        {next ? <PhotoCard photo={next} settings={settings} stacked /> : null}
+        {top ? (
           <SwipeablePhotoCard
             photo={top}
             settings={settings}
@@ -3237,26 +3625,25 @@ function SwipeScreen({
           />
         ) : null}
       </View>
-      {!showMidsetAd ? (
-        <View style={styles.actions}>
-          <ActionButton label={t("ui.keep")} tone="keep" large={largeControls} onPress={() => top && onAction(top, "keep")} />
-          <ActionButton
-            label={!top ? t("ui.trim-label") : !canAttemptTrim(top, settings) ? trimDisabledReason(top, settings) : trimsRemaining <= 0 ? t("ui.limit-hit") : t("ui.trim-label")}
-            tone="trim"
-            large={largeControls}
-            disabled={!top || !canAttemptTrim(top, settings)}
-            onPress={() => {
-              if (!top) return;
-              if (trimsRemaining <= 0) {
-                onOpenShop();
-                return;
-              }
-              onAction(top, "trim");
-            }}
-          />
-          <ActionButton label={t("ui.delete")} tone="delete" large={largeControls} onPress={() => top && onAction(top, "delete")} />
-        </View>
-      ) : null}
+      <View style={[styles.actions, styles.swipeActions, compactLayout && styles.swipeActionsCompact]}>
+        <ActionButton label={t("ui.keep")} tone="keep" size={actionButtonSize} large={largeControls} onPress={() => top && onAction(top, "keep")} />
+        <ActionButton
+          label={!top ? t("ui.trim-label") : !canAttemptTrim(top, settings) ? trimDisabledReason(top, settings) : trimsRemaining <= 0 ? t("ui.limit-hit") : t("ui.trim-label")}
+          tone="trim"
+          size={actionButtonSize}
+          large={largeControls}
+          disabled={!top || !canAttemptTrim(top, settings)}
+          onPress={() => {
+            if (!top) return;
+            if (trimsRemaining <= 0) {
+              onOpenShop();
+              return;
+            }
+            onAction(top, "trim");
+          }}
+        />
+        <ActionButton label={t("ui.delete")} tone="delete" size={actionButtonSize} large={largeControls} onPress={() => top && onAction(top, "delete")} />
+      </View>
       <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </View>
   );
@@ -5070,6 +5457,50 @@ function ReportDashboardModal({
   );
 }
 
+function DailyReminderPrompt({
+  visible,
+  reminderTime,
+  onEnable,
+  onDismiss,
+}: {
+  visible: boolean;
+  reminderTime: string;
+  onEnable: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss}>
+      <View style={dailyReminderPromptStyles.backdrop}>
+        <View style={dailyReminderPromptStyles.card}>
+          <View style={dailyReminderPromptStyles.icon}>
+            <Ionicons name="moon-outline" size={24} color={colors.primary} />
+          </View>
+          <Text style={dailyReminderPromptStyles.title}>{t("ui.daily-trim-reminder-prompt-title")}</Text>
+          <Text style={dailyReminderPromptStyles.body}>{t("ui.daily-trim-reminder-prompt-body").replace("8:30 PM", reminderTime)}</Text>
+          <Pressable style={dailyReminderPromptStyles.primaryButton} onPress={onEnable}>
+            <Text style={dailyReminderPromptStyles.primaryText}>{t("ui.enable-daily-trim-reminder")}</Text>
+          </Pressable>
+          <Pressable style={dailyReminderPromptStyles.secondaryButton} onPress={onDismiss}>
+            <Text style={dailyReminderPromptStyles.secondaryText}>{t("ui.not-now")}</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const dailyReminderPromptStyles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: "rgba(15,23,42,0.52)", alignItems: "center", justifyContent: "center", padding: spacing.lg },
+  card: { width: "100%", maxWidth: 420, borderRadius: radius.lg, padding: spacing.xl, backgroundColor: colors.card, gap: spacing.md },
+  icon: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: colors.primarySoft },
+  title: { ...type.title, color: colors.text },
+  body: { ...type.body, color: colors.textMuted, lineHeight: 22 },
+  primaryButton: { minHeight: 50, borderRadius: radius.md, alignItems: "center", justifyContent: "center", backgroundColor: colors.primary, marginTop: spacing.sm },
+  primaryText: { color: colors.white, fontSize: 14, fontWeight: "900" },
+  secondaryButton: { minHeight: 40, alignItems: "center", justifyContent: "center" },
+  secondaryText: { color: colors.textMuted, fontSize: 13, fontWeight: "800" },
+});
+
 function Toast({ toast }: { toast: ToastMessage | null }) {
   if (!toast) return null;
   const icon =
@@ -5483,25 +5914,48 @@ function TrimKindSettings({
 
 function BackgroundTrimStatus({ count, result, onOpenResult }: { count: number; result: BackgroundTrimResult | null; onOpenResult: () => void }) {
   const finished = count <= 0 && result !== null;
+  const [expanded, setExpanded] = useState(false);
+  const statusLabel = finished ? t("ui.trimming-finished-open-results") : t("ui.trimming-background-count", { count });
   return (
-    <Pressable
-      disabled={!finished}
-      accessibilityRole={finished ? "button" : "progressbar"}
-      accessibilityLabel={finished ? t("ui.trimming-finished-open-results") : t("ui.trimming-background-count", { count })}
-      onPress={onOpenResult}
-      style={({ pressed }) => [styles.backgroundTrimStatus, finished && styles.backgroundTrimFinished, pressed && styles.backgroundTrimPressed]}
-    >
-      {finished ? <Ionicons name="checkmark-circle" size={22} color="#ffffff" /> : <ActivityIndicator size="small" color="#ffffff" />}
-      <View style={styles.backgroundTrimCopy}>
-        <Text style={styles.backgroundTrimTitle}>{finished ? t("ui.trimming-finished") : t("ui.trimming-in-background")}</Text>
-        <Text style={styles.backgroundTrimDetail}>
-          {finished && result
-            ? t("ui.trim-result-tap", { count: result.trimmed, value: formatMB(result.savedMB) })
-            : t("ui.trimming-processing", { count })}
-        </Text>
-      </View>
-      {finished ? <Ionicons name="chevron-forward" size={19} color="#ffffff" /> : null}
-    </Pressable>
+    <View pointerEvents="box-none" style={styles.backgroundTrimStatusContainer}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={statusLabel}
+        accessibilityState={{ expanded }}
+        onPress={() => setExpanded((current) => !current)}
+        style={({ pressed }) => [
+          styles.backgroundTrimStatusIcon,
+          finished && styles.backgroundTrimFinished,
+          pressed && styles.backgroundTrimPressed,
+        ]}
+      >
+        {finished ? <Ionicons name="checkmark" size={21} color="#ffffff" /> : <ActivityIndicator size="small" color="#ffffff" />}
+      </Pressable>
+
+      {expanded ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={statusLabel}
+          onPress={finished ? onOpenResult : () => setExpanded(false)}
+          style={({ pressed }) => [
+            styles.backgroundTrimStatusCard,
+            finished && styles.backgroundTrimFinished,
+            pressed && styles.backgroundTrimPressed,
+          ]}
+        >
+          {finished ? <Ionicons name="checkmark-circle" size={22} color="#ffffff" /> : <ActivityIndicator size="small" color="#ffffff" />}
+          <View style={styles.backgroundTrimCopy}>
+            <Text style={styles.backgroundTrimTitle}>{finished ? t("ui.trimming-finished") : t("ui.trimming-in-background")}</Text>
+            <Text style={styles.backgroundTrimDetail}>
+              {finished && result
+                ? t("ui.trim-result-tap", { count: result.trimmed, value: formatMB(result.savedMB) })
+                : t("ui.trimming-processing", { count })}
+            </Text>
+          </View>
+          <Ionicons name={finished ? "chevron-forward" : "chevron-up"} size={19} color="#ffffff" />
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 
@@ -5766,6 +6220,9 @@ function SettingsScreen({
   activeProductId,
   samplePhoto,
   onChange,
+  onDailyReminderChange,
+  onDailyReminderTimeChange,
+  dailyReminderPermission,
   onChangeLanguage,
   onReload,
   onCreateReport,
@@ -5779,6 +6236,9 @@ function SettingsScreen({
   activeProductId: string | null;
   samplePhoto?: NativePhoto;
   onChange: (patch: Partial<NativeSettings>) => void;
+  onDailyReminderChange: (enabled: boolean) => Promise<void> | void;
+  onDailyReminderTimeChange: (time: string) => Promise<void> | void;
+  dailyReminderPermission: { granted: boolean; blocked: boolean };
   onChangeLanguage: (appLanguage: AppLanguage) => Promise<void>;
   onReload: () => Promise<void> | void;
   onCreateReport: (period: (typeof REPORT_PERIODS)[number]) => void;
@@ -5795,6 +6255,9 @@ function SettingsScreen({
   const [privacyOptionsMessage, setPrivacyOptionsMessage] = useState("");
   const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
   const [languageQuery, setLanguageQuery] = useState("");
+  const [reminderTimePickerOpen, setReminderTimePickerOpen] = useState(false);
+  const [reminderTimeDraft, setReminderTimeDraft] = useState(settings.dailyTrimReminder.time);
+  const safeAreaInsets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const compactLayout = windowWidth <= 390;
   const showsThresholds =
@@ -5864,6 +6327,32 @@ function SettingsScreen({
   const selectedLanguage = APP_LANGUAGES.find(([code]) => code === settings.appLanguage) ?? APP_LANGUAGES[0];
   const visibleLanguages = APP_LANGUAGES.filter(([, nativeName, englishName]) => `${nativeName} ${englishName}`.toLowerCase().includes(languageQuery.trim().toLowerCase()));
 
+  function openReminderTimePicker() {
+    setReminderTimeDraft(settings.dailyTrimReminder.time);
+    setReminderTimePickerOpen(true);
+  }
+
+  function closeReminderTimePicker(save = true) {
+    setReminderTimePickerOpen(false);
+    if (save && reminderTimeDraft !== settings.dailyTrimReminder.time) void onDailyReminderTimeChange(reminderTimeDraft);
+  }
+
+  function handleReminderTimeChange(event: DateTimePickerEvent, date?: Date) {
+    if (event.type === "dismissed") {
+      closeReminderTimePicker(false);
+      return;
+    }
+    if (!date) return;
+    const next = reminderPickerValue(date);
+    setReminderTimeDraft(next);
+    // Android presents this control as a native dialog; commit immediately
+    // when the user confirms it. iOS keeps the spinner open until Done.
+    if (Platform.OS !== "ios") {
+      setReminderTimePickerOpen(false);
+      void onDailyReminderTimeChange(next);
+    }
+  }
+
   return (
     <ScrollView style={themed.screen} contentContainerStyle={styles.content}>
       <View style={[styles.settingsHero, themed.hero]}>
@@ -5931,6 +6420,56 @@ function SettingsScreen({
           })}
         </View>
       </View>
+      <View style={[styles.settingCardVertical, themed.card]}>
+        <Text style={[styles.settingLabel, themed.label]}>{t("ui.daily-trim-reminder-setting", { time: formatReminderTime(settings.dailyTrimReminder.time) })}</Text>
+        <Text style={[styles.mutedSmall, themed.muted]}>{t("ui.daily-trim-reminder-at", { time: formatReminderTime(settings.dailyTrimReminder.time) })}</Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={openReminderTimePicker}
+          style={[styles.reminderTimeButton, { borderColor: theme.border, backgroundColor: theme.cardSoft }]}
+        >
+          <Ionicons name="time-outline" size={18} color={theme.primary} />
+          <Text style={[styles.reminderTimeText, { color: theme.text }]}>{formatReminderTime(settings.dailyTrimReminder.time)}</Text>
+          <Ionicons name="chevron-forward" size={17} color={theme.textMuted} />
+        </Pressable>
+        <ReminderToggle
+          label={t("ui.enable-daily-trim-reminder")}
+          value={settings.dailyTrimReminder.enabled}
+          theme={theme}
+          onChange={(enabled) => void onDailyReminderChange(enabled)}
+        />
+        {settings.dailyTrimReminder.enabled && dailyReminderPermission.blocked ? (
+          <>
+            <Text style={[styles.mutedSmall, { color: theme.danger }]}>{t("ui.daily-trim-reminder-system-blocked")}</Text>
+            <Pressable accessibilityRole="button" onPress={() => void Linking.openSettings()} style={styles.settingsLinkButton}>
+              <Text style={[styles.settingsLinkText, { color: theme.primary }]}>{t("ui.open-settings")}</Text>
+            </Pressable>
+          </>
+        ) : null}
+      </View>
+      <Modal visible={reminderTimePickerOpen} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => closeReminderTimePicker(false)}>
+        <SafeAreaView
+          edges={["left", "right", "bottom"]}
+          style={[styles.languageModal, { backgroundColor: theme.background, paddingTop: Math.max(safeAreaInsets.top, 20) }]}
+        >
+          <View style={styles.reminderModalHeader}>
+            <Text numberOfLines={2} style={[styles.settingLabel, styles.reminderModalTitle, { color: theme.text }]}>{t("ui.daily-trim-reminder-setting", { time: formatReminderTime(reminderTimeDraft) })}</Text>
+            <Pressable accessibilityRole="button" hitSlop={10} onPress={() => closeReminderTimePicker(true)} style={styles.reminderDoneButton}><Text style={{ color: theme.primary, fontWeight: "800" }}>{t("ui.done")}</Text></Pressable>
+          </View>
+          <View style={styles.reminderPickerBody}>
+            <DateTimePicker
+              value={reminderPickerDate(reminderTimeDraft)}
+              mode="time"
+              display={Platform.OS === "ios" ? "spinner" : "default"}
+              minuteInterval={30}
+              onChange={handleReminderTimeChange}
+              themeVariant={theme.background === colors.background ? "light" : "dark"}
+              style={styles.nativeTimePicker}
+            />
+            <Text style={[styles.mutedSmall, { color: theme.textMuted }]}>{t("ui.daily-trim-reminder-at", { time: formatReminderTime(reminderTimeDraft) })}</Text>
+          </View>
+        </SafeAreaView>
+      </Modal>
       <View style={[styles.settingCardVertical, themed.card]}>
         <Text style={[styles.settingLabel, themed.label]}>{t("ui.smart-reminders")}</Text>
         <Text style={[styles.mutedSmall, themed.muted]}>{t("ui.helpful-nudges-only-when-trimswipe-already-knows")}</Text>
@@ -6048,7 +6587,7 @@ function SettingsScreen({
           {privacyOptionsMessage ? <Text style={[styles.mutedSmall, themed.muted]}>{privacyOptionsMessage}</Text> : null}
         </View>
       ) : null}
-      {(__DEV__ || process.env.EXPO_PUBLIC_ADMOB_ENABLE_INSPECTOR === "true") ? (
+      {(__DEV__ || process.env.EXPO_PUBLIC_IRONSRC_ADAPTER_DEBUG === "true") ? (
         <View style={[styles.settingCardVertical, themed.card]}>
           <Text style={[styles.settingLabel, themed.label]}>{t("ui.ad-mediation-diagnostics")}</Text>
           <Text style={[styles.mutedSmall, themed.muted]}>
@@ -6177,11 +6716,34 @@ function NavButton({ label, active, compact, theme, onPress }: { label: string; 
 
 // ─── Reusable UI components ───────────────────────────────────────────────────
 
-function ActionButton({ label, tone, onPress, large, disabled }: { label: string; tone: "keep" | "trim" | "delete"; onPress: () => void; large?: boolean; disabled?: boolean }) {
+function ActionButton({ label, tone, onPress, large, size = "default", disabled }: { label: string; tone: "keep" | "trim" | "delete"; onPress: () => void; large?: boolean; size?: "default" | "swipe" | "compact"; disabled?: boolean }) {
   const toneStyle = tone === "keep" ? styles.actionKeep : tone === "trim" ? styles.actionTrim : styles.actionDelete;
   return (
-    <Pressable disabled={disabled} onPress={onPress} style={[styles.actionButton, toneStyle, large && styles.actionButtonLarge, disabled && styles.actionButtonDisabled]}>
-      <Text style={[styles.actionText, large && styles.actionTextLarge, disabled && styles.actionTextDisabled]}>{label}</Text>
+    <Pressable
+      disabled={disabled}
+      onPress={onPress}
+      style={[
+        styles.actionButton,
+        toneStyle,
+        large && styles.actionButtonLarge,
+        size === "swipe" && styles.actionButtonSwipe,
+        size === "compact" && styles.actionButtonCompact,
+        disabled && styles.actionButtonDisabled,
+      ]}
+    >
+      <Text
+        adjustsFontSizeToFit={size !== "default"}
+        minimumFontScale={0.72}
+        numberOfLines={2}
+        style={[
+          styles.actionText,
+          large && styles.actionTextLarge,
+          size === "compact" && styles.actionTextCompact,
+          disabled && styles.actionTextDisabled,
+        ]}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -6301,6 +6863,8 @@ const styles = StyleSheet.create({
   heroTitle: { color: colors.text, fontSize: 28, fontWeight: "800", letterSpacing: -0.45 },
   muted: { color: colors.textMuted, fontSize: 14 },
   mutedSmall: { color: colors.textMuted, fontSize: 12, lineHeight: 17 },
+  settingsLinkButton: { alignSelf: "flex-start", paddingVertical: 2 },
+  settingsLinkText: { fontSize: 12, fontWeight: "800" },
   centerText: { color: colors.textMuted, fontSize: 15, lineHeight: 22, textAlign: "center" },
   insightText: { color: colors.primary, fontSize: 14, fontWeight: "800", lineHeight: 20, textAlign: "center" },
   eyebrow: { color: colors.primaryBright, fontSize: 11, fontWeight: "700", letterSpacing: 1.6, textTransform: "uppercase" },
@@ -6312,12 +6876,30 @@ const styles = StyleSheet.create({
   toastError: { borderColor: "#fca5a5", backgroundColor: "#fef2f2" },
   toastTitle: { color: "#1f2937", fontSize: 13, fontWeight: "700" },
   toastDetail: { marginTop: 2, color: "#64748b", fontSize: 12, lineHeight: 16, fontWeight: "600" },
-  backgroundTrimStatus: {
+  backgroundTrimStatusContainer: {
     position: "absolute",
     left: 18,
     right: 18,
-    bottom: 92,
+    top: 8,
     zIndex: 900,
+    alignItems: "center",
+  },
+  backgroundTrimStatusIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#203345",
+    shadowColor: "#1f2937",
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 5,
+  },
+  backgroundTrimStatusCard: {
+    width: "100%",
+    marginTop: 8,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
@@ -6357,16 +6939,23 @@ const styles = StyleSheet.create({
   confirmActions: { marginTop: 4, gap: 10 },
 
   // Swipe
+  swipeContent: { flex: 1, paddingBottom: 142 },
+  swipeContentCompact: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 130 },
   swipeHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 14, borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0", padding: 16 },
+  swipeHeaderCompact: { gap: 10, borderRadius: 18, padding: 12 },
   swipeHeaderCopy: { flex: 1 },
   swipeTitle: { marginTop: 5, color: "#1f2937", fontSize: 18, fontWeight: "700" },
   swipeTitleLarge: { fontSize: 22 },
+  swipeTitleCompact: { marginTop: 3, fontSize: 16 },
   swipeSubtitle: { marginTop: 5, color: "#64748b", fontSize: 12, lineHeight: 17 },
+  swipeSubtitleCompact: { marginTop: 3, fontSize: 11, lineHeight: 15 },
   swipeStatusColumn: { alignItems: "flex-end", gap: 8 },
+  swipeStatusColumnCompact: { gap: 5 },
   queuePill: { overflow: "hidden", borderRadius: 999, backgroundColor: "#e5ebef", color: "#315f7d", paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, fontWeight: "700" },
   timerPill: { overflow: "hidden", borderRadius: 999, backgroundColor: "#f4efe3", color: "#806226", paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, fontWeight: "700" },
   trimBadge: { overflow: "hidden", borderRadius: 999, backgroundColor: "#f3f6f8", color: "#315f7d", paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, fontWeight: "700" },
-  deck: { marginTop: 18, height: 492 },
+  deck: { flex: 1, minHeight: 0, maxHeight: 492, marginTop: 18 },
+  deckCompact: { marginTop: 12 },
   animatedCard: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 },
   photoCard: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, overflow: "hidden", borderRadius: 24, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#cbd8e0" },
   swipeTint: { ...StyleSheet.absoluteFillObject, borderRadius: 24 },
@@ -6386,14 +6975,19 @@ const styles = StyleSheet.create({
   reason: { overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(248, 250, 252, 0.18)", color: "#f8fafc", paddingHorizontal: 8, paddingVertical: 4, fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
   reasonTrimmed: { overflow: "hidden", borderRadius: 999, backgroundColor: "rgba(79, 120, 146, 0.9)", color: "#f3f6f8", paddingHorizontal: 8, paddingVertical: 4, fontSize: 10, fontWeight: "700", textTransform: "uppercase" },
   actions: { marginTop: 20, flexDirection: "row", gap: 10 },
+  swipeActions: { position: "absolute", left: 20, right: 20, bottom: 76, zIndex: 10, marginTop: 0 },
+  swipeActionsCompact: { left: 12, right: 12, bottom: 72, gap: 8 },
   actionButton: { flex: 1, minHeight: 76, alignItems: "center", justifyContent: "center", borderRadius: 17, paddingVertical: 15, paddingHorizontal: 8, borderWidth: 1 },
   actionButtonLarge: { paddingVertical: 19 },
+  actionButtonSwipe: { height: 56, minHeight: 56, paddingVertical: 10 },
+  actionButtonCompact: { height: 48, minHeight: 48, borderRadius: 14, paddingVertical: 8, paddingHorizontal: 6 },
   actionButtonDisabled: { backgroundColor: "#f1f5f9", borderColor: "#cbd5e1", opacity: 0.75 },
   actionKeep: { backgroundColor: "#dcfce7", borderColor: "#22c55e" },
   actionTrim: { backgroundColor: "#e5ebef", borderColor: "#4f7892" },
   actionDelete: { backgroundColor: "#fee2e2", borderColor: "#ef4444" },
   actionText: { color: "#1f2937", fontSize: 14, lineHeight: 17, fontWeight: "700", textAlign: "center" },
   actionTextLarge: { fontSize: 17 },
+  actionTextCompact: { fontSize: 13, lineHeight: 15 },
   actionTextDisabled: { color: "#94a3b8" },
 
   // FIX 2: Delete review list - proper bottom padding so buttons aren't hidden
@@ -6752,6 +7346,13 @@ const styles = StyleSheet.create({
   languageModalHeader: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   languageSearch: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, minHeight: 48, fontSize: 16 },
   languageList: { paddingVertical: 10 },
+  reminderTimeButton: { minHeight: 48, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10 },
+  reminderTimeText: { flex: 1, fontSize: 15, fontWeight: "800" },
+  reminderModalHeader: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 },
+  reminderModalTitle: { flex: 1, minWidth: 0 },
+  reminderDoneButton: { minHeight: 44, minWidth: 54, alignItems: "flex-end", justifyContent: "center" },
+  reminderPickerBody: { flex: 1, alignItems: "center", justifyContent: "center", paddingBottom: 60, gap: 24 },
+  nativeTimePicker: { width: "100%", maxWidth: 360, height: 216 },
   languageRow: { minHeight: 58, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", gap: 10 },
   languageRowCompact: { minHeight: 54, gap: 7 },
   languageNative: { flex: 1, minWidth: 0, fontSize: 16, fontWeight: "800" },

@@ -39,6 +39,12 @@ export type SmartReminderPreferences = {
   weekly: boolean;
 };
 
+export type DailyTrimReminderPreferences = {
+  enabled: boolean;
+  /** Device-local time in HH:mm form. Defaults to 20:30. */
+  time: string;
+};
+
 export type NativeEngagementSnapshot = {
   capturedAt: string;
   photoCount: number;
@@ -82,6 +88,7 @@ export type NativeSettings = {
   highContrast: boolean;
   backgroundScanSchedules: NativeBackgroundScanSchedule[];
   smartReminders: SmartReminderPreferences;
+  dailyTrimReminder: DailyTrimReminderPreferences;
 };
 
 export type NativeDailyStats = {
@@ -98,6 +105,17 @@ export type NativeDailyStats = {
 export type NativeSeenPhoto = {
   photoId: string;
   lastSeenAt: string;
+};
+
+export type NativeFreeSpacePlanSummary = {
+  status: "idle" | "scanning" | "ready" | "failed";
+  startedAt: string | null;
+  completedAt: string | null;
+  estimatedSavingsMB: number;
+  estimatedTrimSavingsMB: number;
+  estimatedDeleteSavingsMB: number;
+  candidateCount: number;
+  error: string | null;
 };
 
 export type NativeStats = {
@@ -122,6 +140,8 @@ export type NativeStats = {
   recentSeenPhotos: NativeSeenPhoto[];
   settings: NativeSettings;
   engagementSnapshot: NativeEngagementSnapshot | null;
+  dailyTrimReminderPromptVersion: number;
+  freeSpacePlan: NativeFreeSpacePlanSummary;
 };
 
 export type NativeActionLogEntry = {
@@ -169,6 +189,7 @@ export const DEFAULT_NATIVE_SETTINGS: NativeSettings = {
   highContrast: false,
   backgroundScanSchedules: DEFAULT_BACKGROUND_SCAN_SCHEDULES,
   smartReminders: { enabled: false, streak: true, storage: true, newPhotos: true, cleanup: true, weekly: true },
+  dailyTrimReminder: { enabled: true, time: "20:30" },
 };
 
 export const EMPTY_DAILY_STATS: NativeDailyStats = {
@@ -180,6 +201,17 @@ export const EMPTY_DAILY_STATS: NativeDailyStats = {
   trimMbFreed: 0,
   deleteMbFreed: 0,
   sessions: 0,
+};
+
+export const DEFAULT_FREE_SPACE_PLAN: NativeFreeSpacePlanSummary = {
+  status: "idle",
+  startedAt: null,
+  completedAt: null,
+  estimatedSavingsMB: 0,
+  estimatedTrimSavingsMB: 0,
+  estimatedDeleteSavingsMB: 0,
+  candidateCount: 0,
+  error: null,
 };
 
 export const DEFAULT_NATIVE_STATS: NativeStats = {
@@ -202,6 +234,8 @@ export const DEFAULT_NATIVE_STATS: NativeStats = {
   recentSeenPhotos: [],
   settings: DEFAULT_NATIVE_SETTINGS,
   engagementSnapshot: null,
+  dailyTrimReminderPromptVersion: 0,
+  freeSpacePlan: DEFAULT_FREE_SPACE_PLAN,
 };
 
 function statsUri(): string | null {
@@ -369,6 +403,23 @@ function normalizeSeenPhotos(value: unknown): NativeSeenPhoto[] {
     .slice(0, 500);
 }
 
+function normalizeFreeSpacePlan(value: unknown): NativeFreeSpacePlanSummary {
+  const raw = value && typeof value === "object" ? (value as Partial<NativeFreeSpacePlanSummary>) : {};
+  const status = raw.status === "ready" || raw.status === "failed" || raw.status === "scanning" ? raw.status : "idle";
+  return {
+    // Preserve an interrupted scan so the app can resume it on the next
+    // foreground launch instead of leaving the user with a false ready state.
+    status,
+    startedAt: typeof raw.startedAt === "string" && !Number.isNaN(Date.parse(raw.startedAt)) ? raw.startedAt : null,
+    completedAt: typeof raw.completedAt === "string" && !Number.isNaN(Date.parse(raw.completedAt)) ? raw.completedAt : null,
+    estimatedSavingsMB: Math.max(0, safeNumber(raw.estimatedSavingsMB)),
+    estimatedTrimSavingsMB: Math.max(0, safeNumber(raw.estimatedTrimSavingsMB)),
+    estimatedDeleteSavingsMB: Math.max(0, safeNumber(raw.estimatedDeleteSavingsMB)),
+    candidateCount: Math.max(0, Math.floor(safeNumber(raw.candidateCount))),
+    error: typeof raw.error === "string" ? raw.error : null,
+  };
+}
+
 function normalizeStats(value: unknown): NativeStats {
   const raw = value && typeof value === "object" ? (value as Partial<NativeStats>) : {};
   const rawSettings =
@@ -435,6 +486,14 @@ function normalizeStats(value: unknown): NativeStats {
         cleanup: (rawSettings.smartReminders as Partial<SmartReminderPreferences> | undefined)?.cleanup !== false,
         weekly: (rawSettings.smartReminders as Partial<SmartReminderPreferences> | undefined)?.weekly !== false,
       },
+      dailyTrimReminder: {
+        ...DEFAULT_NATIVE_SETTINGS.dailyTrimReminder,
+        ...(rawSettings.dailyTrimReminder && typeof rawSettings.dailyTrimReminder === "object" ? rawSettings.dailyTrimReminder : {}),
+        enabled: (rawSettings.dailyTrimReminder as Partial<DailyTrimReminderPreferences> | undefined)?.enabled !== false,
+        time: /^([01]\d|2[0-3]):[0-5]\d$/.test(String((rawSettings.dailyTrimReminder as Partial<DailyTrimReminderPreferences> | undefined)?.time ?? ""))
+          ? String((rawSettings.dailyTrimReminder as Partial<DailyTrimReminderPreferences> | undefined)?.time)
+          : DEFAULT_NATIVE_SETTINGS.dailyTrimReminder.time,
+      },
     },
     engagementSnapshot: rawSnapshot && typeof rawSnapshot.capturedAt === "string" ? {
       capturedAt: rawSnapshot.capturedAt,
@@ -449,6 +508,8 @@ function normalizeStats(value: unknown): NativeStats {
       trimSavingsMB: Math.max(0, safeNumber(rawSnapshot.trimSavingsMB)),
       deleteSavingsMB: Math.max(0, safeNumber(rawSnapshot.deleteSavingsMB)),
     } : null,
+    dailyTrimReminderPromptVersion: Math.max(0, Math.floor(safeNumber(raw.dailyTrimReminderPromptVersion))),
+    freeSpacePlan: normalizeFreeSpacePlan(raw.freeSpacePlan),
   };
 }
 

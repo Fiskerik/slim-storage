@@ -109,11 +109,20 @@ export async function syncRemoteCleanupReminders(
   }
 }
 
-export function subscribeToReminderResponses(onOpenAutomation: () => void): () => void {
+export type ReminderDestination = "automation" | "daily-cleanup" | "quick-cleanup";
+
+export function subscribeToReminderResponses(onOpen: (destination: ReminderDestination) => void): () => void {
   const openIfReminder = (response: Notifications.NotificationResponse | null) => {
     const type = response?.notification.request.content.data?.type;
-    if (type === "cleanup-reminder" || type === "smart-reminder") {
-      onOpenAutomation();
+    if (type === "daily-trim-reminder") {
+      onOpen("daily-cleanup");
+      void Notifications.clearLastNotificationResponseAsync().catch(() => undefined);
+    } else if (type === "quick-cleanup-ready") {
+      onOpen("quick-cleanup");
+      void Notifications.clearLastNotificationResponseAsync().catch(() => undefined);
+    } else if (type === "cleanup-reminder" || type === "smart-reminder") {
+      onOpen("automation");
+      void Notifications.clearLastNotificationResponseAsync().catch(() => undefined);
     }
   };
 
