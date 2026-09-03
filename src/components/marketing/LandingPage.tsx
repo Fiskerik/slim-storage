@@ -1,4 +1,5 @@
 import {
+  Apple,
   ArrowRight,
   ArrowUpRight,
   Check,
@@ -108,13 +109,17 @@ export function LandingPage() {
                 href={TRIMSWIPE_APP_STORE_URL}
                 target="_blank"
                 rel="noreferrer"
-                className="group inline-flex min-h-14 items-center justify-center gap-2 rounded-full bg-foreground px-7 text-base font-semibold text-background shadow-card transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                className="group inline-flex min-h-16 w-full shrink-0 items-center justify-center gap-3 rounded-2xl bg-foreground px-5 py-2.5 text-background shadow-card transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:w-auto"
               >
-                Download free on the App Store
-                <ArrowUpRight
-                  className="h-4 w-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
-                  aria-hidden="true"
-                />
+                <Apple className="h-8 w-8 fill-current" strokeWidth={1.7} aria-hidden="true" />
+                <span className="text-left leading-none">
+                  <span className="block whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.13em] opacity-75">
+                    Download on the
+                  </span>
+                  <span className="mt-1 block whitespace-nowrap font-display text-lg font-extrabold tracking-[-0.025em]">
+                    App Store
+                  </span>
+                </span>
               </a>
               <a
                 href="#how-it-works"
@@ -156,7 +161,7 @@ export function LandingPage() {
                 height={934}
                 fetchPriority="high"
                 className="h-full w-full object-cover"
-                style={{ objectPosition: "88% center" }}
+                style={{ objectPosition: "96% center" }}
               />
             </div>
             <div className="absolute -bottom-5 left-5 inline-flex items-center gap-3 rounded-2xl border border-border/80 bg-card/94 px-4 py-3 shadow-card backdrop-blur sm:left-8">
