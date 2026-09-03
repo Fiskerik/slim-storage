@@ -1,10 +1,19 @@
 import { useEffect } from "react";
-import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
+import {
+  Outlet,
+  Link,
+  createRootRoute,
+  HeadContent,
+  Scripts,
+  useLocation,
+} from "@tanstack/react-router";
 import { TopBar } from "@/components/TopBar";
 import { BottomNav } from "@/components/BottomNav";
+import { MarketingLayout } from "@/components/marketing/MarketingShell";
 import { Toaster } from "@/components/ui/sonner";
 import { initNativeShell } from "@/lib/native-shell";
 import { initPhotoSource } from "@/lib/photo-source";
+import appIcon from "../../mobile/mobile/assets/images/icon.png";
 
 import appCss from "../styles.css?url";
 
@@ -35,25 +44,18 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
-      { title: "TrimSwipe — Tinder for Photos with privacy built-in" },
+      { title: "TrimSwipe — Photo Cleaner for iPhone" },
       {
         name: "description",
         content:
-          "Trim your camera roll in minutes. Swipe to keep, trim, or delete — strip metadata and reclaim storage, all on-device.",
+          "Clean up your iPhone camera roll, review similar photos, trim large files, and reclaim storage with TrimSwipe.",
       },
-      { name: "theme-color", content: "#f5efe6" },
-      { property: "og:title", content: "TrimSwipe — Tinder for Photos with privacy built-in" },
-      { property: "og:description", content: "TrimSwipe is a photo cleaner that shrinks your library by compressing images and stripping metadata." },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
-      { name: "twitter:title", content: "TrimSwipe — Tinder for Photos with privacy built-in" },
-      { name: "description", content: "TrimSwipe is a photo cleaner that shrinks your library by compressing images and stripping metadata." },
-      { name: "twitter:description", content: "TrimSwipe is a photo cleaner that shrinks your library by compressing images and stripping metadata." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/39ed5250-1154-4ccc-8f06-5d277293f64f/id-preview-8df2f7ff--69389407-3876-4baf-89a7-6f7f18b7d613.lovable.app-1777367486424.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/39ed5250-1154-4ccc-8f06-5d277293f64f/id-preview-8df2f7ff--69389407-3876-4baf-89a7-6f7f18b7d613.lovable.app-1777367486424.png" },
+      { name: "theme-color", content: "#fbf7f1" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      { rel: "icon", href: appIcon },
+      { rel: "apple-touch-icon", href: appIcon },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
@@ -82,10 +84,24 @@ function RootShell({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
+  const { pathname } = useLocation();
+  const isNativeShell = typeof window !== "undefined" && window.__SLIM_NATIVE__ === true;
+  const isMarketingRoute =
+    !isNativeShell && (pathname === "/" || pathname === "/terms" || pathname === "/privacy");
+
   useEffect(() => {
     initNativeShell();
     initPhotoSource();
   }, []);
+
+  if (isMarketingRoute) {
+    return (
+      <MarketingLayout>
+        <Outlet />
+      </MarketingLayout>
+    );
+  }
+
   return (
     <div className="min-h-dvh bg-background text-foreground">
       <div className="mx-auto flex min-h-dvh max-w-md flex-col">

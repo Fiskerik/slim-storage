@@ -17,12 +17,12 @@ export const Route = createFileRoute("/privacy")({
 
 function PrivacyPage() {
   return (
-    <div className="px-5 pt-5 pb-10">
+    <div className="mx-auto w-full max-w-3xl px-5 pb-16 pt-10 sm:px-8 sm:pt-14">
       <Link
-        to="/profile"
+        to="/"
         className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="h-3.5 w-3.5" /> Back to Profile
+        <ArrowLeft className="h-3.5 w-3.5" /> Back to TrimSwipe
       </Link>
 
       <header className="mt-4">
@@ -36,98 +36,102 @@ function PrivacyPage() {
       </header>
 
       <p className="mt-5 text-sm text-foreground/90 text-balance">
-        TrimSwipe is designed around a simple promise: your photos stay on your
-        device. We never upload your library to any server. The free version
-        shows ads from Google AdMob, and purchases are handled by Apple through
-        RevenueCat — those are the only third parties involved, and they never
-        receive your photos.
+        TrimSwipe is designed around a simple promise: your photos stay on your device. We never
+        upload your library to any server. The free version shows ads from Google AdMob, and
+        purchases are handled by Apple through RevenueCat — those are the only third parties
+        involved, and they never receive your photos.
       </p>
 
       <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Pillar icon={<Smartphone className="h-4 w-4" />} title="On-device" body="Photo processing happens locally on your iPhone." />
-        <Pillar icon={<Eye className="h-4 w-4" />} title="No photo uploads" body="Your images and metadata never leave the device." />
-        <Pillar icon={<Database className="h-4 w-4" />} title="No accounts" body="We never store your name, email, or contact details." />
+        <Pillar
+          icon={<Smartphone className="h-4 w-4" />}
+          title="On-device"
+          body="Photo processing happens locally on your iPhone."
+        />
+        <Pillar
+          icon={<Eye className="h-4 w-4" />}
+          title="No photo uploads"
+          body="Your images and metadata never leave the device."
+        />
+        <Pillar
+          icon={<Database className="h-4 w-4" />}
+          title="No accounts"
+          body="We never store your name, email, or contact details."
+        />
       </div>
 
-
       <Section title="1. What TrimSwipe does on your device">
-        TrimSwipe helps you review your camera roll by swiping to keep, trim, or
-        delete photos. Trimming optimizes a copy of an image and strips
-        sensitive metadata (such as GPS coordinates and device tags). All of
-        this happens locally — the original and trimmed files never leave your
-        iPhone.
+        TrimSwipe helps you review your camera roll by swiping to keep, trim, or delete photos.
+        Trimming optimizes a copy of an image and strips sensitive metadata (such as GPS coordinates
+        and device tags). All of this happens locally — the original and trimmed files never leave
+        your iPhone.
       </Section>
 
       <Section title="2. Data we collect">
-        <strong>None that personally identifies you.</strong> TrimSwipe stores the
-        following on-device only, in your phone's local storage:
+        <strong>None that personally identifies you.</strong> TrimSwipe stores the following
+        on-device only, in your phone's local storage:
         <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-foreground/85">
           <li>Aggregate stats (storage freed, streak, daily counts).</li>
           <li>App preferences (cards per round, reminder time, display name you typed).</li>
           <li>Your in-app purchase status (TrimSwipe Pro), validated via Apple.</li>
         </ul>
         <p className="mt-2">
-          This data is never transmitted to us. Deleting the app or tapping
-          "Delete all TrimSwipe data" in Profile wipes it instantly.
+          This data is never transmitted to us. Deleting the app or tapping "Delete all TrimSwipe
+          data" in Profile wipes it instantly.
         </p>
       </Section>
 
       <Section title="3. iCloud sync (optional)">
-        If you enable "Sync with iCloud" in Profile, your stats and settings
-        sync between your devices through Apple's iCloud. TrimSwipe does not run a
-        server in this flow — Apple handles encryption and storage. We never
-        see this data.
+        If you enable "Sync with iCloud" in Profile, your stats and settings sync between your
+        devices through Apple's iCloud. TrimSwipe does not run a server in this flow — Apple handles
+        encryption and storage. We never see this data.
       </Section>
 
       <Section title="4. Photos & permissions">
-        TrimSwipe asks for Photo Library access so you can review your own photos
-        inside the app. You may grant Limited Access (specific photos) or Full
-        Access. We only read photos you choose to swipe and only modify photos
-        when you explicitly tap Trim or Delete. We never copy or upload them.
+        TrimSwipe asks for Photo Library access so you can review your own photos inside the app.
+        You may grant Limited Access (specific photos) or Full Access. We only read photos you
+        choose to swipe and only modify photos when you explicitly tap Trim or Delete. We never copy
+        or upload them.
       </Section>
 
       <Section title="5. Third-party services">
-        TrimSwipe uses a small number of third-party services, none of which
-        ever receive your photos:
+        TrimSwipe uses a small number of third-party services, none of which ever receive your
+        photos:
         <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-foreground/85">
           <li>
-            <strong>Apple StoreKit</strong> — processes in-app purchases and
-            subscriptions, and sends daily reminders via UserNotifications.
+            <strong>Apple StoreKit</strong> — processes in-app purchases and subscriptions, and
+            sends daily reminders via UserNotifications.
           </li>
           <li>
-            <strong>RevenueCat</strong> — validates your purchase receipts and
-            keeps your Pro status in sync across your devices. It receives an
-            anonymous app-generated user id and purchase data, not your name,
-            email, or photos.
+            <strong>RevenueCat</strong> — validates your purchase receipts and keeps your Pro status
+            in sync across your devices. It receives an anonymous app-generated user id and purchase
+            data, not your name, email, or photos.
           </li>
           <li>
-            <strong>Google AdMob</strong> — serves banner, interstitial, and
-            optional rewarded ads in the free version. AdMob may process device
-            identifiers, coarse location derived from IP, and ad-interaction
-            data to deliver and measure ads, as described in Google's privacy
-            policy. On iOS we only use tracking identifiers if you allow it in
-            the App Tracking Transparency prompt; otherwise ads are
-            non-personalised. Buying TrimSwipe Pro removes ads.
+            <strong>Google AdMob</strong> — serves banner, interstitial, and optional rewarded ads
+            in the free version. AdMob may process device identifiers, coarse location derived from
+            IP, and ad-interaction data to deliver and measure ads, as described in Google's privacy
+            policy. On iOS we only use tracking identifiers if you allow it in the App Tracking
+            Transparency prompt; otherwise ads are non-personalised. Buying TrimSwipe Pro removes
+            ads.
           </li>
         </ul>
       </Section>
 
-
       <Section title="6. Children">
-        TrimSwipe does not knowingly collect data from anyone, including children
-        under 13. The app is rated for general audiences.
+        TrimSwipe does not knowingly collect data from anyone, including children under 13. The app
+        is rated for general audiences.
       </Section>
 
       <Section title="7. Your rights">
-        Because we don't collect personal data, there is nothing for us to
-        export or delete on your behalf. To erase all on-device data at any
-        time, open Profile → "Delete all TrimSwipe data", or uninstall the app.
+        Because we don't collect personal data, there is nothing for us to export or delete on your
+        behalf. To erase all on-device data at any time, open Profile → "Delete all TrimSwipe data",
+        or uninstall the app.
       </Section>
 
       <Section title="8. Changes to this policy">
-        If we ever change how TrimSwipe handles data, we'll update this page and
-        bump the "Last updated" date. Material changes will be highlighted in
-        the app on first launch.
+        If we ever change how TrimSwipe handles data, we'll update this page and bump the "Last
+        updated" date. Material changes will be highlighted in the app on first launch.
       </Section>
 
       <Section title="9. Contact">
@@ -155,15 +159,7 @@ function PrivacyPage() {
   );
 }
 
-function Pillar({
-  icon,
-  title,
-  body,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  body: string;
-}) {
+function Pillar({ icon, title, body }: { icon: React.ReactNode; title: string; body: string }) {
   return (
     <div className="rounded-2xl border border-border bg-card p-4">
       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">

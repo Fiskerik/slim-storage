@@ -45,8 +45,8 @@
   --radius: 1rem;
 
   /* Warm, light palette — sandstone, terracotta, sage */
-  --background: oklch(0.985 0.012 80);            /* warm cream */
-  --foreground: oklch(0.24 0.025 50);             /* deep espresso */
+  --background: oklch(0.985 0.012 80); /* warm cream */
+  --foreground: oklch(0.24 0.025 50); /* deep espresso */
 
   --card: oklch(0.995 0.008 85);
   --card-foreground: oklch(0.24 0.025 50);
@@ -92,13 +92,23 @@
   * {
     border-color: var(--color-border);
   }
-  html, body {
+  html,
+  body {
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
   }
-  h1, h2, h3, h4 {
+  html {
+    scroll-behavior: smooth;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 24%, transparent);
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
     font-family: var(--font-display);
     letter-spacing: -0.01em;
   }
@@ -106,18 +116,28 @@
 
 @layer utilities {
   .grain {
-    background-image:
-      radial-gradient(color-mix(in oklab, var(--foreground) 4%, transparent) 1px, transparent 1px);
+    background-image: radial-gradient(
+      color-mix(in oklab, var(--foreground) 4%, transparent) 1px,
+      transparent 1px
+    );
     background-size: 3px 3px;
   }
-  .text-balance { text-wrap: balance; }
+  .text-balance {
+    text-wrap: balance;
+  }
 }
 
 /* iOS native shell — respect notch / home indicator. */
 @layer utilities {
-  .native-ios body { background-color: var(--color-background); }
-  .native-ios .pt-safe { padding-top: env(safe-area-inset-top); }
-  .native-ios .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  .native-ios body {
+    background-color: var(--color-background);
+  }
+  .native-ios .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  .native-ios .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
 }
 .native-ios body {
   padding-top: env(safe-area-inset-top);
