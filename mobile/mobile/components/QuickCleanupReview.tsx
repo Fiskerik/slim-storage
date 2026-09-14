@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Image,
   Modal,
@@ -24,6 +23,8 @@ import { monthKey, type MonthCleanupProgress, type QuickCleanupAction, type Quic
 import type { NativeLibraryScanProgress, NativePhoto } from "../lib/native-photo-source";
 import type { QuickCleanupReviewGroup, QuickCleanupTrimOption } from "../lib/quick-cleanup-service";
 import { QuickCleanupComparisonModal } from "./QuickCleanupComparisonModal";
+import { AnimatedActionChip } from "./motion/AnimatedActionChip";
+import { CleanupSkeleton } from "./motion/CleanupSkeleton";
 
 type Props = {
   plan: QuickCleanupPlan | null;
@@ -54,12 +55,6 @@ function actionLabel(action: QuickCleanupAction): string {
   if (action === "trim") return t("ui.trim-label");
   if (action === "delete") return t("ui.delete-label");
   return t("ui.keep-label");
-}
-
-function actionColor(action: QuickCleanupAction): string {
-  if (action === "trim") return colors.primary;
-  if (action === "delete") return colors.danger;
-  return colors.textMuted;
 }
 
 function usablePhoto(photo: NativePhoto | null | undefined): photo is NativePhoto {
@@ -223,7 +218,7 @@ export function QuickCleanupReview({
         ? `${t("ui.scanning-library")} ${progress.scanned}/${progress.total}`
         : t("ui.you-can-keep-using-trimswipe-while-the-batch-run");
     return <View style={styles.centered}>
-      {loading ? <ActivityIndicator size="large" color={colors.primary} /> : <Ionicons name="speedometer-outline" size={38} color={colors.primary} />}
+      {loading ? <CleanupSkeleton rows={1} /> : <Ionicons name="speedometer-outline" size={38} color={colors.primary} />}
       <Text style={styles.heroTitle}>{t("ui.free-space-plan")}</Text>
       <Text style={styles.centerText}>{loading ? progressText : t("ui.finding-the-photos-that-will-make-the-biggest-de")}</Text>
       {!loading ? <Pressable style={styles.primaryButton} onPress={onStartScan}><Text style={styles.primaryButtonText}>{t("ui.quick-scan")}</Text></Pressable> : null}
@@ -244,7 +239,7 @@ export function QuickCleanupReview({
         </View>
         <Pressable accessibilityRole="button" onPress={onBack} style={styles.closeButton}><Ionicons name="close" size={22} color={colors.text} /></Pressable>
       </View>
-      {loading ? <View style={styles.refreshing}><ActivityIndicator size="small" color={colors.primary} /><Text style={styles.refreshingText}>{t("ui.scanning")}</Text></View> : null}
+      {loading ? <View style={styles.refreshing}><Text style={styles.refreshingText}>{t("ui.scanning")}</Text></View> : null}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.months}>
         <Pressable onPress={() => setSelectedMonth(null)} style={[styles.monthPill, selectedMonth == null && styles.monthPillActive]}><Text style={styles.monthLabel}>{t("ui.all-count", { count: allPhotos.length })}</Text></Pressable>
         {months.slice(0, 6).map((month) => <Pressable key={month.key} onPress={() => setSelectedMonth(month.key)} style={[styles.monthPill, selectedMonth === month.key && styles.monthPillActive]}><Text style={styles.monthLabel}>{month.label}</Text><Text style={styles.monthValue}>{month.reviewedCount}/{month.photoCount} · {formatMB(month.reclaimableMB)}</Text><View style={styles.monthTrack}><View style={[styles.monthFill, { width: `${Math.round(month.progress * 100)}%` }]} /></View></Pressable>)}
@@ -253,6 +248,7 @@ export function QuickCleanupReview({
         data={entries}
         keyExtractor={(entry) => entry.key}
         contentContainerStyle={styles.list}
+        ListHeaderComponent={loading ? <CleanupSkeleton rows={2} style={styles.listSkeleton} /> : null}
         ListEmptyComponent={<View style={styles.emptyFilter}><Text style={styles.centerText}>{t("ui.no-saving")}</Text></View>}
         renderItem={({ item: entry }) => {
           if (entry.type === "group") {
@@ -282,7 +278,7 @@ export function QuickCleanupReview({
             <View style={styles.photoRowBody}>
               <View style={styles.rowCopy}><Text style={styles.groupEyebrow}>{t("ui.quick-win")}</Text><Text numberOfLines={1} style={styles.photoTitle}>{item.photo.title || t("ui.photo")}</Text><Text numberOfLines={2} style={styles.reason}>{item.reason} · {formatMB(item.estimatedSavingsMB)}</Text></View>
               <View style={styles.rowControls}>
-                <Pressable onPress={() => cycleAction(item)} disabled={protectedIds.has(item.photo.id)} style={[styles.actionButton, { borderColor: actionColor(selectedAction), backgroundColor: `${actionColor(selectedAction)}15` }]}><Text style={[styles.actionText, { color: actionColor(selectedAction) }]}>{actionLabel(selectedAction)}</Text></Pressable>
+                <AnimatedActionChip action={selectedAction} label={actionLabel(selectedAction)} disabled={protectedIds.has(item.photo.id)} onPress={() => cycleAction(item)} />
                 <Pressable onPress={() => toggleProtection(item.photo)} style={[styles.toolButton, protectedIds.has(item.photo.id) && styles.toolButtonActive]}><Ionicons name={protectedIds.has(item.photo.id) ? "shield-checkmark" : "shield-outline"} size={16} color={protectedIds.has(item.photo.id) ? colors.sageDeep : colors.textMuted} /><Text style={[styles.toolText, protectedIds.has(item.photo.id) && styles.toolTextActive]}>{t("ui.protect")}</Text></Pressable>
                 <Pressable onPress={() => onDecideLater(item.photo)} style={styles.toolButton}><Ionicons name="time-outline" size={16} color={colors.textMuted} /><Text style={styles.toolText}>{t("ui.decide-later")}</Text></Pressable>
               </View>
@@ -325,6 +321,7 @@ const styles = StyleSheet.create({
   monthTrack: { height: 4, borderRadius: 2, backgroundColor: colors.borderSoft, marginTop: 7, overflow: "hidden" },
   monthFill: { height: "100%", backgroundColor: colors.sage },
   list: { padding: spacing.lg, gap: spacing.sm, paddingBottom: 128 },
+  listSkeleton: { marginBottom: spacing.sm },
   emptyFilter: { paddingVertical: 48 },
   groupRow: { minHeight: 98, flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   groupImageWrap: { width: 78, height: 78, borderRadius: radius.sm, overflow: "hidden", backgroundColor: colors.borderSoft },

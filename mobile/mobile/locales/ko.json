@@ -621,13 +621,13 @@
     "ui.you-can-keep-using-trimswipe-while-the-batch-run": "일괄 처리가 실행되는 동안 TrimSwipe을 계속 사용할 수 있습니다.",
     "ui.your-purchase-is-being-synced-with-apple": "구매 항목이 Apple과(와) 동기화되고 있습니다.",
     "ui.your-schedule-is-saved-locally-cloud-reminders-w": "일정이 로컬에 저장되었습니다. 클라우드 미리 알림은 나중에 다시 시도됩니다.",
-    "ui.continue-in-seconds": "{{seconds}}초 후에 계속",
-    "ui.similar-photo-group-with-count": "{{count}}개의 사진이 포함된 유사 사진 그룹",
-    "ui.photos-to-compare": "{{count}} 비교할 사진",
-    "ui.all-count": "모두 {{count}}",
-    "ui.suggested-remove-count": "{{count}} 제거 제안",
-    "ui.photos-processed": "{{count}} 사진{{suffix}}이(가) 처리되었습니다.",
-    "ui.tokens-added-to-balance": "+{{count}} 토큰이 잔액에 추가되었습니다.",
+    "ui.continue-in-seconds": "Continue in {{seconds}} seconds",
+    "ui.similar-photo-group-with-count": "Similar photo group with {{count}} photos",
+    "ui.photos-to-compare": "{{count}} photos to compare",
+    "ui.all-count": "All {{count}}",
+    "ui.suggested-remove-count": "Suggested remove {{count}}",
+    "ui.photos-processed": "{{count}} photo{{suffix}} processed.",
+    "ui.tokens-added-to-balance": "+{{count}} tokens added to your balance.",
     "ui.home-freed": "{{value}} 해제됨",
     "ui.home-left-today": "{{value}} 오늘 남음",
     "ui.home-photos-possible": "{{count}} 사진 · ~{{value}} 가능",
@@ -932,6 +932,9 @@
     "ui.yearly": "매년",
     "ui.you're-all-set": "모든 설정이 완료되었습니다.",
     "ui.delete-trim-savings": "{{deleted}}을 삭제하고 저장된 {{value}} 정도의 {{trimmed}} 사진을 자릅니다.",
-    "ui.delete-trim-count": "{{deleted}}을 삭제하고 {{total}} 사진 중 {{trimmed}}을 다듬습니다."
+    "ui.delete-trim-count": "{{deleted}}을 삭제하고 {{total}} 사진 중 {{trimmed}}을 다듬습니다.",
+    "ui.marked-for-deletion": "삭제 대상으로 표시됨",
+    "ui.undo": "실행 취소",
+    "ui.dismiss": "닫기"
   }
 }

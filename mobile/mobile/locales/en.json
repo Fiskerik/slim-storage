@@ -932,6 +932,9 @@
     "ui.decide-later": "Decide later",
     "ui.quick-win": "Quick win",
     "ui.yearly": "Yearly",
-    "ui.you're-all-set": "You're all set"
+    "ui.you're-all-set": "You're all set",
+    "ui.marked-for-deletion": "Marked for deletion",
+    "ui.undo": "Undo",
+    "ui.dismiss": "Dismiss"
   }
 }

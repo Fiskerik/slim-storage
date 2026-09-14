@@ -621,13 +621,13 @@
     "ui.you-can-keep-using-trimswipe-while-the-batch-run": "คุณสามารถใช้ TrimSwipe ต่อไปได้ในขณะที่ชุดทำงาน",
     "ui.your-purchase-is-being-synced-with-apple": "การซื้อของคุณกำลังซิงค์กับ Apple",
     "ui.your-schedule-is-saved-locally-cloud-reminders-w": "กำหนดการของคุณได้รับการบันทึกไว้ในเครื่อง การแจ้งเตือนบนคลาวด์จะลองอีกครั้งในภายหลัง",
-    "ui.continue-in-seconds": "ดำเนินการต่อใน {{seconds}} วินาที",
-    "ui.similar-photo-group-with-count": "กลุ่มภาพถ่ายที่คล้ายกันกับภาพถ่าย {{count}}",
-    "ui.photos-to-compare": "{{count}} รูปภาพเพื่อเปรียบเทียบ",
-    "ui.all-count": "ทั้งหมด {{count}}",
-    "ui.suggested-remove-count": "แนะนำให้ลบ {{count}}",
-    "ui.photos-processed": "ประมวลผลรูปภาพ {{count}}{{suffix}} แล้ว",
-    "ui.tokens-added-to-balance": "+{{count}} ไปยังยอดคงเหลือของคุณ",
+    "ui.continue-in-seconds": "Continue in {{seconds}} seconds",
+    "ui.similar-photo-group-with-count": "Similar photo group with {{count}} photos",
+    "ui.photos-to-compare": "{{count}} photos to compare",
+    "ui.all-count": "All {{count}}",
+    "ui.suggested-remove-count": "Suggested remove {{count}}",
+    "ui.photos-processed": "{{count}} photo{{suffix}} processed.",
+    "ui.tokens-added-to-balance": "+{{count}} tokens added to your balance.",
     "ui.home-freed": "{{value}} ปลดปล่อยแล้ว",
     "ui.home-left-today": "{{value}} เหลือวันนี้",
     "ui.home-photos-possible": "{{count}} รูปภาพ · ~{{value}} เป็นไปได้",
@@ -932,6 +932,9 @@
     "ui.decide-later": "ตัดสินใจภายหลัง",
     "ui.quick-win": "ประหยัดด่วน",
     "ui.yearly": "ทุกปี",
-    "ui.you're-all-set": "คุณพร้อมแล้ว"
+    "ui.you're-all-set": "คุณพร้อมแล้ว",
+    "ui.marked-for-deletion": "ทำเครื่องหมายเพื่อลบแล้ว",
+    "ui.undo": "เลิกทำ",
+    "ui.dismiss": "ปิด"
   }
 }

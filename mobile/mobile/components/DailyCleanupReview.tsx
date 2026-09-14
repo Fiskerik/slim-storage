@@ -14,6 +14,8 @@ import {
 import { t } from "../lib/i18n";
 import { selectSuggestedTrimIds, type DailyCleanupAction, type DailyCleanupItem, type DailyCleanupPlan } from "../lib/daily-photo-cleanup";
 import { colors, radius, spacing, type } from "../constants/design";
+import { AnimatedActionChip } from "./motion/AnimatedActionChip";
+import { CleanupSkeleton } from "./motion/CleanupSkeleton";
 
 type Props = {
   plan: DailyCleanupPlan | null;
@@ -33,12 +35,6 @@ function actionLabel(action: DailyCleanupAction): string {
   if (action === "trim") return t("ui.trim-label");
   if (action === "delete") return t("ui.delete-label");
   return t("ui.keep-label");
-}
-
-function actionColor(action: DailyCleanupAction): string {
-  if (action === "trim") return colors.primary;
-  if (action === "delete") return colors.danger;
-  return colors.textMuted;
 }
 
 export function DailyCleanupReview({
@@ -173,7 +169,7 @@ export function DailyCleanupReview({
   if (loading || !plan) {
     return (
       <View style={styles.centered}>
-        <Ionicons name="sparkles-outline" size={34} color={colors.primary} />
+        <CleanupSkeleton rows={2} />
         <Text style={styles.heroTitle}>{t("ui.today-photos")}</Text>
         <Text style={styles.muted}>{t("ui.daily-cleanup-loading")}</Text>
         <Pressable style={styles.secondaryButton} onPress={onBack}>
@@ -261,15 +257,12 @@ export function DailyCleanupReview({
                 ) : null}
                 {isSuggested && selectedAction === "keep" ? <Text style={styles.unselected}>{t("ui.keep-label")} · {suggestion}</Text> : null}
               </View>
-              <Pressable
-                accessibilityRole="button"
+              <AnimatedActionChip
+                action={selectedAction}
+                label={actionLabel(selectedAction)}
                 accessibilityLabel={`${actionLabel(selectedAction)} ${item.photo.title || t("ui.photo")}`}
                 onPress={() => cycleAction(item)}
-                style={[styles.actionButton, { borderColor: actionColor(selectedAction), backgroundColor: `${actionColor(selectedAction)}15` }]}
-              >
-                <Text style={[styles.actionText, { color: actionColor(selectedAction) }]}>{actionLabel(selectedAction)}</Text>
-                <Ionicons name="chevron-down" size={14} color={actionColor(selectedAction)} />
-              </Pressable>
+              />
             </View>
           );
         }}

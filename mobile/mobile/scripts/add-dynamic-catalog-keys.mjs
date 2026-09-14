@@ -10,11 +10,16 @@ const additions = {
   "ui.suggested-remove-count": "Suggested remove {{count}}",
   "ui.photos-processed": "{{count}} photo{{suffix}} processed.",
   "ui.tokens-added-to-balance": "+{{count}} tokens added to your balance.",
+  "ui.marked-for-deletion": "Marked for deletion",
+  "ui.undo": "Undo",
+  "ui.dismiss": "Dismiss",
 };
 for (const file of fs.readdirSync(dir).filter((name) => name.endsWith(".json"))) {
   const full = path.join(dir, file);
   const catalog = JSON.parse(fs.readFileSync(full, "utf8"));
-  catalog.strings = { ...(catalog.strings ?? {}), ...additions };
+  // Keep translated values when a catalog already contains a key; only add
+  // the English fallback for newly introduced dynamic strings.
+  catalog.strings = { ...additions, ...(catalog.strings ?? {}) };
   fs.writeFileSync(full, JSON.stringify(catalog, null, 2) + "\n", "utf8");
 }
 console.log(`Added ${Object.keys(additions).length} interpolation keys.`);

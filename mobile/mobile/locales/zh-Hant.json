@@ -621,13 +621,13 @@
     "ui.you-can-keep-using-trimswipe-while-the-batch-run": "在批次運行時，您可以繼續使用 TrimSwipe。",
     "ui.your-purchase-is-being-synced-with-apple": "您的購買正在與 Apple 同步。",
     "ui.your-schedule-is-saved-locally-cloud-reminders-w": "您的日程安排保存在本地。雲提醒稍後會重試。",
-    "ui.continue-in-seconds": "{{seconds}} 秒後繼續",
-    "ui.similar-photo-group-with-count": "與{{count}}照片類似的照片組",
-    "ui.photos-to-compare": "{{count}} 要比較的照片",
-    "ui.all-count": "全部{{count}}",
-    "ui.suggested-remove-count": "建議刪除 {{count}}",
-    "ui.photos-processed": "{{count}} 照片{{suffix}} 已處理。",
-    "ui.tokens-added-to-balance": "+{{count}} 代幣已加到您的餘額中。",
+    "ui.continue-in-seconds": "Continue in {{seconds}} seconds",
+    "ui.similar-photo-group-with-count": "Similar photo group with {{count}} photos",
+    "ui.photos-to-compare": "{{count}} photos to compare",
+    "ui.all-count": "All {{count}}",
+    "ui.suggested-remove-count": "Suggested remove {{count}}",
+    "ui.photos-processed": "{{count}} photo{{suffix}} processed.",
+    "ui.tokens-added-to-balance": "+{{count}} tokens added to your balance.",
     "ui.home-freed": "{{value}} 已釋放",
     "ui.home-left-today": "{{value}} 今天剩下",
     "ui.home-photos-possible": "{{count}} 照片 · ~{{value}} 可能",
@@ -932,6 +932,9 @@
     "ui.delete-trim-count": "刪除 {{deleted}} 張，並精簡 {{total}} 張照片中的 {{trimmed}} 張。",
     "ui.per-month": "每月",
     "ui.per-year": "每年",
-    "ui.selected-for-removal": "選擇刪除"
+    "ui.selected-for-removal": "選擇刪除",
+    "ui.marked-for-deletion": "已標記為刪除",
+    "ui.undo": "復原",
+    "ui.dismiss": "關閉"
   }
 }

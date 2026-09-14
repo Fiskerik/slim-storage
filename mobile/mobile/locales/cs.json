@@ -621,13 +621,13 @@
     "ui.you-can-keep-using-trimswipe-while-the-batch-run": "Během běhu dávky můžete pokračovat v používání TrimSwipe.",
     "ui.your-purchase-is-being-synced-with-apple": "Váš nákup se synchronizuje s Apple.",
     "ui.your-schedule-is-saved-locally-cloud-reminders-w": "Váš plán je uložen místně. Cloudová připomenutí se zkusí později.",
-    "ui.continue-in-seconds": "Pokračujte za {{seconds}} sekund",
-    "ui.similar-photo-group-with-count": "Podobná skupina fotek s {{count}} fotkami",
-    "ui.photos-to-compare": "{{count}} fotky k porovnání",
-    "ui.all-count": "Vše {{count}}",
-    "ui.suggested-remove-count": "Navrženo odstranění {{count}}",
-    "ui.photos-processed": "{{count}} fotka{{suffix}} zpracována.",
-    "ui.tokens-added-to-balance": "+{{count}} tokeny.",
+    "ui.continue-in-seconds": "Continue in {{seconds}} seconds",
+    "ui.similar-photo-group-with-count": "Similar photo group with {{count}} photos",
+    "ui.photos-to-compare": "{{count}} photos to compare",
+    "ui.all-count": "All {{count}}",
+    "ui.suggested-remove-count": "Suggested remove {{count}}",
+    "ui.photos-processed": "{{count}} photo{{suffix}} processed.",
+    "ui.tokens-added-to-balance": "+{{count}} tokens added to your balance.",
     "ui.home-freed": "Uvolněno {{value}}",
     "ui.home-left-today": "{{value}}",
     "ui.home-photos-possible": "{{count}} fotky · ~{{value}} možné",
@@ -932,6 +932,9 @@
     "ui.decide-later": "Rozhodnout později",
     "ui.quick-win": "Rychlá úspora",
     "ui.yearly": "Ročně",
-    "ui.you're-all-set": "Vše je připraveno"
+    "ui.you're-all-set": "Vše je připraveno",
+    "ui.marked-for-deletion": "Označeno k odstranění",
+    "ui.undo": "Vrátit zpět",
+    "ui.dismiss": "Zavřít"
   }
 }

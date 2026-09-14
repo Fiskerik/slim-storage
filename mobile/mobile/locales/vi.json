@@ -621,13 +621,13 @@
     "ui.you-can-keep-using-trimswipe-while-the-batch-run": "Bạn có thể tiếp tục sử dụng TrimSwipe trong khi đợt chạy.",
     "ui.your-purchase-is-being-synced-with-apple": "Giao dịch mua của bạn đang được đồng bộ hóa với Apple.",
     "ui.your-schedule-is-saved-locally-cloud-reminders-w": "Lịch trình của bạn được lưu cục bộ. Lời nhắc trên đám mây sẽ thử lại sau.",
-    "ui.continue-in-seconds": "Tiếp tục sau {{seconds}} giây",
-    "ui.similar-photo-group-with-count": "Nhóm ảnh tương tự với ảnh {{count}}",
-    "ui.photos-to-compare": "{{count}} ảnh để so sánh",
-    "ui.all-count": "Tất cả {{count}}",
-    "ui.suggested-remove-count": "Đề xuất xóa {{count}}",
-    "ui.photos-processed": "{{count}} ảnh{{suffix}} đã được xử lý.",
-    "ui.tokens-added-to-balance": "+{{count}} token đã được thêm vào số dư của bạn.",
+    "ui.continue-in-seconds": "Continue in {{seconds}} seconds",
+    "ui.similar-photo-group-with-count": "Similar photo group with {{count}} photos",
+    "ui.photos-to-compare": "{{count}} photos to compare",
+    "ui.all-count": "All {{count}}",
+    "ui.suggested-remove-count": "Suggested remove {{count}}",
+    "ui.photos-processed": "{{count}} photo{{suffix}} processed.",
+    "ui.tokens-added-to-balance": "+{{count}} tokens added to your balance.",
     "ui.home-freed": "{{value}} đã giải phóng",
     "ui.home-left-today": "{{value}} còn lại hôm nay",
     "ui.home-photos-possible": "{{count}} ảnh · ~{{value}} khả thi",
@@ -932,6 +932,9 @@
     "ui.decide-later": "Quyết định sau",
     "ui.quick-win": "Tiết kiệm nhanh",
     "ui.yearly": "Hàng năm",
-    "ui.you're-all-set": "Bạn đã sẵn sàng"
+    "ui.you're-all-set": "Bạn đã sẵn sàng",
+    "ui.marked-for-deletion": "Đã đánh dấu để xóa",
+    "ui.undo": "Hoàn tác",
+    "ui.dismiss": "Đóng"
   }
 }

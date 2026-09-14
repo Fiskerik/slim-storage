@@ -621,13 +621,13 @@
     "ui.you-can-keep-using-trimswipe-while-the-batch-run": "Ви можете продовжувати використовувати TrimSwipe під час пакетного виконання.",
     "ui.your-purchase-is-being-synced-with-apple": "Ваша покупка синхронізується з Apple.",
     "ui.your-schedule-is-saved-locally-cloud-reminders-w": "Ваш розклад зберігається локально. Хмарні нагадування повторяться пізніше.",
-    "ui.continue-in-seconds": "Продовжте через {{seconds}} секунд",
-    "ui.similar-photo-group-with-count": "Група схожих фотографій із {{count}} фотографіями",
-    "ui.photos-to-compare": "{{count}} фотографії для порівняння",
-    "ui.all-count": "Усі {{count}}",
-    "ui.suggested-remove-count": "Пропоновано видалити {{count}}",
-    "ui.photos-processed": "{{count}} фото{{suffix}} оброблено.",
-    "ui.tokens-added-to-balance": "+{{count}} токенів додано на ваш баланс.",
+    "ui.continue-in-seconds": "Continue in {{seconds}} seconds",
+    "ui.similar-photo-group-with-count": "Similar photo group with {{count}} photos",
+    "ui.photos-to-compare": "{{count}} photos to compare",
+    "ui.all-count": "All {{count}}",
+    "ui.suggested-remove-count": "Suggested remove {{count}}",
+    "ui.photos-processed": "{{count}} photo{{suffix}} processed.",
+    "ui.tokens-added-to-balance": "+{{count}} tokens added to your balance.",
     "ui.home-freed": "{{value}} звільнено",
     "ui.home-left-today": "{{value}} пішов сьогодні",
     "ui.home-photos-possible": "{{count}} фотографії · ~{{value}} можливо",
@@ -932,6 +932,9 @@
     "ui.decide-later": "Вирішити пізніше",
     "ui.quick-win": "Швидка економія",
     "ui.yearly": "Щороку",
-    "ui.you're-all-set": "Усе готово"
+    "ui.you're-all-set": "Усе готово",
+    "ui.marked-for-deletion": "Позначено для видалення",
+    "ui.undo": "Скасувати",
+    "ui.dismiss": "Закрити"
   }
 }

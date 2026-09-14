@@ -621,13 +621,13 @@
     "ui.you-can-keep-using-trimswipe-while-the-batch-run": "U kunt TrimSwipe blijven gebruiken terwijl de batch wordt uitgevoerd.",
     "ui.your-purchase-is-being-synced-with-apple": "Uw aankoop wordt gesynchroniseerd met Apple.",
     "ui.your-schedule-is-saved-locally-cloud-reminders-w": "Uw planning wordt lokaal opgeslagen. Cloudherinneringen worden later opnieuw geprobeerd.",
-    "ui.continue-in-seconds": "Ga verder over {{seconds}} seconden",
-    "ui.similar-photo-group-with-count": "Soortgelijke fotogroep met {{count}} foto's",
-    "ui.photos-to-compare": "{{count}} foto's om te vergelijken",
-    "ui.all-count": "Alles {{count}}",
-    "ui.suggested-remove-count": "Voorgestelde verwijdering {{count}}",
-    "ui.photos-processed": "{{count}} foto{{suffix}} verwerkt.",
-    "ui.tokens-added-to-balance": "+{{count}} tokens toegevoegd aan je saldo.",
+    "ui.continue-in-seconds": "Continue in {{seconds}} seconds",
+    "ui.similar-photo-group-with-count": "Similar photo group with {{count}} photos",
+    "ui.photos-to-compare": "{{count}} photos to compare",
+    "ui.all-count": "All {{count}}",
+    "ui.suggested-remove-count": "Suggested remove {{count}}",
+    "ui.photos-processed": "{{count}} photo{{suffix}} processed.",
+    "ui.tokens-added-to-balance": "+{{count}} tokens added to your balance.",
     "ui.home-freed": "{{value}} bevrijd",
     "ui.home-left-today": "{{value}} resterend vandaag",
     "ui.home-photos-possible": "{{count}} foto's · ~{{value}} mogelijk",
@@ -932,6 +932,9 @@
     "ui.decide-later": "Later beslissen",
     "ui.quick-win": "Snelle winst",
     "ui.yearly": "Jaarlijks",
-    "ui.you're-all-set": "Je bent er helemaal klaar voor"
+    "ui.you're-all-set": "Je bent er helemaal klaar voor",
+    "ui.marked-for-deletion": "Gemarkeerd voor verwijderen",
+    "ui.undo": "Ongedaan maken",
+    "ui.dismiss": "Sluiten"
   }
 }

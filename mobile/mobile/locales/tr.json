@@ -621,13 +621,13 @@
     "ui.you-can-keep-using-trimswipe-while-the-batch-run": "Toplu iş çalışırken TrimSwipe kullanmaya devam edebilirsiniz.",
     "ui.your-purchase-is-being-synced-with-apple": "Satın alma işleminiz Apple ile senkronize ediliyor.",
     "ui.your-schedule-is-saved-locally-cloud-reminders-w": "Programınız yerel olarak kaydedildi. Bulut hatırlatıcıları daha sonra yeniden denenecek.",
-    "ui.continue-in-seconds": "{{seconds}} saniye içinde devam edin",
-    "ui.similar-photo-group-with-count": "{{count}} fotoğraflarıyla benzer fotoğraf grubu",
-    "ui.photos-to-compare": "{{count}} fotoğraf",
-    "ui.all-count": "Hepsi {{count}}",
-    "ui.suggested-remove-count": "Önerilen kaldırma {{count}}",
-    "ui.photos-processed": "{{count}} fotoğrafı{{suffix}} işlendi.",
-    "ui.tokens-added-to-balance": "+{{count}} jeton eklendi.",
+    "ui.continue-in-seconds": "Continue in {{seconds}} seconds",
+    "ui.similar-photo-group-with-count": "Similar photo group with {{count}} photos",
+    "ui.photos-to-compare": "{{count}} photos to compare",
+    "ui.all-count": "All {{count}}",
+    "ui.suggested-remove-count": "Suggested remove {{count}}",
+    "ui.photos-processed": "{{count}} photo{{suffix}} processed.",
+    "ui.tokens-added-to-balance": "+{{count}} tokens added to your balance.",
     "ui.home-freed": "{{value}} serbest bırakıldı",
     "ui.home-left-today": "Bugün {{value}} kaldı",
     "ui.home-photos-possible": "{{count}} fotoğraf · ~{{value}} mümkün",
@@ -932,6 +932,9 @@
     "ui.you're-all-set": "Artık hazırsınız",
     "ui.delete-trim-savings": "{{deleted}} silin ve kaydedilen yaklaşık {{value}} kadar {{trimmed}} fotoğrafı kırpın.",
     "ui.delete-trim-count": "{{deleted}} dosyasını silin ve {{total}} fotoğrafın {{trimmed}} kısmını kırpın.",
-    "ui.per-month": "aylık"
+    "ui.per-month": "aylık",
+    "ui.marked-for-deletion": "Silinmek üzere işaretlendi",
+    "ui.undo": "Geri al",
+    "ui.dismiss": "Kapat"
   }
 }
