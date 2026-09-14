@@ -621,12 +621,12 @@
     "ui.you-can-keep-using-trimswipe-while-the-batch-run": "Voit jatkaa TrimSwipen käyttöä erän aikana.",
     "ui.your-purchase-is-being-synced-with-apple": "Ostostasi synkronoidaan kohteen Apple kanssa.",
     "ui.your-schedule-is-saved-locally-cloud-reminders-w": "Aikataulusi on tallennettu paikallisesti. Pilvimuistutukset yritetään myöhemmin uudelleen.",
-    "ui.continue-in-seconds": "Jatka {{seconds}} sekunnin kuluttua",
-    "ui.similar-photo-group-with-count": "Samanlainen valokuvaryhmä, jossa on {{count}} kuvia",
-    "ui.photos-to-compare": "{{count}} vertailtavia kuvia",
-    "ui.all-count": "Kaikki {{count}}",
-    "ui.suggested-remove-count": "Ehdotettu poisto {{count}}",
-    "ui.photos-processed": "{{count}} valokuva{{suffix}} käsitelty.",
+    "ui.continue-in-seconds": "Continue in {{seconds}} seconds",
+    "ui.similar-photo-group-with-count": "Similar photo group with {{count}} photos",
+    "ui.photos-to-compare": "{{count}} photos to compare",
+    "ui.all-count": "All {{count}}",
+    "ui.suggested-remove-count": "Suggested remove {{count}}",
+    "ui.photos-processed": "{{count}} photo{{suffix}} processed.",
     "ui.tokens-added-to-balance": "+{{count}} tokens added to your balance.",
     "ui.home-freed": "{{value}} vapautettu",
     "ui.home-left-today": "{{value}} lähti tänään",
@@ -932,6 +932,9 @@
     "ui.selected-for-removal": "valittu poistettavaksi",
     "ui.shop-legal": "Apple käsittelee ostokset, ja ne veloitetaan tililtäsi Apple Account vahvistuksen yhteydessä. TrimSwipe Pro on saatavana automaattisesti uusiutuvana kuukausi- tai vuositilauksena tai kertaluonteisena elinikäisenä ostona. Tilaukset uusiutuvat automaattisesti samalle ajanjaksolle ja hinnalle, ellei automaattista uusimista ole kytketty pois päältä vähintään 24 tuntia ennen nykyisen jakson päättymistä. Hallinnoi tai peruuta milloin tahansa kohdassa Apple Account → Tilaukset. Token-pakkaukset ovat kertakäyttöisiä ostoksia, eikä niitä palauteta käytön jälkeen.",
     "ui.tap-to-stack": "pinoa napauttamalla",
-    "ui.tokens-count": "{{count}} tunnukset"
+    "ui.tokens-count": "{{count}} tunnukset",
+    "ui.marked-for-deletion": "Merkitty poistettavaksi",
+    "ui.undo": "Kumoa",
+    "ui.dismiss": "Sulje"
   }
 }

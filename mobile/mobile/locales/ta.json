@@ -932,6 +932,9 @@
     "ui.target-balanced-range": "{{size}}+ அல்லது {{age}}",
     "ui.actions-result-summary": "{{deleted}}/{{deleteTotal}} நீக்கப்பட்டது மற்றும் {{trimmed}}/{{trimTotal}} டிரிம் செய்யப்பட்டது. {{details}}",
     "ui.confirm-removals-count": "{{label}} · {{count}}",
-    "ui.photo-month-size": "{{month}} {{year}} · {{value}} MB"
+    "ui.photo-month-size": "{{month}} {{year}} · {{value}} MB",
+    "ui.marked-for-deletion": "நீக்குவதற்காகக் குறிக்கப்பட்டது",
+    "ui.undo": "செயல்தவிர்",
+    "ui.dismiss": "மூடு"
   }
 }

@@ -9,14 +9,14 @@ const SUPPORTED_LOCALES = [
 const config: ExpoConfig = {
   name: "TrimSwipe",
   slug: "slim-storage",
-  version: "1.1.6",
+  version: "1.2.0",
   icon: "./assets/images/icon.png",
   orientation: "portrait",
   scheme: "trimswipe",
   userInterfaceStyle: "automatic",
   ios: {
     bundleIdentifier: "com.fiskerik.trimswipe",
-    buildNumber: "73",
+    buildNumber: "74",
     supportsTablet: true,
     infoPlist: {
       CFBundleAllowMixedLocalizations: true,
@@ -46,7 +46,7 @@ const config: ExpoConfig = {
   },
   android: {
     package: "com.fiskerik.trimswipe",
-    versionCode: 5,
+    versionCode: 6,
     permissions: [
       "android.permission.READ_EXTERNAL_STORAGE",
       "android.permission.WRITE_EXTERNAL_STORAGE",

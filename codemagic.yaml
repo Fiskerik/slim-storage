@@ -15,7 +15,7 @@ workflows:
       node: 22.12.0
       vars:
         BUNDLE_ID: "com.fiskerik.trimswipe" # Fixed to match your real app bundle ID
-        APP_MARKETING_VERSION: "1.1.6"
+        APP_MARKETING_VERSION: "1.2.0"
         EXPO_NO_TYPESCRIPT_SETUP: "1"
     triggering:
       events:
@@ -138,6 +138,15 @@ workflows:
             echo "APP_MARKETING_VERSION is required."
             exit 1
           fi
+          EXPECTED_MARKETING_VERSION=$(node -p "require('../package.json').version")
+          if [ -z "$EXPECTED_MARKETING_VERSION" ]; then
+            echo "Could not read the mobile package version."
+            exit 1
+          fi
+          if [ "$APP_MARKETING_VERSION" != "$EXPECTED_MARKETING_VERSION" ]; then
+            echo "Overriding stale APP_MARKETING_VERSION=$APP_MARKETING_VERSION with $EXPECTED_MARKETING_VERSION from mobile/package.json"
+            APP_MARKETING_VERSION="$EXPECTED_MARKETING_VERSION"
+          fi
           agvtool new-marketing-version "$APP_MARKETING_VERSION"
           echo "Set CFBundleShortVersionString to $APP_MARKETING_VERSION"
           agvtool what-marketing-version
@@ -145,7 +154,7 @@ workflows:
         script: |
           cd mobile/mobile/ios
           # Keep build numbers above the previously released train and unique across uploads.
-          MINIMUM_BUILD_NUMBER=73
+          MINIMUM_BUILD_NUMBER=74
           BUILD_NUMBER_OFFSET=48
           if [[ "${PROJECT_BUILD_NUMBER:-}" =~ ^[0-9]+$ ]]; then
           CI_BUILD_NUMBER=$((PROJECT_BUILD_NUMBER + BUILD_NUMBER_OFFSET))

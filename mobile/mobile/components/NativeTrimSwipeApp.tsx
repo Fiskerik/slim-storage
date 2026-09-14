@@ -19,7 +19,6 @@ import {
   I18nManager,
   Linking,
   Modal,
-  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -141,6 +140,12 @@ import {
   scheduleDailyTrimReminder,
   cancelDailyTrimReminder,
 } from "../lib/daily-trim-reminder";
+import { ActionSnackbar } from "./motion/ActionSnackbar";
+import { ApplyStatusButton, type ApplyStatus } from "./motion/ApplyStatusButton";
+import { CleanupSkeleton } from "./motion/CleanupSkeleton";
+import { SwipeablePhotoCard, type SwipeActionCommand } from "./motion/SwipeablePhotoCard";
+import type { CleanupOutcome } from "./motion/cleanupTypes";
+import { subtractPendingDeleteEstimate, undoPendingDelete } from "./motion/deleteUndo";
 
 type Screen =
   | "home"
@@ -165,6 +170,7 @@ type SessionRecap = {
   trimmed: number;
   deleted: number;
   freed: number;
+  outcome?: CleanupOutcome;
 };
 
 type Achievement = {
@@ -181,6 +187,11 @@ type ToastMessage = {
   tone?: "info" | "success" | "warning" | "error";
 };
 
+type UndoDelete = {
+  photo: NativePhoto;
+  expiresAt: number;
+};
+
 type ConfirmRequest = {
   id: number;
   title: string;
@@ -192,7 +203,6 @@ type ConfirmRequest = {
   onConfirm: () => Promise<void>;
 };
 
-const SWIPE_THRESHOLD = 110;
 const APP_VERSION =
   Constants.expoConfig?.version ??
   (Constants.manifest as { version?: string } | null)?.version ??
@@ -845,6 +855,7 @@ export function NativeTrimSwipeApp() {
   const [stats, setStats] = useState<NativeStats>(DEFAULT_NATIVE_STATS);
   const [reviewLedger, setReviewLedger] = useState<NativePhotoReviewLedger | null>(null);
   const [queue, setQueue] = useState<NativePhoto[]>([]);
+  const [swipeCommand, setSwipeCommand] = useState<SwipeActionCommand | null>(null);
   const [loading, setLoading] = useState(true);
   const [statsLoaded, setStatsLoaded] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState(false);
@@ -894,7 +905,10 @@ export function NativeTrimSwipeApp() {
   const cleanupCompletionsRef = useRef(0);
   const shareShotRef = useRef<View>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const swipeCommandIdRef = useRef(0);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  const undoDeleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [undoDelete, setUndoDelete] = useState<UndoDelete | null>(null);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod | null>(null);
@@ -939,6 +953,56 @@ export function NativeTrimSwipeApp() {
     toastTimerRef.current = setTimeout(() => setToast(null), 3800);
   }
 
+  function clearUndoDelete() {
+    if (undoDeleteTimerRef.current) clearTimeout(undoDeleteTimerRef.current);
+    undoDeleteTimerRef.current = null;
+    setUndoDelete(null);
+  }
+
+  function offerDeleteUndo(photo: NativePhoto) {
+    clearUndoDelete();
+    const expiresAt = Date.now() + 3800;
+    setUndoDelete({ photo, expiresAt });
+    undoDeleteTimerRef.current = setTimeout(() => {
+      undoDeleteTimerRef.current = null;
+      setUndoDelete(null);
+    }, 3800);
+  }
+
+  function undoLastDelete() {
+    const item = undoDelete;
+    if (!item || item.expiresAt <= Date.now()) {
+      clearUndoDelete();
+      return;
+    }
+    const photo = item.photo;
+    const wasPending = pendingDeletesRef.current.some((candidate) => candidate.id === photo.id);
+    if (!wasPending) {
+      clearUndoDelete();
+      return;
+    }
+    const undoResult = undoPendingDelete(pendingDeletesRef.current, photo);
+    if (!undoResult.restored) {
+      clearUndoDelete();
+      return;
+    }
+    pendingDeletesRef.current = undoResult.pending;
+    setPendingDeletes(pendingDeletesRef.current);
+    sessionRef.current = {
+      ...sessionRef.current,
+      ...subtractPendingDeleteEstimate(sessionRef.current, photo),
+    };
+    setQueue((current) => current.some((candidate) => candidate.id === photo.id) ? current : [photo, ...current]);
+    clearUndoDelete();
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }
+
+  function requestSwipeAction(action: Action) {
+    if (!top || swipeCommand) return;
+    swipeCommandIdRef.current += 1;
+    setSwipeCommand({ id: swipeCommandIdRef.current, action, photoId: top.id });
+  }
+
   function requestConfirmation({
     title,
     detail,
@@ -956,6 +1020,7 @@ export function NativeTrimSwipeApp() {
     runInBackground?: boolean;
     onConfirm: () => Promise<number>;
   }): Promise<number> {
+    clearUndoDelete();
     return new Promise((resolve) => {
       const close = (value: number) => {
         setConfirmBusy(false);
@@ -1797,6 +1862,7 @@ export function NativeTrimSwipeApp() {
       pendingDeletesRef.current = [...pendingDeletesRef.current, photo];
       setPendingDeletes(pendingDeletesRef.current);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      offerDeleteUndo(photo);
       // Stats commit happens in confirmActions so users can deselect items.
       advance();
       return;
@@ -1825,10 +1891,18 @@ export function NativeTrimSwipeApp() {
     advance();
   }
 
-  async function confirmActions(deletes: NativePhoto[], trims: NativePhoto[]) {
+  async function confirmActions(deletes: NativePhoto[], trims: NativePhoto[]): Promise<CleanupOutcome> {
+    clearUndoDelete();
     if (applyingActionsRef.current) {
       showToast(t("ui.already-applying"), t("ui.please-wait-for-the-photos-confirmation"), "info");
-      return;
+      return {
+        requestedDeletes: deletes.length,
+        requestedTrims: trims.length,
+        appliedDeletes: 0,
+        appliedTrims: 0,
+        freedMB: 0,
+        status: "failed",
+      };
     }
     applyingActionsRef.current = true;
     try {
@@ -1925,6 +1999,17 @@ export function NativeTrimSwipeApp() {
       freed: +(deletedPhotos.reduce((s, p) => s + p.sizeMB, 0) + actualTrimSaved).toFixed(2),
     };
 
+    const appliedActions = deletedCount + trimmedOkIds.size;
+    const requestedActions = deletes.length + trims.length;
+    const outcome: CleanupOutcome = {
+      requestedDeletes: deletes.length,
+      requestedTrims: trims.length,
+      appliedDeletes: deletedCount,
+      appliedTrims: trimmedOkIds.size,
+      freedMB: sessionRef.current.freed,
+      status: appliedActions === requestedActions ? "success" : appliedActions > 0 ? "partial" : "failed",
+    };
+
     if (deletedCount !== deletes.length || trimmedOkIds.size !== chargeableTrims.length) {
       showToast(
         t("ui.some-actions-skipped"),
@@ -1941,7 +2026,7 @@ export function NativeTrimSwipeApp() {
     );
     setPendingDeletes(pendingDeletesRef.current);
     setPendingTrims(pendingTrimsRef.current);
-    setRecap({ ...sessionRef.current });
+    setRecap({ ...sessionRef.current, outcome });
     if (totalActions >= 5) {
       await notifyCleanupProgress(t("ui.cleanup-complete"), t("ui.saved-about", { value: formatMB(sessionRef.current.freed) }));
     }
@@ -1969,6 +2054,7 @@ export function NativeTrimSwipeApp() {
         savedMB: +actualTrimSaved.toFixed(2),
       });
     }
+    return outcome;
     } finally {
       applyingActionsRef.current = false;
     }
@@ -1984,6 +2070,7 @@ export function NativeTrimSwipeApp() {
   }
 
   function cancelPendingActions() {
+    clearUndoDelete();
     discardAllPreparedTrims();
     pendingDeletesRef.current = [];
     pendingTrimsRef.current = [];
@@ -2941,6 +3028,9 @@ export function NativeTrimSwipeApp() {
             trimsRemaining={trimCurrencyAvailable}
             trimLimit={trimCurrencyAvailable}
             onAction={handleAction}
+            actionCommand={swipeCommand}
+            onRequestAction={requestSwipeAction}
+            onActionCommandComplete={() => setSwipeCommand(null)}
             onReload={() => loadRound(settings, { showFallbackToast: true })}
             onOpenSettings={() => Linking.openSettings()}
             isPro={isPro}
@@ -3283,6 +3373,15 @@ export function NativeTrimSwipeApp() {
         />
         <ConfirmSheet request={confirmRequest} busy={confirmBusy} />
         <Toast toast={toast} />
+        <ActionSnackbar
+          visible={undoDelete !== null}
+          message={t("ui.marked-for-deletion")}
+          actionLabel={t("ui.undo")}
+          announcement={`${t("ui.marked-for-deletion")}. ${t("ui.undo")} ${t("ui.stats-available")}`}
+          dismissLabel={t("ui.dismiss")}
+          onAction={undoLastDelete}
+          onDismiss={clearUndoDelete}
+        />
         <DailyReminderPrompt
           visible={dailyReminderPromptVisible}
           reminderTime={formatReminderTime(settings.dailyTrimReminder.time)}
@@ -3445,7 +3544,7 @@ function CleanupPlanScreen({
   if (loading) {
     return (
       <Centered>
-        <ActivityIndicator color="#315f7d" size="large" />
+        <CleanupSkeleton rows={2} />
         <Text style={styles.heroTitle}>{t("ui.building-preview")}</Text>
         <Text style={styles.centerText}>{t("ui.finding-the-photos-that-will-make-the-biggest-de")}</Text>
       </Centered>
@@ -3535,7 +3634,7 @@ function SwipeScreen({
   largeControls, tokens,
   trimsRemaining, trimLimit, onAction, onReload, onOpenSettings,
   isPro, hasUnlimitedTrims, adEligibilityReady, onChangeSettings, onConfirmActions, onCancelPending, onOpenShop,
-  onShare,
+  onShare, actionCommand, onRequestAction, onActionCommandComplete,
 }: {
   top?: NativePhoto; next?: NativePhoto; queueCount: number; loading: boolean;
   error: string | null; permissionDenied: boolean; permissionLimited: boolean;
@@ -3546,10 +3645,13 @@ function SwipeScreen({
   onReload: () => void; onOpenSettings: () => void;
   isPro: boolean; hasUnlimitedTrims: boolean; adEligibilityReady: boolean;
   onChangeSettings: (patch: Partial<NativeSettings>) => void;
-  onConfirmActions: (deletes: NativePhoto[], trims: NativePhoto[]) => Promise<void> | void;
+  onConfirmActions: (deletes: NativePhoto[], trims: NativePhoto[]) => Promise<CleanupOutcome> | void;
   onCancelPending: () => void;
   onOpenShop: () => void;
   onShare: () => void;
+  actionCommand: SwipeActionCommand | null;
+  onRequestAction: (action: Action) => void;
+  onActionCommandComplete: () => void;
 }) {
   const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -3558,7 +3660,7 @@ function SwipeScreen({
   if (loading) {
     return (
       <Centered>
-        <ActivityIndicator color="#315f7d" size="large" />
+        <CleanupSkeleton />
         <Text style={styles.muted}>{t("ui.loading-your-photo-round")}</Text>
       </Centered>
     );
@@ -3620,29 +3722,34 @@ function SwipeScreen({
           <SwipeablePhotoCard
             photo={top}
             settings={settings}
-            onAction={(action) => onAction(top, action)}
+            command={actionCommand}
+            onAction={(action) => {
+              onAction(top, action);
+              onActionCommandComplete();
+            }}
             onOpenFull={() => setFullPhoto(top)}
+            renderCard={(photo, onOpenFull) => <PhotoCard photo={photo} settings={settings} onOpenFull={onOpenFull} />}
           />
         ) : null}
       </View>
       <View style={[styles.actions, styles.swipeActions, compactLayout && styles.swipeActionsCompact]}>
-        <ActionButton label={t("ui.keep")} tone="keep" size={actionButtonSize} large={largeControls} onPress={() => top && onAction(top, "keep")} />
+        <ActionButton label={t("ui.keep")} tone="keep" size={actionButtonSize} large={largeControls} disabled={actionCommand !== null} onPress={() => onRequestAction("keep")} />
         <ActionButton
           label={!top ? t("ui.trim-label") : !canAttemptTrim(top, settings) ? trimDisabledReason(top, settings) : trimsRemaining <= 0 ? t("ui.limit-hit") : t("ui.trim-label")}
           tone="trim"
           size={actionButtonSize}
           large={largeControls}
-          disabled={!top || !canAttemptTrim(top, settings)}
+          disabled={!top || !canAttemptTrim(top, settings) || actionCommand !== null}
           onPress={() => {
             if (!top) return;
             if (trimsRemaining <= 0) {
               onOpenShop();
               return;
             }
-            onAction(top, "trim");
+            onRequestAction("trim");
           }}
         />
-        <ActionButton label={t("ui.delete")} tone="delete" size={actionButtonSize} large={largeControls} onPress={() => top && onAction(top, "delete")} />
+      <ActionButton label={t("ui.delete")} tone="delete" size={actionButtonSize} large={largeControls} disabled={actionCommand !== null} onPress={() => onRequestAction("delete")} />
       </View>
       <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </View>
@@ -3683,35 +3790,6 @@ function trimFailureSummary(
     .forEach((reason) => reasons.add(reason));
   if (reasons.size === 0) return t("ui.trim-failure-count", { count: failed.length });
   return [...reasons].slice(0, 2).join(" ");
-}
-
-function SwipeablePhotoCard({ photo, settings, onAction, onOpenFull }: { photo: NativePhoto; settings: NativeSettings; onAction: (action: Action) => void; onOpenFull: () => void }) {
-  const pan = useRef(new Animated.ValueXY()).current;
-  useEffect(() => { pan.setValue({ x: 0, y: 0 }); }, [pan, photo.id]);
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 6 || Math.abs(gesture.dy) > 6,
-        onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }),
-        onPanResponderRelease: (_, gesture) => {
-          if (gesture.dy < -SWIPE_THRESHOLD && Math.abs(gesture.dy) > Math.abs(gesture.dx)) { onAction("trim"); return; }
-          if (gesture.dx > SWIPE_THRESHOLD) { onAction("delete"); return; }
-          if (gesture.dx < -SWIPE_THRESHOLD) { onAction("keep"); return; }
-          Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: true, tension: 70, friction: 8 }).start();
-        },
-      }),
-    [onAction, pan],
-  );
-  const rotate = pan.x.interpolate({ inputRange: [-180, 0, 180], outputRange: ["-12deg", "0deg", "12deg"] });
-  const keepOpacity = pan.x.interpolate({ inputRange: [-SWIPE_THRESHOLD, -20, 0], outputRange: [0.38, 0.14, 0], extrapolate: "clamp" });
-  const deleteOpacity = pan.x.interpolate({ inputRange: [0, 20, SWIPE_THRESHOLD], outputRange: [0, 0.14, 0.38], extrapolate: "clamp" });
-  return (
-    <Animated.View {...panResponder.panHandlers} style={[styles.animatedCard, { transform: [{ translateX: pan.x }, { translateY: pan.y }, { rotate }] }]}>
-      <PhotoCard photo={photo} settings={settings} onOpenFull={onOpenFull} />
-      <Animated.View pointerEvents="none" style={[styles.swipeTint, styles.keepTint, { opacity: keepOpacity }]} />
-      <Animated.View pointerEvents="none" style={[styles.swipeTint, styles.deleteTint, { opacity: deleteOpacity }]} />
-    </Animated.View>
-  );
 }
 
 function PhotoCard({ photo, settings, stacked, onOpenFull }: { photo: NativePhoto; settings: NativeSettings; stacked?: boolean; onOpenFull?: () => void }) {
@@ -3763,7 +3841,7 @@ function ConfirmActionsReview({
   deletes: NativePhoto[];
   trims: NativePhoto[];
   settings: NativeSettings;
-  onConfirm: (deletes: NativePhoto[], trims: NativePhoto[]) => Promise<void> | void;
+  onConfirm: (deletes: NativePhoto[], trims: NativePhoto[]) => Promise<void | CleanupOutcome> | void;
   onCancel: () => void;
   trimsRemaining?: number;
 }) {
@@ -3777,7 +3855,8 @@ function ConfirmActionsReview({
     () => new Set(trims.slice(0, Math.min(trims.length, trimSelectionLimit)).map((p) => p.id)),
   );
   const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
-  const [applying, setApplying] = useState(false);
+  const [applyStatus, setApplyStatus] = useState<ApplyStatus>("idle");
+  const applying = applyStatus === "applying";
   const applyingRef = useRef(false);
 
   const chosenDeletes = deleteList.filter((p) => selectedDeletes.has(p.id));
@@ -3790,13 +3869,16 @@ function ConfirmActionsReview({
   async function handleApply() {
     if (applyingRef.current || nothingSelected) return;
     applyingRef.current = true;
-    setApplying(true);
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    setApplyStatus("applying");
     try {
-      await onConfirm(chosenDeletes, chosenTrims);
+      const outcome = await onConfirm(chosenDeletes, chosenTrims);
+      setApplyStatus(outcome?.status === "partial" ? "warning" : outcome?.status === "failed" ? "failed" : "success");
+      await new Promise((resolve) => setTimeout(resolve, 220));
+    } catch {
+      setApplyStatus("failed");
+      return;
     } finally {
       applyingRef.current = false;
-      setApplying(false);
     }
   }
 
@@ -3951,11 +4033,15 @@ function ConfirmActionsReview({
             </View>
           </View>
         ) : null}
-        <PrimaryButton
-          label={applying ? t("ui.applying") : nothingSelected ? t("ui.nothing-selected") : t("ui.apply-save", { value: formatMB(total) })}
+        <ApplyStatusButton
+          status={nothingSelected ? "idle" : applyStatus}
+          label={nothingSelected ? t("ui.nothing-selected") : t("ui.apply-save", { value: formatMB(total) })}
+          applyingLabel={t("ui.applying")}
+          successLabel={t("ui.done")}
+          failedLabel={t("ui.try-again")}
           danger={chosenDeletes.length > 0}
-          disabled={nothingSelected || applying}
-          onPress={handleApply}
+          disabled={nothingSelected}
+          onPress={() => void handleApply()}
         />
         <SecondaryButton label={t("ui.keep-them-all")} disabled={applying} onPress={onCancel} />
       </View>
@@ -3976,8 +4062,10 @@ function Recap({
   const [nextBusy, setNextBusy] = useState(false);
   const appear = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
-  const shine = useRef(new Animated.Value(0)).current;
   const total = recap.kept + recap.trimmed + recap.deleted;
+  const cleanupStatus = recap.outcome?.status ?? "success";
+  const cleanupIcon = cleanupStatus === "success" ? "checkmark" : cleanupStatus === "partial" ? "warning-outline" : "close";
+  const cleanupLabel = cleanupStatus === "success" ? t("ui.cleanup-applied-successfully") : cleanupStatus === "partial" ? t("ui.apply-incomplete") : t("ui.apply-failed");
   const trimShare = recap.freed > 0 ? Math.min(1, (recap.trimmed * 3) / Math.max(1, total)) : 0;
   const deleteShare = recap.freed > 0 ? Math.min(1, (recap.deleted * 3) / Math.max(1, total)) : 0;
   const insight = recap.deleted > recap.trimmed
@@ -4008,22 +4096,6 @@ function Recap({
     ]).start();
   }, [appear, pulse]);
 
-  useEffect(() => {
-    const shineLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(shine, {
-          toValue: 1,
-          duration: 920,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.delay(7080),
-      ]),
-    );
-    shineLoop.start();
-    return () => shineLoop.stop();
-  }, [shine]);
-
   async function handleNext() {
     if (nextBusy) return;
     setNextBusy(true);
@@ -4049,8 +4121,8 @@ function Recap({
       >
         <Animated.View style={[styles.recapBadgeWrap, { transform: [{ scale: badgeScale }] }]}>
           <CelebrationBurst visible />
-          <View style={styles.recapBadge}>
-            <Ionicons name="checkmark" size={40} color="#ffffff" />
+          <View style={[styles.recapBadge, cleanupStatus === "partial" && styles.recapBadgeWarning, cleanupStatus === "failed" && styles.recapBadgeFailed]}>
+            <Ionicons name={cleanupIcon} size={40} color="#ffffff" />
           </View>
         </Animated.View>
         <Text style={styles.heroTitle}>{t("ui.set-complete")}</Text>
@@ -4063,41 +4135,20 @@ function Recap({
           { opacity: appear, transform: [{ scale: cardScale }, { translateY: contentTranslate }] },
         ]}
       >
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.recapImpactShine,
-            {
-              opacity: shine.interpolate({
-                inputRange: [0, 0.15, 0.75, 1],
-                outputRange: [0, 0.85, 0.85, 0],
-              }),
-              transform: [
-                {
-                  translateX: shine.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [-140, 390],
-                  }),
-                },
-                { rotate: "18deg" },
-              ],
-            },
-          ]}
-        />
         <View style={styles.recapImpactHeader}>
           <View>
             <Text style={styles.eyebrow}>{t("ui.round-impact")}</Text>
             <Text style={styles.recapImpactValue}>{formatMB(recap.freed)}</Text>
           </View>
-          <View style={styles.recapCleanBadge}>
-            <Ionicons name="sparkles" size={18} color="#15803d" />
+          <View style={[styles.recapCleanBadge, cleanupStatus === "partial" && styles.recapCleanBadgeWarning, cleanupStatus === "failed" && styles.recapCleanBadgeFailed]}>
+            <Ionicons name={cleanupStatus === "success" ? "sparkles" : cleanupStatus === "partial" ? "warning-outline" : "close-circle-outline"} size={18} color={cleanupStatus === "success" ? "#15803d" : cleanupStatus === "partial" ? "#a16207" : "#b42318"} />
           </View>
         </View>
         <ImpactRow label={t("ui.trim-momentum")} value={t("ui.photos-count", { count: recap.trimmed })} progress={trimShare} tone="trim" />
         <ImpactRow label={t("ui.delete-momentum")} value={t("ui.photos-count", { count: recap.deleted })} progress={deleteShare} tone="delete" />
-        <View style={styles.recapSuccessStrip}>
-          <Ionicons name="shield-checkmark-outline" size={17} color="#15803d" />
-          <Text style={styles.recapSuccessText}>{t("ui.cleanup-applied-successfully")}</Text>
+        <View style={[styles.recapSuccessStrip, cleanupStatus === "partial" && styles.recapWarningStrip, cleanupStatus === "failed" && styles.recapFailedStrip]}>
+          <Ionicons name={cleanupStatus === "success" ? "shield-checkmark-outline" : cleanupStatus === "partial" ? "warning-outline" : "close-circle-outline"} size={17} color={cleanupStatus === "success" ? "#15803d" : cleanupStatus === "partial" ? "#a16207" : "#b42318"} />
+          <Text style={[styles.recapSuccessText, cleanupStatus === "partial" && styles.recapWarningText, cleanupStatus === "failed" && styles.recapFailedText]}>{cleanupLabel}</Text>
         </View>
       </Animated.View>
       <Animated.View style={[styles.statGrid, { opacity: appear }]}>
@@ -4286,6 +4337,17 @@ function ImpactBreakdown({ trimMB, deleteMB }: { trimMB: number; deleteMB: numbe
 }
 
 function ImpactRow({ label, value, progress, tone }: { label: string; value: string; progress: number; tone: "trim" | "delete" }) {
+  const animatedProgress = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    animatedProgress.setValue(0);
+    Animated.timing(animatedProgress, {
+      toValue: progress,
+      duration: 520,
+      delay: 120,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [animatedProgress, progress]);
   return (
     <View style={styles.impactRow}>
       <View style={styles.impactLabelRow}>
@@ -4293,7 +4355,7 @@ function ImpactRow({ label, value, progress, tone }: { label: string; value: str
         <Text style={styles.impactAmount}>{value}</Text>
       </View>
       <View style={styles.progressTrack}>
-        <View style={[styles.progressFill, tone === "trim" ? styles.progressTrim : styles.progressDelete, { width: progressWidth(progress) }]} />
+        <Animated.View style={[styles.progressFill, tone === "trim" ? styles.progressTrim : styles.progressDelete, { width: animatedProgress.interpolate({ inputRange: [0, 1], outputRange: ["0%", "100%"] }) }]} />
       </View>
     </View>
   );
@@ -4775,7 +4837,7 @@ function ThisOrThatScreen({ settings, tokens, hasUnlimitedTrims, avoidIds, onBac
   }
 
   if (loadingClusters) {
-    return <Centered><ActivityIndicator color="#334155" size="large" /><Text style={styles.muted}>{t("ui.comparing-photos-privately-on-this-iphone")}</Text></Centered>;
+    return <Centered><CleanupSkeleton rows={2} /><Text style={styles.muted}>{t("ui.comparing-photos-privately-on-this-iphone")}</Text></Centered>;
   }
 
   if (!cluster) {
@@ -7042,14 +7104,21 @@ const styles = StyleSheet.create({
   recapTop: { alignItems: "center", gap: 12 },
   recapBadgeWrap: { width: 118, height: 96, alignItems: "center", justifyContent: "center" },
   recapBadge: { width: 74, height: 74, alignItems: "center", justifyContent: "center", borderRadius: 24, backgroundColor: "#22c55e", borderWidth: 2, borderColor: "#86efac", shadowColor: "#22c55e", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.22, shadowRadius: 20, elevation: 5 },
+  recapBadgeWarning: { backgroundColor: "#d99a1c", borderColor: "#f6d47f", shadowColor: "#d99a1c" },
+  recapBadgeFailed: { backgroundColor: "#b42318", borderColor: "#f2a6a0", shadowColor: "#b42318" },
   recapBadgeIcon: { color: "#ffffff", fontSize: 38, fontWeight: "700" },
   recapImpactCard: { width: "100%", overflow: "hidden", position: "relative", borderRadius: 22, backgroundColor: "#ffffff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#bbf7d0", padding: 16, gap: 12, shadowColor: "#22c55e", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 18, elevation: 3 },
-  recapImpactShine: { position: "absolute", top: -28, bottom: -28, left: 0, width: 72, backgroundColor: "rgba(255,255,255,0.62)" },
   recapImpactHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14 },
   recapCleanBadge: { width: 42, height: 42, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "#dcfce7", borderWidth: 1, borderColor: "#86efac" },
+  recapCleanBadgeWarning: { backgroundColor: "#fff7df", borderColor: "#f6d47f" },
+  recapCleanBadgeFailed: { backgroundColor: "#fff1f0", borderColor: "#f2a6a0" },
   recapImpactValue: { color: "#315f7d", fontSize: 34, fontWeight: "700" },
   recapSuccessStrip: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 14, backgroundColor: "#f0fdf4", borderWidth: StyleSheet.hairlineWidth, borderColor: "#bbf7d0", paddingHorizontal: 12, paddingVertical: 10 },
   recapSuccessText: { color: "#15803d", fontSize: 12, fontWeight: "700" },
+  recapWarningStrip: { backgroundColor: "#fff7df", borderColor: "#f6d47f" },
+  recapWarningText: { color: "#a16207" },
+  recapFailedStrip: { backgroundColor: "#fff1f0", borderColor: "#f2a6a0" },
+  recapFailedText: { color: "#b42318" },
 
   // Stats redesign
   statsContent: { gap: 14, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 120 },

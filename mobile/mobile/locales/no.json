@@ -621,13 +621,13 @@
     "ui.you-can-keep-using-trimswipe-while-the-batch-run": "Du kan fortsette å bruke TrimSwipe mens batchen kjører.",
     "ui.your-purchase-is-being-synced-with-apple": "Kjøpet ditt blir synkronisert med Apple.",
     "ui.your-schedule-is-saved-locally-cloud-reminders-w": "Tidsplanen din er lagret lokalt. Skypåminnelser vil prøve på nytt senere.",
-    "ui.continue-in-seconds": "Fortsett om {{seconds}} sekunder",
-    "ui.similar-photo-group-with-count": "Lignende bildegruppe med {{count}} bilder",
-    "ui.photos-to-compare": "{{count}} bilder å sammenligne",
-    "ui.all-count": "Alle {{count}}",
-    "ui.suggested-remove-count": "Foreslått fjerning {{count}}",
-    "ui.photos-processed": "{{count}} bilde{{suffix}} behandlet.",
-    "ui.tokens-added-to-balance": "+{{count}} tokens lagt til saldoen din.",
+    "ui.continue-in-seconds": "Continue in {{seconds}} seconds",
+    "ui.similar-photo-group-with-count": "Similar photo group with {{count}} photos",
+    "ui.photos-to-compare": "{{count}} photos to compare",
+    "ui.all-count": "All {{count}}",
+    "ui.suggested-remove-count": "Suggested remove {{count}}",
+    "ui.photos-processed": "{{count}} photo{{suffix}} processed.",
+    "ui.tokens-added-to-balance": "+{{count}} tokens added to your balance.",
     "ui.home-freed": "{{value}} frigjort",
     "ui.home-left-today": "{{value}} igjen i dag",
     "ui.home-photos-possible": "{{count}} bilder · ~{{value}} mulig",
@@ -932,6 +932,9 @@
     "ui.decide-later": "Bestem senere",
     "ui.quick-win": "Rask gevinst",
     "ui.yearly": "Årlig",
-    "ui.you're-all-set": "Du er klar"
+    "ui.you're-all-set": "Du er klar",
+    "ui.marked-for-deletion": "Merket for sletting",
+    "ui.undo": "Angre",
+    "ui.dismiss": "Lukk"
   }
 }

@@ -621,13 +621,13 @@
     "ui.you-can-keep-using-trimswipe-while-the-batch-run": "Możesz nadal używać TrimSwipe podczas wykonywania wsadu.",
     "ui.your-purchase-is-being-synced-with-apple": "Twój zakup jest synchronizowany z Apple.",
     "ui.your-schedule-is-saved-locally-cloud-reminders-w": "Twój harmonogram jest zapisany lokalnie. Przypomnienia w chmurze zostaną ponowione później.",
-    "ui.continue-in-seconds": "Kontynuuj za {{seconds}} sekund",
-    "ui.similar-photo-group-with-count": "Podobna grupa zdjęć zawierająca zdjęcia {{count}}.",
-    "ui.photos-to-compare": "{{count}} zdjęcia do porównania",
-    "ui.all-count": "Wszystkie {{count}}",
-    "ui.suggested-remove-count": "Sugerowane usunięcie {{count}}",
-    "ui.photos-processed": "{{count}} zdjęcie{{suffix}} przetworzone.",
-    "ui.tokens-added-to-balance": "+{{count}} tokeny dodane do Twojego salda.",
+    "ui.continue-in-seconds": "Continue in {{seconds}} seconds",
+    "ui.similar-photo-group-with-count": "Similar photo group with {{count}} photos",
+    "ui.photos-to-compare": "{{count}} photos to compare",
+    "ui.all-count": "All {{count}}",
+    "ui.suggested-remove-count": "Suggested remove {{count}}",
+    "ui.photos-processed": "{{count}} photo{{suffix}} processed.",
+    "ui.tokens-added-to-balance": "+{{count}} tokens added to your balance.",
     "ui.home-freed": "{{value}} uwolniony",
     "ui.home-left-today": "{{value}} wyszedł dzisiaj",
     "ui.home-photos-possible": "{{count}} zdjęcia · ~{{value}} możliwe",
@@ -932,6 +932,9 @@
     "ui.decide-later": "Zdecyduj później",
     "ui.quick-win": "Szybka oszczędność",
     "ui.yearly": "Co roku",
-    "ui.you're-all-set": "Wszystko gotowe"
+    "ui.you're-all-set": "Wszystko gotowe",
+    "ui.marked-for-deletion": "Oznaczono do usunięcia",
+    "ui.undo": "Cofnij",
+    "ui.dismiss": "Zamknij"
   }
 }

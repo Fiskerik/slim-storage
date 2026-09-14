@@ -621,13 +621,13 @@
     "ui.you-can-keep-using-trimswipe-while-the-batch-run": "Anda dapat terus menggunakan TrimSwipe saat batch berjalan.",
     "ui.your-purchase-is-being-synced-with-apple": "Pembelian Anda sedang disinkronkan dengan Apple.",
     "ui.your-schedule-is-saved-locally-cloud-reminders-w": "Jadwal Anda disimpan secara lokal. Pengingat cloud akan dicoba lagi nanti.",
-    "ui.continue-in-seconds": "Lanjutkan dalam {{seconds}} detik",
-    "ui.similar-photo-group-with-count": "Grup foto serupa dengan foto {{count}}.",
-    "ui.photos-to-compare": "{{count}} foto untuk dibandingkan",
-    "ui.all-count": "Semua {{count}}",
-    "ui.suggested-remove-count": "Disarankan hapus {{count}}",
-    "ui.photos-processed": "{{count}} foto{{suffix}} diproses.",
-    "ui.tokens-added-to-balance": "+{{count}} token ditambahkan ke saldo Anda.",
+    "ui.continue-in-seconds": "Continue in {{seconds}} seconds",
+    "ui.similar-photo-group-with-count": "Similar photo group with {{count}} photos",
+    "ui.photos-to-compare": "{{count}} photos to compare",
+    "ui.all-count": "All {{count}}",
+    "ui.suggested-remove-count": "Suggested remove {{count}}",
+    "ui.photos-processed": "{{count}} photo{{suffix}} processed.",
+    "ui.tokens-added-to-balance": "+{{count}} tokens added to your balance.",
     "ui.home-freed": "{{value}} dibebaskan",
     "ui.home-left-today": "{{value}} tersisa hari ini",
     "ui.home-photos-possible": "{{count}} foto · ~{{value}} mungkin",
@@ -932,6 +932,9 @@
     "ui.decide-later": "Putuskan nanti",
     "ui.quick-win": "Hemat cepat",
     "ui.yearly": "Tahunan",
-    "ui.you're-all-set": "Anda sudah siap"
+    "ui.you're-all-set": "Anda sudah siap",
+    "ui.marked-for-deletion": "Ditandai untuk dihapus",
+    "ui.undo": "Urungkan",
+    "ui.dismiss": "Tutup"
   }
 }

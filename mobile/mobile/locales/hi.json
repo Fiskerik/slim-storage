@@ -621,13 +621,13 @@
     "ui.you-can-keep-using-trimswipe-while-the-batch-run": "बैच चलने के दौरान आप TrimSwipe का उपयोग जारी रख सकते हैं।",
     "ui.your-purchase-is-being-synced-with-apple": "आपकी खरीदारी को Apple के साथ समन्वयित किया जा रहा है।",
     "ui.your-schedule-is-saved-locally-cloud-reminders-w": "आपका शेड्यूल स्थानीय रूप से सहेजा गया है। क्लाउड अनुस्मारक बाद में पुनः प्रयास करेंगे।",
-    "ui.continue-in-seconds": "{{seconds}} सेकंड में जारी रखें",
-    "ui.similar-photo-group-with-count": "{{count}} फ़ोटो के साथ समान फ़ोटो समूह",
-    "ui.photos-to-compare": "{{count}} तुलना करने के लिए तस्वीरें",
-    "ui.all-count": "सभी {{count}}",
-    "ui.suggested-remove-count": "हटाने का सुझाव दिया गया {{count}}",
-    "ui.photos-processed": "{{count}} फोटो{{suffix}} संसाधित।",
-    "ui.tokens-added-to-balance": "+{{count}} टोकन आपके बैलेंस में जोड़े गए।",
+    "ui.continue-in-seconds": "Continue in {{seconds}} seconds",
+    "ui.similar-photo-group-with-count": "Similar photo group with {{count}} photos",
+    "ui.photos-to-compare": "{{count}} photos to compare",
+    "ui.all-count": "All {{count}}",
+    "ui.suggested-remove-count": "Suggested remove {{count}}",
+    "ui.photos-processed": "{{count}} photo{{suffix}} processed.",
+    "ui.tokens-added-to-balance": "+{{count}} tokens added to your balance.",
     "ui.home-freed": "{{value}} मुक्त कर दिया गया",
     "ui.home-left-today": "{{value}} आज चले गए",
     "ui.home-photos-possible": "{{count}} तस्वीरें · ~{{value}} संभव",
@@ -932,6 +932,9 @@
     "ui.yearly": "वार्षिक",
     "ui.you're-all-set": "आप पूरी तरह तैयार हैं",
     "ui.delete-trim-savings": "{{deleted}} हटाएं और लगभग {{value}} सहेजे गए फ़ोटो को {{trimmed}} ट्रिम करें।",
-    "ui.delete-trim-count": "{{deleted}} हटाएं और {{total}} फ़ोटो में से {{trimmed}} ट्रिम करें।"
+    "ui.delete-trim-count": "{{deleted}} हटाएं और {{total}} फ़ोटो में से {{trimmed}} ट्रिम करें।",
+    "ui.marked-for-deletion": "हटाने के लिए चिह्नित",
+    "ui.undo": "पूर्ववत करें",
+    "ui.dismiss": "बंद करें"
   }
 }

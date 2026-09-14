@@ -621,13 +621,13 @@
     "ui.you-can-keep-using-trimswipe-while-the-batch-run": "Вы можете продолжать использовать [TS0]] во время выполнения пакета.",
     "ui.your-purchase-is-being-synced-with-apple": "Ваша покупка синхронизируется с Apple.",
     "ui.your-schedule-is-saved-locally-cloud-reminders-w": "Ваше расписание сохраняется локально. Облачные напоминания повторятся позже.",
-    "ui.continue-in-seconds": "Продолжение через {{seconds}} секунд.",
-    "ui.similar-photo-group-with-count": "Похожая группа фотографий с фотографиями {{count}}",
-    "ui.photos-to-compare": "{{count}} фото для сравнения",
-    "ui.all-count": "Все {{count}}",
-    "ui.suggested-remove-count": "Предлагается удалить {{count}}",
-    "ui.photos-processed": "Обработано {{count}} фото{{suffix}}.",
-    "ui.tokens-added-to-balance": "+{{count}}.",
+    "ui.continue-in-seconds": "Continue in {{seconds}} seconds",
+    "ui.similar-photo-group-with-count": "Similar photo group with {{count}} photos",
+    "ui.photos-to-compare": "{{count}} photos to compare",
+    "ui.all-count": "All {{count}}",
+    "ui.suggested-remove-count": "Suggested remove {{count}}",
+    "ui.photos-processed": "{{count}} photo{{suffix}} processed.",
+    "ui.tokens-added-to-balance": "+{{count}} tokens added to your balance.",
     "ui.home-freed": "{{value}} освобожден",
     "ui.home-left-today": "{{value}} вышел сегодня",
     "ui.home-photos-possible": "{{count}} фото · ~{{value}} возможно",
@@ -932,6 +932,9 @@
     "ui.decide-later": "Решить позже",
     "ui.quick-win": "Быстрая экономия",
     "ui.yearly": "Ежегодно",
-    "ui.you're-all-set": "Все готово"
+    "ui.you're-all-set": "Все готово",
+    "ui.marked-for-deletion": "Помечено для удаления",
+    "ui.undo": "Отменить",
+    "ui.dismiss": "Закрыть"
   }
 }

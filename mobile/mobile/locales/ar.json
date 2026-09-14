@@ -621,13 +621,13 @@
     "ui.you-can-keep-using-trimswipe-while-the-batch-run": "يمكنك الاستمرار في استخدام TrimSwipe أثناء تشغيل المجموعة.",
     "ui.your-purchase-is-being-synced-with-apple": "تتم مزامنة عملية الشراء الخاصة بك مع Apple.",
     "ui.your-schedule-is-saved-locally-cloud-reminders-w": "يتم حفظ جدولك محليًا. ستتم إعادة محاولة التذكيرات السحابية لاحقًا.",
-    "ui.continue-in-seconds": "تابع خلال {{seconds}} ثانية",
-    "ui.similar-photo-group-with-count": "مجموعة صور مشابهة تحتوي على صور {{count}}",
-    "ui.photos-to-compare": "{{count}} صور للمقارنة",
-    "ui.all-count": "الكل {{count}}",
-    "ui.suggested-remove-count": "اقتراح إزالة {{count}}",
-    "ui.photos-processed": "{{count}} الصورة{{suffix}}.",
-    "ui.tokens-added-to-balance": "تمت إضافة +{{count}} رمزًا إلى رصيدك.",
+    "ui.continue-in-seconds": "Continue in {{seconds}} seconds",
+    "ui.similar-photo-group-with-count": "Similar photo group with {{count}} photos",
+    "ui.photos-to-compare": "{{count}} photos to compare",
+    "ui.all-count": "All {{count}}",
+    "ui.suggested-remove-count": "Suggested remove {{count}}",
+    "ui.photos-processed": "{{count}} photo{{suffix}} processed.",
+    "ui.tokens-added-to-balance": "+{{count}} tokens added to your balance.",
     "ui.home-freed": "{{value}}",
     "ui.home-left-today": "{{value}} غادر اليوم",
     "ui.home-photos-possible": "{{count}} صور · ~{{value}} ممكن",
@@ -932,6 +932,9 @@
     "ui.decide-later": "قرر لاحقًا",
     "ui.quick-win": "مكسب سريع",
     "ui.yearly": "سنويًا",
-    "ui.you're-all-set": "أنت جاهز"
+    "ui.you're-all-set": "أنت جاهز",
+    "ui.marked-for-deletion": "تم وضع علامة للحذف",
+    "ui.undo": "تراجع",
+    "ui.dismiss": "إغلاق"
   }
 }

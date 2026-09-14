@@ -16,6 +16,7 @@ import { t } from "../lib/i18n";
 import type { QuickCleanupGroupChoice } from "../lib/quick-cleanup-group-policy";
 import type { QuickCleanupAction } from "../lib/quick-cleanup-plan";
 import type { QuickCleanupReviewGroup, QuickCleanupTrimOption } from "../lib/quick-cleanup-service";
+import { AnimatedActionChip } from "./motion/AnimatedActionChip";
 
 type Props = {
   group: QuickCleanupReviewGroup | null;
@@ -28,38 +29,6 @@ type Props = {
 
 function sourceUri(photo: QuickCleanupReviewGroup["photos"][number]): string {
   return photo.localUri ?? photo.uri;
-}
-
-function ChoiceButton({
-  action,
-  selected,
-  disabled = false,
-  onPress,
-}: {
-  action: QuickCleanupAction;
-  selected: boolean;
-  disabled?: boolean;
-  onPress: () => void;
-}) {
-  const tint = action === "delete" ? colors.danger : action === "trim" ? colors.primary : colors.sageDeep;
-  const icon = action === "delete" ? "trash-outline" : action === "trim" ? "cut-outline" : "checkmark-circle-outline";
-  const label = action === "delete" ? t("ui.delete-label") : action === "trim" ? t("ui.trim-label") : t("ui.keep-label");
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected, disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={[
-        styles.choiceButton,
-        selected && { borderColor: tint, backgroundColor: `${tint}14` },
-        disabled && styles.disabled,
-      ]}
-    >
-      <Ionicons name={icon} size={16} color={selected ? tint : colors.textMuted} />
-      <Text style={[styles.choiceButtonText, selected && { color: tint }]}>{label}</Text>
-    </Pressable>
-  );
 }
 
 export function QuickCleanupComparisonModal({
@@ -209,8 +178,8 @@ export function QuickCleanupComparisonModal({
             <Text style={styles.decisionTitle}>{t("ui.kept-photos")}</Text>
             <Text style={styles.decisionCount}>{t("ui.photos-count", { count: keptPhotos.length })}</Text>
             <View style={styles.choiceRow}>
-              <ChoiceButton action="keep" selected={keptAction === "keep"} onPress={() => setKeptAction("keep")} />
-              <ChoiceButton action="trim" selected={keptAction === "trim"} disabled={!canTrimKept} onPress={() => setKeptAction("trim")} />
+              <AnimatedActionChip action="keep" label={t("ui.keep-label")} selected={keptAction === "keep"} onPress={() => setKeptAction("keep")} />
+              <AnimatedActionChip action="trim" label={t("ui.trim-label")} selected={keptAction === "trim"} disabled={!canTrimKept} onPress={() => setKeptAction("trim")} />
             </View>
           </View>
 
@@ -218,9 +187,9 @@ export function QuickCleanupComparisonModal({
             <Text style={styles.decisionTitle}>{t("ui.unkept-photos")}</Text>
             <Text style={styles.decisionCount}>{t("ui.photos-count", { count: unkeptPhotos.length })}</Text>
             <View style={styles.choiceRow}>
-              <ChoiceButton action="keep" selected={unkeptAction === "keep"} onPress={() => setUnkeptAction("keep")} />
-              <ChoiceButton action="trim" selected={unkeptAction === "trim"} disabled={!canTrimUnkept} onPress={() => setUnkeptAction("trim")} />
-              <ChoiceButton action="delete" selected={unkeptAction === "delete"} disabled={!canDeleteUnkept} onPress={() => setUnkeptAction("delete")} />
+              <AnimatedActionChip action="keep" label={t("ui.keep-label")} selected={unkeptAction === "keep"} onPress={() => setUnkeptAction("keep")} />
+              <AnimatedActionChip action="trim" label={t("ui.trim-label")} selected={unkeptAction === "trim"} disabled={!canTrimUnkept} onPress={() => setUnkeptAction("trim")} />
+              <AnimatedActionChip action="delete" label={t("ui.delete-label")} selected={unkeptAction === "delete"} disabled={!canDeleteUnkept} onPress={() => setUnkeptAction("delete")} />
             </View>
           </View>
 
@@ -274,9 +243,6 @@ const styles = StyleSheet.create({
   decisionTitle: { ...type.subtitle, color: colors.text },
   decisionCount: { ...type.caption, color: colors.textMuted },
   choiceRow: { flexDirection: "row", gap: spacing.sm },
-  choiceButton: { flex: 1, minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderRadius: radius.sm, backgroundColor: colors.cardSoft, borderWidth: 1, borderColor: colors.border },
-  choiceButtonText: { color: colors.textMuted, fontSize: 11, fontWeight: "900" },
-  disabled: { opacity: 0.38 },
   disclaimer: { ...type.caption, color: colors.textMuted, lineHeight: 17 },
   footer: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.md, backgroundColor: colors.background, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   applyButton: { minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, borderRadius: radius.md, backgroundColor: colors.primary },

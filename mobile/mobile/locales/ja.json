@@ -621,13 +621,13 @@
     "ui.you-can-keep-using-trimswipe-while-the-batch-run": "バッチの実行中は TrimSwipe を使用し続けることができます。",
     "ui.your-purchase-is-being-synced-with-apple": "購入した商品は Apple と同期されています。",
     "ui.your-schedule-is-saved-locally-cloud-reminders-w": "スケジュールはローカルに保存されます。クラウドリマインダーは後で再試行します。",
-    "ui.continue-in-seconds": "{{seconds}} 秒後に続行します",
-    "ui.similar-photo-group-with-count": "{{count}} の写真を含む同様の写真グループ",
-    "ui.photos-to-compare": "{{count}} の写真を比較してください",
-    "ui.all-count": "すべて {{count}}",
-    "ui.suggested-remove-count": "{{count}} の削除を提案しました",
-    "ui.photos-processed": "{{count}} 写真 {{suffix}} が処理されました。",
-    "ui.tokens-added-to-balance": "+{{count}} トークンが残高に追加されました。",
+    "ui.continue-in-seconds": "Continue in {{seconds}} seconds",
+    "ui.similar-photo-group-with-count": "Similar photo group with {{count}} photos",
+    "ui.photos-to-compare": "{{count}} photos to compare",
+    "ui.all-count": "All {{count}}",
+    "ui.suggested-remove-count": "Suggested remove {{count}}",
+    "ui.photos-processed": "{{count}} photo{{suffix}} processed.",
+    "ui.tokens-added-to-balance": "+{{count}} tokens added to your balance.",
     "ui.home-freed": "{{value}} が解放されました",
     "ui.home-left-today": "{{value}} は今日出発しました",
     "ui.home-photos-possible": "{{count}} 写真 · ~{{value}} 可能",
@@ -932,6 +932,9 @@
     "ui.yearly": "毎年",
     "ui.you're-all-set": "準備は完了です",
     "ui.delete-trim-savings": "{{deleted}} を削除し、{{value}} 個ほどの写真 {{trimmed}} をトリミングして保存します。",
-    "ui.delete-trim-count": "{{deleted}} を削除し、{{total}} 枚の写真 {{trimmed}} をトリミングします。"
+    "ui.delete-trim-count": "{{deleted}} を削除し、{{total}} 枚の写真 {{trimmed}} をトリミングします。",
+    "ui.marked-for-deletion": "削除対象にマークしました",
+    "ui.undo": "元に戻す",
+    "ui.dismiss": "閉じる"
   }
 }
