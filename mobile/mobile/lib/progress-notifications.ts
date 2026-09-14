@@ -1,5 +1,4 @@
 import * as BackgroundTask from "expo-background-task";
-import * as Notifications from "expo-notifications";
 import * as TaskManager from "expo-task-manager";
 
 const CLEANUP_TASK = "trimswipe-cleanup-maintenance";
@@ -7,37 +6,6 @@ const CLEANUP_TASK = "trimswipe-cleanup-maintenance";
 TaskManager.defineTask(CLEANUP_TASK, () =>
   Promise.resolve(BackgroundTask.BackgroundTaskResult.Success),
 );
-
-let notificationsReady = false;
-
-export async function ensureCleanupNotifications(requestIfNeeded = true): Promise<boolean> {
-  if (notificationsReady) return true;
-  try {
-    const current = await Notifications.getPermissionsAsync();
-    if (current.granted) {
-      notificationsReady = true;
-      return true;
-    }
-    if (!requestIfNeeded) return false;
-    notificationsReady = (await Notifications.requestPermissionsAsync()).granted;
-    return notificationsReady;
-  } catch (error) {
-    console.log("[TrimSwipe] Notification permission unavailable", { error });
-    return false;
-  }
-}
-
-export async function notifyCleanupProgress(
-  title: string,
-  body: string,
-  options: { data?: Record<string, string>; requestPermission?: boolean } = {},
-): Promise<void> {
-  if (!(await ensureCleanupNotifications(options.requestPermission !== false))) return;
-  await Notifications.scheduleNotificationAsync({
-    content: { title, body, sound: false, data: options.data },
-    trigger: null,
-  }).catch((error) => console.log("[TrimSwipe] Progress notification failed", { error }));
-}
 
 export async function registerCleanupBackgroundTask(): Promise<void> {
   try {

@@ -1,7 +1,7 @@
-import { useEffect } from "react";
-import { Pressable, StyleSheet, Text } from "react-native";
+import { memo, useEffect, useRef } from "react";
+import { Animated, Easing, Pressable, StyleSheet, Text } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import Animated, { Easing, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
+import { useReducedMotion } from "react-native-reanimated";
 
 import { colors, radius } from "../../constants/design";
 
@@ -28,16 +28,23 @@ const iconFor: Record<ActionChipValue, keyof typeof Ionicons.glyphMap> = {
   delete: "trash-outline",
 };
 
-export function AnimatedActionChip({ action, label, accessibilityLabel, onPress, disabled, selected = true }: Props) {
+export const AnimatedActionChip = memo(function AnimatedActionChip({ action, label, accessibilityLabel, onPress, disabled, selected = true }: Props) {
   const reducedMotion = useReducedMotion();
-  const progress = useSharedValue(0);
+  const progress = useRef(new Animated.Value(1)).current;
+  const previous = useRef({ action, selected });
   useEffect(() => {
-    progress.value = withTiming(1, { duration: reducedMotion ? 120 : 180, easing: Easing.out(Easing.cubic), reduceMotion: ReduceMotion.Never });
-  }, [action, progress, reducedMotion]);
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: 0.82 + progress.value * 0.18,
-    transform: [{ scale: 0.97 + progress.value * 0.03 }],
-  }));
+    // Do not start animations as virtualized rows mount during a scroll.
+    if (previous.current.action === action && previous.current.selected === selected) return;
+    previous.current = { action, selected };
+    progress.setValue(0);
+    const animation = Animated.timing(progress, { toValue: 1, duration: reducedMotion ? 120 : 180, easing: Easing.out(Easing.cubic), useNativeDriver: true, isInteraction: false });
+    animation.start();
+    return () => animation.stop();
+  }, [action, selected, progress, reducedMotion]);
+  const animatedStyle = {
+    opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.82, 1] }),
+    transform: reducedMotion ? [] : [{ scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.97, 1] }) }],
+  };
   const tint = tintFor[action];
   const displayTint = selected ? tint : colors.textMuted;
   return (
@@ -55,7 +62,7 @@ export function AnimatedActionChip({ action, label, accessibilityLabel, onPress,
       </Pressable>
     </Animated.View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   chip: { minHeight: 44, minWidth: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 10, borderRadius: radius.sm, borderWidth: 1 },

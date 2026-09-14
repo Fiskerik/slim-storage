@@ -5,6 +5,7 @@ import { httpsCallable } from "firebase/functions";
 
 import type { NativeBackgroundScanSchedule, NativeEngagementSnapshot, SmartReminderPreferences } from "./native-store";
 import { getFirebaseSession, isFirebaseConfigured } from "./firebase-client";
+import "./notification-presentation";
 
 type ReminderSyncResult = {
   configured: boolean;
@@ -22,15 +23,6 @@ export type ReminderSyncPayload = {
   lastCleanupAt?: string | null;
   lastActiveAt?: string | null;
 };
-
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
 
 function timeZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";

@@ -17,9 +17,9 @@ describe("swipe action policy", () => {
     expect(actionCode("keep")).toBe(1);
     expect(actionCode("trim")).toBe(2);
     expect(actionCode("delete")).toBe(3);
-    expect(exitDuration("delete", false)).toBe(480);
-    expect(exitDuration("trim", false)).toBe(280);
-    expect(exitDuration("keep", false)).toBe(220);
+    expect(exitDuration("delete", false)).toBe(260);
+    expect(exitDuration("trim", false)).toBe(220);
+    expect(exitDuration("keep", false)).toBe(180);
     expect(exitDuration("delete", true)).toBe(140);
   });
 });

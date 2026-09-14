@@ -1,5 +1,6 @@
 module.exports = {
   preset: "jest-expo",
+  setupFiles: ["react-native-gesture-handler/jestSetup.js"],
   setupFilesAfterEnv: ["<rootDir>/jest.setup.js"],
   moduleNameMapper: {
     "^react-native-reanimated$": "<rootDir>/node_modules/react-native-reanimated/lib/module/mock.js",

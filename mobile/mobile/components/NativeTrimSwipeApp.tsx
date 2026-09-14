@@ -35,6 +35,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { captureRef } from "react-native-view-shot";
+import { useReducedMotion } from "react-native-reanimated";
 import {
   cleanupPreparedTrims,
   commitTrims,
@@ -123,11 +124,7 @@ import {
 } from "../lib/ads";
 import { colors, radius, spacing, type } from "../constants/design";
 import { getNativeTheme, NATIVE_THEME_OPTIONS, type NativeThemePalette } from "../constants/themes";
-import {
-  ensureCleanupNotifications,
-  notifyCleanupProgress,
-  registerCleanupBackgroundTask,
-} from "../lib/progress-notifications";
+import { registerCleanupBackgroundTask } from "../lib/progress-notifications";
 import {
   subscribeToReminderResponses,
   syncRemoteCleanupReminders,
@@ -144,6 +141,7 @@ import { ActionSnackbar } from "./motion/ActionSnackbar";
 import { ApplyStatusButton, type ApplyStatus } from "./motion/ApplyStatusButton";
 import { CleanupSkeleton } from "./motion/CleanupSkeleton";
 import { SwipeablePhotoCard, type SwipeActionCommand } from "./motion/SwipeablePhotoCard";
+import { AnimatedImpactBar } from "./motion/AnimatedImpactBar";
 import type { CleanupOutcome } from "./motion/cleanupTypes";
 import { subtractPendingDeleteEstimate, undoPendingDelete } from "./motion/deleteUndo";
 
@@ -855,7 +853,6 @@ export function NativeTrimSwipeApp() {
   const [stats, setStats] = useState<NativeStats>(DEFAULT_NATIVE_STATS);
   const [reviewLedger, setReviewLedger] = useState<NativePhotoReviewLedger | null>(null);
   const [queue, setQueue] = useState<NativePhoto[]>([]);
-  const [swipeCommand, setSwipeCommand] = useState<SwipeActionCommand | null>(null);
   const [loading, setLoading] = useState(true);
   const [statsLoaded, setStatsLoaded] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState(false);
@@ -905,7 +902,6 @@ export function NativeTrimSwipeApp() {
   const cleanupCompletionsRef = useRef(0);
   const shareShotRef = useRef<View>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const swipeCommandIdRef = useRef(0);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const undoDeleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [undoDelete, setUndoDelete] = useState<UndoDelete | null>(null);
@@ -970,6 +966,7 @@ export function NativeTrimSwipeApp() {
   }
 
   function undoLastDelete() {
+    if (applyingActionsRef.current) return;
     const item = undoDelete;
     if (!item || item.expiresAt <= Date.now()) {
       clearUndoDelete();
@@ -995,12 +992,6 @@ export function NativeTrimSwipeApp() {
     setQueue((current) => current.some((candidate) => candidate.id === photo.id) ? current : [photo, ...current]);
     clearUndoDelete();
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }
-
-  function requestSwipeAction(action: Action) {
-    if (!top || swipeCommand) return;
-    swipeCommandIdRef.current += 1;
-    setSwipeCommand({ id: swipeCommandIdRef.current, action, photoId: top.id });
   }
 
   function requestConfirmation({
@@ -1162,8 +1153,7 @@ export function NativeTrimSwipeApp() {
 
   useEffect(() => {
     if (!statsLoaded || stats.freeSpacePlan.status !== "scanning" || freeSpaceScanBusyRef.current) return;
-    const notificationPermission = ensureCleanupNotifications(true);
-    void runFreeSpacePlanScan(stats.freeSpacePlan.startedAt ?? new Date().toISOString(), notificationPermission);
+    void runFreeSpacePlanScan(stats.freeSpacePlan.startedAt ?? new Date().toISOString());
     // Resume an interrupted user-requested scan when the app next becomes
     // active. The runner has its own single-flight guard.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1176,7 +1166,7 @@ export function NativeTrimSwipeApp() {
       return;
     }
     startupQuickCleanupAttemptedRef.current = true;
-    void startFreeSpacePlanScan({ announce: false, requestNotificationPermission: false });
+    void startFreeSpacePlanScan({ announce: false });
     // The startup preparation is deliberately single-shot. The scan runner
     // owns permission handling and single-flight protection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1362,7 +1352,7 @@ export function NativeTrimSwipeApp() {
     await startFreeSpacePlanScan();
   }
 
-  async function runFreeSpacePlanScan(startedAt: string, notificationPermission?: Promise<boolean>) {
+  async function runFreeSpacePlanScan(startedAt: string) {
     if (freeSpaceScanBusyRef.current) return;
     freeSpaceScanBusyRef.current = true;
     setQuickCleanupBusy(true);
@@ -1393,7 +1383,7 @@ export function NativeTrimSwipeApp() {
         reviewLedger,
         onProgress: setQuickCleanupProgress,
       });
-      const cached = await saveQuickCleanupReviewCache(library);
+      await saveQuickCleanupReviewCache(library);
       setQuickCleanupLibrary(library);
       const selected = library.plan.selectedItems;
       const estimatedTrimSavingsMB = selected
@@ -1417,14 +1407,6 @@ export function NativeTrimSwipeApp() {
         },
       }));
       showToast(t("ui.trimswipe-scan-ready"), t("ui.scan-found-to-review", { value: formatMB(library.plan.estimatedSavingsMB) }), "success");
-      const canNotify = cached && await (notificationPermission ?? ensureCleanupNotifications(false));
-      if (canNotify) {
-        await notifyCleanupProgress(
-          t("ui.trimswipe-scan-ready"),
-          t("ui.scan-found-to-review", { value: formatMB(library.plan.estimatedSavingsMB) }),
-          { data: { type: "quick-cleanup-ready", screen: "quick-cleanup" }, requestPermission: false },
-        );
-      }
     } catch (error) {
       const message = error instanceof Error ? error.message : t("ui.could-not-scan-the-photo-library");
       setQuickCleanupError("error");
@@ -1446,10 +1428,10 @@ export function NativeTrimSwipeApp() {
   }
 
   async function startFreeSpacePlanScan(
-    options: { announce?: boolean; requestNotificationPermission?: boolean } = {},
+    options: { announce?: boolean } = {},
   ) {
     if (freeSpaceScanBusyRef.current || stats.freeSpacePlan.status === "scanning") return;
-    const { announce = true, requestNotificationPermission = true } = options;
+    const { announce = true } = options;
     const startedAt = new Date().toISOString();
     await clearQuickCleanupReviewCache();
     setQuickCleanupLibrary(null);
@@ -1465,10 +1447,7 @@ export function NativeTrimSwipeApp() {
     if (announce) {
       showToast(t("ui.trimswipe-scan-started"), t("ui.you-can-keep-using-trimswipe-while-the-batch-run"), "info");
     }
-    // Resolve notification access and scan concurrently. Even a tiny library
-    // cannot race past the permission result and silently lose its ready alert.
-    const notificationPermission = ensureCleanupNotifications(requestNotificationPermission);
-    void runFreeSpacePlanScan(startedAt, notificationPermission);
+    void runFreeSpacePlanScan(startedAt);
   }
 
   function toggleQuickProtection(photo: NativePhoto, protectedState: boolean) {
@@ -1682,7 +1661,7 @@ export function NativeTrimSwipeApp() {
       }
       setPermissionDenied(false);
       setPermissionLimited(permission.limited);
-      await notifyCleanupProgress(t("ui.trimswipe-scan-started"), t("ui.looking-for-easy-storage-wins"));
+      showToast(t("ui.trimswipe-scan-started"), t("ui.looking-for-easy-storage-wins"));
       const result = await scanPhotoLibrary(setScanProgress);
       setLibraryScan(result);
       commitStats((current) => ({
@@ -1703,9 +1682,10 @@ export function NativeTrimSwipeApp() {
       }));
       setScanProgress(null);
       setScanComplete(true);
-      await notifyCleanupProgress(
+      showToast(
         t("ui.trimswipe-scan-ready"),
         t("ui.scan-found-to-review", { value: formatMB(result.trimSavingsMB + result.deleteSavingsMB) }),
+        "success",
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : t("ui.could-not-scan-the-photo-library");
@@ -1721,6 +1701,7 @@ export function NativeTrimSwipeApp() {
     options: { showFallbackToast?: boolean } = {},
   ) {
     const activeSettings = roundSettings(settingsOverride);
+    clearUndoDelete();
     discardAllPreparedTrims();
     // FIX 1: Guard against NaN cardsPerRound before calling MediaLibrary
     const safeCount = Math.max(1, Math.round(activeSettings.cardsPerRound) || 10);
@@ -1839,7 +1820,8 @@ export function NativeTrimSwipeApp() {
     });
   }
 
-  function handleAction(photo: NativePhoto, action: Action) {
+  function handleAction(photo: NativePhoto, action: Action): boolean {
+    if (photo.id !== top?.id || loading || applyingActionsRef.current) return false;
     const session = sessionRef.current;
     if (action === "keep") {
       session.kept += 1;
@@ -1854,7 +1836,7 @@ export function NativeTrimSwipeApp() {
         ),
       );
       advance();
-      return;
+      return true;
     }
     if (action === "delete") {
       session.deleted += 1;
@@ -1865,11 +1847,11 @@ export function NativeTrimSwipeApp() {
       offerDeleteUndo(photo);
       // Stats commit happens in confirmActions so users can deselect items.
       advance();
-      return;
+      return true;
     }
     if (!hasUnlimitedTrims && tokenBalance - pendingTrimsRef.current.length <= 0) {
       showToast(t("ui.not-enough-tokens"), t("ui.claim-daily-tokens-watch-an-ad-or-visit-the-shop"), "warning");
-      return;
+      return false;
     }
     if (!canAttemptTrim(photo, settings)) {
       showToast(
@@ -1877,7 +1859,7 @@ export function NativeTrimSwipeApp() {
         t("ui.trim-disabled-keep-delete", { reason: trimDisabledReason(photo, settings, "detail") }),
         "warning",
       );
-      return;
+      return false;
     }
     const estimated = estimateTrimSavingsForSettings(photo, settings);
     session.trimmed += 1;
@@ -1889,6 +1871,7 @@ export function NativeTrimSwipeApp() {
     setPendingTrims(pendingTrimsRef.current);
     void queueTrimPreparation(photo);
     advance();
+    return true;
   }
 
   async function confirmActions(deletes: NativePhoto[], trims: NativePhoto[]): Promise<CleanupOutcome> {
@@ -1905,6 +1888,7 @@ export function NativeTrimSwipeApp() {
       };
     }
     applyingActionsRef.current = true;
+    let activeTrimCount = 0;
     try {
     const requestedTrimIds = new Set(trims.map((p) => p.id));
     const requestedDeleteIds = new Set(deletes.map((p) => p.id));
@@ -1914,14 +1898,12 @@ export function NativeTrimSwipeApp() {
     }
 
     if (chargeableTrims.length > 0) {
+      activeTrimCount = chargeableTrims.length;
       setBackgroundTrimResult(null);
       setTrimmingCount((count) => count + chargeableTrims.length);
     }
     const totalActions = deletes.length + chargeableTrims.length;
     const firstSuccessfulCleanup = stats.reviewed === 0 && totalActions > 0;
-    if (totalActions >= 5) {
-      await notifyCleanupProgress(t("ui.cleanup-started"), t("ui.applying"));
-    }
     const preparedTrims = await Promise.all(
       chargeableTrims.map((photo) => queueTrimPreparation(photo)),
     );
@@ -1943,6 +1925,7 @@ export function NativeTrimSwipeApp() {
     );
     if (chargeableTrims.length > 0) {
       setTrimmingCount((count) => Math.max(0, count - chargeableTrims.length));
+      activeTrimCount = 0;
     }
     const trimmedResults = batch.trimResults;
     recordAppliedTrimResults(chargeableTrims, trimmedResults);
@@ -2027,9 +2010,6 @@ export function NativeTrimSwipeApp() {
     setPendingDeletes(pendingDeletesRef.current);
     setPendingTrims(pendingTrimsRef.current);
     setRecap({ ...sessionRef.current, outcome });
-    if (totalActions >= 5) {
-      await notifyCleanupProgress(t("ui.cleanup-complete"), t("ui.saved-about", { value: formatMB(sessionRef.current.freed) }));
-    }
     if (firstSuccessfulCleanup && !settings.smartReminders.enabled) {
       Alert.alert(
         t("ui.keep-your-cleanup-momentum"),
@@ -2056,6 +2036,10 @@ export function NativeTrimSwipeApp() {
     }
     return outcome;
     } finally {
+      if (activeTrimCount > 0) {
+        const unfinishedCount = activeTrimCount;
+        setTrimmingCount((count) => Math.max(0, count - unfinishedCount));
+      }
       applyingActionsRef.current = false;
     }
   }
@@ -2530,7 +2514,6 @@ export function NativeTrimSwipeApp() {
         return;
       }
       setPermissionDenied(false);
-      await notifyCleanupProgress(t("ui.trimswipe-check-started"), t("ui.looking-for-easy-storage-wins"));
       const plan = await buildBackgroundCleanupPlan(schedule);
       const hasSuggestion = cleanupPlanActionCount(plan) > 0;
       markBackgroundScheduleRun(schedule.id, hasSuggestion);
@@ -2543,10 +2526,6 @@ export function NativeTrimSwipeApp() {
 
       setCleanupPlan(plan);
       setScreen("cleanup-plan");
-      await notifyCleanupProgress(
-        t("ui.cleanup-suggestions-ready"),
-        t("ui.saved-about", { value: formatMB(cleanupPlanSavings(plan)) }),
-      );
       showToast(
         source === "scheduled" ? t("ui.scheduled-scan-complete") : t("ui.scan-complete"),
         t("ui.review-photos"),
@@ -2616,7 +2595,7 @@ export function NativeTrimSwipeApp() {
     setBulkBusy(true);
     setTrimmingCount((count) => count + candidates.length);
     if (candidates.length >= 5) {
-      await notifyCleanupProgress(t("ui.trim-batch-started"), t("ui.applying"));
+      showToast(t("ui.trim-batch-started"), t("ui.applying"));
     }
     const results = await commitTrims(
       candidates,
@@ -2659,8 +2638,8 @@ export function NativeTrimSwipeApp() {
     });
     setTrimmingCount((count) => Math.max(0, count - candidates.length));
     setBulkBusy(false);
-    if (candidates.length >= 5) {
-      await notifyCleanupProgress(t("ui.trim-batch-complete"), t("ui.optimized-photos", { count: trimmed.length }));
+    if (candidates.length >= 5 && trimmed.length === candidates.length) {
+      showToast(t("ui.trim-batch-complete"), t("ui.optimized-photos", { count: trimmed.length }), "success");
     }
     maybeShowInterstitialAfterCleanup(trimmed.length);
     if (trimmed.length !== candidates.length) {
@@ -3028,9 +3007,6 @@ export function NativeTrimSwipeApp() {
             trimsRemaining={trimCurrencyAvailable}
             trimLimit={trimCurrencyAvailable}
             onAction={handleAction}
-            actionCommand={swipeCommand}
-            onRequestAction={requestSwipeAction}
-            onActionCommandComplete={() => setSwipeCommand(null)}
             onReload={() => loadRound(settings, { showFallbackToast: true })}
             onOpenSettings={() => Linking.openSettings()}
             isPro={isPro}
@@ -3634,14 +3610,14 @@ function SwipeScreen({
   largeControls, tokens,
   trimsRemaining, trimLimit, onAction, onReload, onOpenSettings,
   isPro, hasUnlimitedTrims, adEligibilityReady, onChangeSettings, onConfirmActions, onCancelPending, onOpenShop,
-  onShare, actionCommand, onRequestAction, onActionCommandComplete,
+  onShare,
 }: {
   top?: NativePhoto; next?: NativePhoto; queueCount: number; loading: boolean;
   error: string | null; permissionDenied: boolean; permissionLimited: boolean;
   settings: NativeSettings; recap: SessionRecap | null; pendingDeletes: NativePhoto[];
   pendingTrims: NativePhoto[];
   trimmingCount: number; timeLeft: number; largeControls: boolean; tokens: number; trimsRemaining: number;
-  trimLimit: number; onAction: (photo: NativePhoto, action: Action) => void;
+  trimLimit: number; onAction: (photo: NativePhoto, action: Action) => boolean;
   onReload: () => void; onOpenSettings: () => void;
   isPro: boolean; hasUnlimitedTrims: boolean; adEligibilityReady: boolean;
   onChangeSettings: (patch: Partial<NativeSettings>) => void;
@@ -3649,11 +3625,17 @@ function SwipeScreen({
   onCancelPending: () => void;
   onOpenShop: () => void;
   onShare: () => void;
-  actionCommand: SwipeActionCommand | null;
-  onRequestAction: (action: Action) => void;
-  onActionCommandComplete: () => void;
 }) {
   const [fullPhoto, setFullPhoto] = useState<NativePhoto | null>(null);
+  // Button commands only re-render the swipe screen, not the entire app shell.
+  const [actionCommand, setActionCommand] = useState<SwipeActionCommand | null>(null);
+  const commandIdRef = useRef(0);
+  const availableTrims = hasUnlimitedTrims ? Infinity : Math.max(0, trimsRemaining - pendingTrims.length);
+  useEffect(() => { setActionCommand(null); }, [top?.id, loading]);
+  function onRequestAction(action: Action) {
+    if (!top || actionCommand) return;
+    setActionCommand({ id: ++commandIdRef.current, action, photoId: top.id });
+  }
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const compactLayout = windowHeight <= 700 || windowWidth <= 350;
   const actionButtonSize = compactLayout ? "compact" : "swipe";
@@ -3721,35 +3703,33 @@ function SwipeScreen({
         {top ? (
           <SwipeablePhotoCard
             photo={top}
-            settings={settings}
+            canTrim={availableTrims > 0 && canAttemptTrim(top, settings)}
             command={actionCommand}
-            onAction={(action) => {
-              onAction(top, action);
-              onActionCommandComplete();
-            }}
+            onAction={(action) => onAction(top, action)}
+            onCommandComplete={() => setActionCommand(null)}
             onOpenFull={() => setFullPhoto(top)}
             renderCard={(photo, onOpenFull) => <PhotoCard photo={photo} settings={settings} onOpenFull={onOpenFull} />}
           />
         ) : null}
       </View>
       <View style={[styles.actions, styles.swipeActions, compactLayout && styles.swipeActionsCompact]}>
-        <ActionButton label={t("ui.keep")} tone="keep" size={actionButtonSize} large={largeControls} disabled={actionCommand !== null} onPress={() => onRequestAction("keep")} />
+        <ActionButton label={t("ui.keep")} tone="keep" size={actionButtonSize} large={largeControls} disabled={!top || actionCommand !== null} onPress={() => onRequestAction("keep")} />
         <ActionButton
-          label={!top ? t("ui.trim-label") : !canAttemptTrim(top, settings) ? trimDisabledReason(top, settings) : trimsRemaining <= 0 ? t("ui.limit-hit") : t("ui.trim-label")}
+          label={!top ? t("ui.trim-label") : !canAttemptTrim(top, settings) ? trimDisabledReason(top, settings) : availableTrims <= 0 ? t("ui.limit-hit") : t("ui.trim-label")}
           tone="trim"
           size={actionButtonSize}
           large={largeControls}
           disabled={!top || !canAttemptTrim(top, settings) || actionCommand !== null}
           onPress={() => {
             if (!top) return;
-            if (trimsRemaining <= 0) {
+            if (availableTrims <= 0) {
               onOpenShop();
               return;
             }
             onRequestAction("trim");
           }}
         />
-      <ActionButton label={t("ui.delete")} tone="delete" size={actionButtonSize} large={largeControls} disabled={actionCommand !== null} onPress={() => onRequestAction("delete")} />
+      <ActionButton label={t("ui.delete")} tone="delete" size={actionButtonSize} large={largeControls} disabled={!top || actionCommand !== null} onPress={() => onRequestAction("delete")} />
       </View>
       <FullPhotoModal photo={fullPhoto} onClose={() => setFullPhoto(null)} />
     </View>
@@ -4060,6 +4040,7 @@ function Recap({
   onShare: () => void;
 }) {
   const [nextBusy, setNextBusy] = useState(false);
+  const reducedMotion = useReducedMotion();
   const appear = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
   const total = recap.kept + recap.trimmed + recap.deleted;
@@ -4076,15 +4057,15 @@ function Recap({
 
   useEffect(() => {
     appear.setValue(0);
-    pulse.setValue(0);
-    Animated.parallel([
+    pulse.setValue(reducedMotion ? 1 : 0);
+    const animation = Animated.parallel([
       Animated.timing(appear, {
         toValue: 1,
-        duration: 520,
+        duration: reducedMotion ? 140 : 360,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
-      Animated.sequence([
+      ...(reducedMotion ? [] : [Animated.sequence([
         Animated.delay(140),
         Animated.spring(pulse, {
           toValue: 1,
@@ -4092,9 +4073,11 @@ function Recap({
           tension: 90,
           useNativeDriver: true,
         }),
-      ]),
-    ]).start();
-  }, [appear, pulse]);
+      ])]),
+    ]);
+    animation.start();
+    return () => animation.stop();
+  }, [appear, pulse, reducedMotion]);
 
   async function handleNext() {
     if (nextBusy) return;
@@ -4108,8 +4091,8 @@ function Recap({
   }
 
   const badgeScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.82, 1] });
-  const contentTranslate = appear.interpolate({ inputRange: [0, 1], outputRange: [18, 0] });
-  const cardScale = appear.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] });
+  const contentTranslate = appear.interpolate({ inputRange: [0, 1], outputRange: [reducedMotion ? 0 : 18, 0] });
+  const cardScale = appear.interpolate({ inputRange: [0, 1], outputRange: [reducedMotion ? 1 : 0.96, 1] });
 
   return (
     <ScrollView contentContainerStyle={styles.recapContent} showsVerticalScrollIndicator={false}>
@@ -4120,7 +4103,7 @@ function Recap({
         ]}
       >
         <Animated.View style={[styles.recapBadgeWrap, { transform: [{ scale: badgeScale }] }]}>
-          <CelebrationBurst visible />
+          <CelebrationBurst visible={!reducedMotion && cleanupStatus === "success"} />
           <View style={[styles.recapBadge, cleanupStatus === "partial" && styles.recapBadgeWarning, cleanupStatus === "failed" && styles.recapBadgeFailed]}>
             <Ionicons name={cleanupIcon} size={40} color="#ffffff" />
           </View>
@@ -4337,17 +4320,6 @@ function ImpactBreakdown({ trimMB, deleteMB }: { trimMB: number; deleteMB: numbe
 }
 
 function ImpactRow({ label, value, progress, tone }: { label: string; value: string; progress: number; tone: "trim" | "delete" }) {
-  const animatedProgress = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    animatedProgress.setValue(0);
-    Animated.timing(animatedProgress, {
-      toValue: progress,
-      duration: 520,
-      delay: 120,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-  }, [animatedProgress, progress]);
   return (
     <View style={styles.impactRow}>
       <View style={styles.impactLabelRow}>
@@ -4355,7 +4327,7 @@ function ImpactRow({ label, value, progress, tone }: { label: string; value: str
         <Text style={styles.impactAmount}>{value}</Text>
       </View>
       <View style={styles.progressTrack}>
-        <Animated.View style={[styles.progressFill, tone === "trim" ? styles.progressTrim : styles.progressDelete, { width: animatedProgress.interpolate({ inputRange: [0, 1], outputRange: ["0%", "100%"] }) }]} />
+        <AnimatedImpactBar progress={progress} style={[styles.progressFill, tone === "trim" ? styles.progressTrim : styles.progressDelete]} />
       </View>
     </View>
   );

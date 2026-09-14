@@ -3,6 +3,7 @@ export type SwipeAction = "keep" | "trim" | "delete";
 export const SWIPE_THRESHOLD = 110;
 
 export function resolveSwipeAction(translationX: number, translationY: number): SwipeAction | null {
+  "worklet";
   if (translationY < -SWIPE_THRESHOLD && Math.abs(translationY) > Math.abs(translationX)) return "trim";
   if (translationX > SWIPE_THRESHOLD) return "delete";
   if (translationX < -SWIPE_THRESHOLD) return "keep";
@@ -10,14 +11,16 @@ export function resolveSwipeAction(translationX: number, translationY: number): 
 }
 
 export function actionCode(action: SwipeAction): number {
+  "worklet";
   if (action === "keep") return 1;
   if (action === "trim") return 2;
   return 3;
 }
 
 export function exitDuration(action: SwipeAction, reducedMotion: boolean): number {
+  "worklet";
   if (reducedMotion) return 140;
-  if (action === "delete") return 480;
-  if (action === "trim") return 280;
-  return 220;
+  if (action === "delete") return 260;
+  if (action === "trim") return 220;
+  return 180;
 }
